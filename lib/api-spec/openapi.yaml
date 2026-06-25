@@ -3,13 +3,26 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Corporate Logistics Management System API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: vehicles
+    description: Vehicle fleet management
+  - name: personnel
+    description: Driver and assistant management
+  - name: sales
+    description: Sales orders management
+  - name: dispatches
+    description: Dispatch and pre-dispatch management
+  - name: tolls
+    description: Toll routes management
+  - name: dashboard
+    description: Dashboard and summary data
+
 paths:
   /healthz:
     get:
@@ -24,6 +37,698 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # --- VEHICLES ---
+  /vehicles:
+    get:
+      operationId: listVehicles
+      tags: [vehicles]
+      summary: List all vehicles
+      responses:
+        "200":
+          description: List of vehicles
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Vehicle"
+    post:
+      operationId: createVehicle
+      tags: [vehicles]
+      summary: Create a vehicle
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+
+  /vehicles/{id}:
+    get:
+      operationId: getVehicle
+      tags: [vehicles]
+      summary: Get a vehicle by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Vehicle
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateVehicle
+      tags: [vehicles]
+      summary: Update a vehicle
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VehicleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Vehicle"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteVehicle
+      tags: [vehicles]
+      summary: Delete a vehicle
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # --- PERSONNEL ---
+  /personnel:
+    get:
+      operationId: listPersonnel
+      tags: [personnel]
+      summary: List all personnel
+      responses:
+        "200":
+          description: List of personnel
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Personnel"
+    post:
+      operationId: createPersonnel
+      tags: [personnel]
+      summary: Create a personnel record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonnelInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Personnel"
+
+  /personnel/{id}:
+    get:
+      operationId: getPersonnel
+      tags: [personnel]
+      summary: Get personnel by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Personnel record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Personnel"
+        "404":
+          description: Not found
+    patch:
+      operationId: updatePersonnel
+      tags: [personnel]
+      summary: Update personnel
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonnelUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Personnel"
+        "404":
+          description: Not found
+    delete:
+      operationId: deletePersonnel
+      tags: [personnel]
+      summary: Delete personnel
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # --- SALES ---
+  /sales:
+    get:
+      operationId: listSales
+      tags: [sales]
+      summary: List all sales
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of sales
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Sale"
+    post:
+      operationId: createSale
+      tags: [sales]
+      summary: Create a sale
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaleInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+
+  /sales/{id}:
+    get:
+      operationId: getSale
+      tags: [sales]
+      summary: Get a sale by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Sale
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateSale
+      tags: [sales]
+      summary: Update a sale
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaleUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Sale"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteSale
+      tags: [sales]
+      summary: Delete a sale
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # --- DISPATCHES ---
+  /dispatches:
+    get:
+      operationId: listDispatches
+      tags: [dispatches]
+      summary: List all dispatches
+      parameters:
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of dispatches
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Dispatch"
+    post:
+      operationId: createDispatch
+      tags: [dispatches]
+      summary: Create a dispatch
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+
+  /dispatches/{id}:
+    get:
+      operationId: getDispatch
+      tags: [dispatches]
+      summary: Get a dispatch by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Dispatch with route points and costs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DispatchDetail"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateDispatch
+      tags: [dispatches]
+      summary: Update a dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteDispatch
+      tags: [dispatches]
+      summary: Delete a dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /dispatches/{id}/approve:
+    post:
+      operationId: approveDispatch
+      tags: [dispatches]
+      summary: Approve a dispatch (changes status to approved/en-route)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Dispatch approved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+        "404":
+          description: Not found
+
+  /dispatches/{id}/costs:
+    get:
+      operationId: getDispatchCosts
+      tags: [dispatches]
+      summary: Get travel costs for a dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Travel costs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TravelCost"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateDispatchCosts
+      tags: [dispatches]
+      summary: Update travel costs for a dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TravelCostInput"
+      responses:
+        "200":
+          description: Costs updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TravelCost"
+        "404":
+          description: Not found
+
+  /dispatches/{id}/route-points:
+    get:
+      operationId: listRoutePoints
+      tags: [dispatches]
+      summary: List route points for a dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Route points
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/RoutePoint"
+    post:
+      operationId: addRoutePoint
+      tags: [dispatches]
+      summary: Add a route point to a dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutePointInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutePoint"
+
+  /dispatches/{dispatchId}/route-points/{pointId}:
+    delete:
+      operationId: deleteRoutePoint
+      tags: [dispatches]
+      summary: Remove a route point
+      parameters:
+        - name: dispatchId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: pointId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # --- VEHICLE RECOMMENDATION ---
+  /vehicles/recommend:
+    post:
+      operationId: recommendVehicle
+      tags: [vehicles]
+      summary: Recommend the best vehicle for a given load
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoadRequirement"
+      responses:
+        "200":
+          description: Recommended vehicles sorted by suitability
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Vehicle"
+
+  # --- COST ESTIMATION ---
+  /dispatches/{id}/estimate-costs:
+    get:
+      operationId: estimateDispatchCosts
+      tags: [dispatches]
+      summary: Estimate costs for a dispatch before approval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Estimated costs breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostEstimate"
+        "404":
+          description: Not found
+
+  # --- TOLLS ---
+  /tolls:
+    get:
+      operationId: listTolls
+      tags: [tolls]
+      summary: List all toll routes
+      responses:
+        "200":
+          description: List of toll routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TollRoute"
+    post:
+      operationId: createToll
+      tags: [tolls]
+      summary: Create a toll route
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TollRouteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TollRoute"
+
+  /tolls/{id}:
+    patch:
+      operationId: updateToll
+      tags: [tolls]
+      summary: Update a toll route
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TollRouteUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TollRoute"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteToll
+      tags: [tolls]
+      summary: Delete a toll route
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  # --- DASHBOARD ---
+  /dashboard/summary:
+    get:
+      operationId: getDashboardSummary
+      tags: [dashboard]
+      summary: Get dashboard summary metrics
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
+  /dashboard/vehicle-schedule:
+    get:
+      operationId: getVehicleSchedule
+      tags: [dashboard]
+      summary: Get weekly vehicle availability schedule
+      parameters:
+        - name: weekStart
+          in: query
+          required: false
+          schema:
+            type: string
+            description: ISO date string for start of week (defaults to current week)
+      responses:
+        "200":
+          description: Vehicle schedule for the week
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/VehicleScheduleEntry"
+
+  /dashboard/active-dispatches:
+    get:
+      operationId: getActiveDispatches
+      tags: [dashboard]
+      summary: Get currently active dispatches (in transit)
+      responses:
+        "200":
+          description: Active dispatches with vehicle and route info
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ActiveDispatch"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +739,516 @@ components:
       required:
         - status
 
+    # --- VEHICLES ---
+    Vehicle:
+      type: object
+      required: [id, tipo, modelo, capacidadPeso, capacidadVolumen, tipoCombustible, rendimientoKmLitro, createdAt]
+      properties:
+        id:
+          type: integer
+        tipo:
+          type: string
+          description: "propio | tercero"
+        modelo:
+          type: string
+        capacidadPeso:
+          type: number
+          description: Max weight capacity in kg
+        capacidadVolumen:
+          type: number
+          description: Max volume capacity in m3
+        tipoCombustible:
+          type: string
+          description: "gasolina | diesel | gas"
+        rendimientoKmLitro:
+          type: number
+          description: Fuel efficiency in km/liter
+        placa:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    VehicleInput:
+      type: object
+      required: [tipo, modelo, capacidadPeso, capacidadVolumen, tipoCombustible, rendimientoKmLitro]
+      properties:
+        tipo:
+          type: string
+        modelo:
+          type: string
+        capacidadPeso:
+          type: number
+        capacidadVolumen:
+          type: number
+        tipoCombustible:
+          type: string
+        rendimientoKmLitro:
+          type: number
+        placa:
+          type: string
+
+    VehicleUpdate:
+      type: object
+      properties:
+        tipo:
+          type: string
+        modelo:
+          type: string
+        capacidadPeso:
+          type: number
+        capacidadVolumen:
+          type: number
+        tipoCombustible:
+          type: string
+        rendimientoKmLitro:
+          type: number
+        placa:
+          type: string
+
+    LoadRequirement:
+      type: object
+      required: [pesoTotal, volumenTotal]
+      properties:
+        pesoTotal:
+          type: number
+        volumenTotal:
+          type: number
+
+    # --- PERSONNEL ---
+    Personnel:
+      type: object
+      required: [id, nombre, rol, tarifaViaticos, createdAt]
+      properties:
+        id:
+          type: integer
+        nombre:
+          type: string
+        rol:
+          type: string
+          description: "chofer | ayudante"
+        tarifaViaticos:
+          type: number
+          description: Daily per-diem rate
+        telefono:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    PersonnelInput:
+      type: object
+      required: [nombre, rol, tarifaViaticos]
+      properties:
+        nombre:
+          type: string
+        rol:
+          type: string
+        tarifaViaticos:
+          type: number
+        telefono:
+          type: string
+
+    PersonnelUpdate:
+      type: object
+      properties:
+        nombre:
+          type: string
+        rol:
+          type: string
+        tarifaViaticos:
+          type: number
+        telefono:
+          type: string
+
+    # --- SALES ---
+    Sale:
+      type: object
+      required: [id, cliente, volumenTotal, pesoTotal, destino, estado, createdAt]
+      properties:
+        id:
+          type: integer
+        cliente:
+          type: string
+        volumenTotal:
+          type: number
+        pesoTotal:
+          type: number
+        destino:
+          type: string
+        estado:
+          type: string
+          description: "pendiente | despachado | entregado | cancelado"
+        notas:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    SaleInput:
+      type: object
+      required: [cliente, volumenTotal, pesoTotal, destino]
+      properties:
+        cliente:
+          type: string
+        volumenTotal:
+          type: number
+        pesoTotal:
+          type: number
+        destino:
+          type: string
+        estado:
+          type: string
+        notas:
+          type: string
+
+    SaleUpdate:
+      type: object
+      properties:
+        cliente:
+          type: string
+        volumenTotal:
+          type: number
+        pesoTotal:
+          type: number
+        destino:
+          type: string
+        estado:
+          type: string
+        notas:
+          type: string
+
+    # --- DISPATCHES ---
+    Dispatch:
+      type: object
+      required: [id, ventaId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, createdAt]
+      properties:
+        id:
+          type: integer
+        ventaId:
+          type: integer
+        vehiculoId:
+          type: integer
+        choferId:
+          type: integer
+        ayudanteId:
+          type: ["integer", "null"]
+        fechaEstimadaSalida:
+          type: string
+        fechaEstimadaLlegada:
+          type: string
+        ruta:
+          type: ["string", "null"]
+        estado:
+          type: string
+          description: "pre-despacho | aprobado | en-ruta | entregado | cancelado"
+        distanciaKm:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+        # Joined fields
+        vehiculoModelo:
+          type: ["string", "null"]
+        choferNombre:
+          type: ["string", "null"]
+        ayudanteNombre:
+          type: ["string", "null"]
+        clienteNombre:
+          type: ["string", "null"]
+        destino:
+          type: ["string", "null"]
+
+    DispatchDetail:
+      type: object
+      required: [id, ventaId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, createdAt]
+      properties:
+        id:
+          type: integer
+        ventaId:
+          type: integer
+        vehiculoId:
+          type: integer
+        choferId:
+          type: integer
+        ayudanteId:
+          type: ["integer", "null"]
+        fechaEstimadaSalida:
+          type: string
+        fechaEstimadaLlegada:
+          type: string
+        ruta:
+          type: ["string", "null"]
+        estado:
+          type: string
+        distanciaKm:
+          type: ["number", "null"]
+        createdAt:
+          type: string
+        vehiculoModelo:
+          type: ["string", "null"]
+        choferNombre:
+          type: ["string", "null"]
+        ayudanteNombre:
+          type: ["string", "null"]
+        clienteNombre:
+          type: ["string", "null"]
+        destino:
+          type: ["string", "null"]
+        routePoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutePoint"
+        costs:
+          $ref: "#/components/schemas/TravelCost"
+
+    DispatchInput:
+      type: object
+      required: [ventaId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada]
+      properties:
+        ventaId:
+          type: integer
+        vehiculoId:
+          type: integer
+        choferId:
+          type: integer
+        ayudanteId:
+          type: integer
+        fechaEstimadaSalida:
+          type: string
+        fechaEstimadaLlegada:
+          type: string
+        ruta:
+          type: string
+        distanciaKm:
+          type: number
+        routePoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/RoutePointInput"
+
+    DispatchUpdate:
+      type: object
+      properties:
+        vehiculoId:
+          type: integer
+        choferId:
+          type: integer
+        ayudanteId:
+          type: integer
+        fechaEstimadaSalida:
+          type: string
+        fechaEstimadaLlegada:
+          type: string
+        ruta:
+          type: string
+        estado:
+          type: string
+        distanciaKm:
+          type: number
+
+    # --- ROUTE POINTS ---
+    RoutePoint:
+      type: object
+      required: [id, despachoId, ubicacion, orden]
+      properties:
+        id:
+          type: integer
+        despachoId:
+          type: integer
+        ubicacion:
+          type: string
+        orden:
+          type: integer
+        latitud:
+          type: ["number", "null"]
+        longitud:
+          type: ["number", "null"]
+
+    RoutePointInput:
+      type: object
+      required: [ubicacion, orden]
+      properties:
+        ubicacion:
+          type: string
+        orden:
+          type: integer
+        latitud:
+          type: number
+        longitud:
+          type: number
+
+    # --- TRAVEL COSTS ---
+    TravelCost:
+      type: object
+      required: [id, despachoId, costoPeajes, costoCombustible, costoViaticos, total]
+      properties:
+        id:
+          type: integer
+        despachoId:
+          type: integer
+        costoPeajes:
+          type: number
+        costoCombustible:
+          type: number
+        costoViaticos:
+          type: number
+        total:
+          type: number
+        costoCombustiblePorLitro:
+          type: ["number", "null"]
+
+    TravelCostInput:
+      type: object
+      properties:
+        costoPeajes:
+          type: number
+        costoCombustible:
+          type: number
+        costoViaticos:
+          type: number
+        costoCombustiblePorLitro:
+          type: number
+
+    CostEstimate:
+      type: object
+      required: [costoCombustible, costoViaticos, costoPeajes, total, dias, litrosEstimados, distanciaKm]
+      properties:
+        costoCombustible:
+          type: number
+        costoViaticos:
+          type: number
+        costoPeajes:
+          type: number
+        total:
+          type: number
+        dias:
+          type: number
+        litrosEstimados:
+          type: number
+        distanciaKm:
+          type: number
+        costoPorLitro:
+          type: number
+
+    # --- TOLL ROUTES ---
+    TollRoute:
+      type: object
+      required: [id, origen, destino, cantidadPeajes, costoTotal]
+      properties:
+        id:
+          type: integer
+        origen:
+          type: string
+        destino:
+          type: string
+        cantidadPeajes:
+          type: integer
+        costoTotal:
+          type: number
+        descripcion:
+          type: ["string", "null"]
+
+    TollRouteInput:
+      type: object
+      required: [origen, destino, cantidadPeajes, costoTotal]
+      properties:
+        origen:
+          type: string
+        destino:
+          type: string
+        cantidadPeajes:
+          type: integer
+        costoTotal:
+          type: number
+        descripcion:
+          type: string
+
+    TollRouteUpdate:
+      type: object
+      properties:
+        origen:
+          type: string
+        destino:
+          type: string
+        cantidadPeajes:
+          type: integer
+        costoTotal:
+          type: number
+        descripcion:
+          type: string
+
+    # --- DASHBOARD ---
+    DashboardSummary:
+      type: object
+      required: [totalVehiculos, vehiculosDisponibles, vehiculosEnRuta, ventasPendientes, despachosPendientes, despachosEnRuta, despachosEntregados, costoTotalEsteMes]
+      properties:
+        totalVehiculos:
+          type: integer
+        vehiculosDisponibles:
+          type: integer
+        vehiculosEnRuta:
+          type: integer
+        ventasPendientes:
+          type: integer
+        despachosPendientes:
+          type: integer
+        despachosEnRuta:
+          type: integer
+        despachosEntregados:
+          type: integer
+        costoTotalEsteMes:
+          type: number
+
+    VehicleScheduleEntry:
+      type: object
+      required: [vehiculoId, modelo, tipo, diasOcupados]
+      properties:
+        vehiculoId:
+          type: integer
+        modelo:
+          type: string
+        tipo:
+          type: string
+        diasOcupados:
+          type: array
+          items:
+            $ref: "#/components/schemas/ScheduleDay"
+
+    ScheduleDay:
+      type: object
+      required: [fecha, despachoId, estado, destino]
+      properties:
+        fecha:
+          type: string
+        despachoId:
+          type: integer
+        estado:
+          type: string
+        destino:
+          type: string
+
+    ActiveDispatch:
+      type: object
+      required: [id, vehiculoId, vehiculoModelo, choferNombre, destino, fechaEstimadaLlegada, estado]
+      properties:
+        id:
+          type: integer
+        vehiculoId:
+          type: integer
+        vehiculoModelo:
+          type: string
+        choferNombre:
+          type: string
+        ayudanteNombre:
+          type: ["string", "null"]
+        destino:
+          type: string
+        fechaEstimadaSalida:
+          type: string
+        fechaEstimadaLlegada:
+          type: string
+        estado:
+          type: string
+        ultimaUbicacion:
+          type: ["string", "null"]
+        latitud:
+          type: ["number", "null"]
+        longitud:
+          type: ["number", "null"]

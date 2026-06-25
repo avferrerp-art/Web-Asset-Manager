@@ -1,0 +1,30 @@
+Fase 1: Arquitectura Base y Base de Datos
+El objetivo de este prompt es establecer los cimientos del sistema y las entidades clave.
+Comando para Replit: "Inicializa una aplicación web con un stack moderno (ej. React, Node.js, PostgreSQL o SQLite para empezar). Crea el esquema de base de datos relacional para un sistema de logística corporativa. Necesito las siguientes tablas y sus relaciones:
+Vehiculos: ID, tipo (propio o tercero), modelo (ej. Iveco Daily 2012 o camiones de carga pesada), capacidad_peso, capacidad_volumen, tipo_combustible (gasolina, diesel, gas), rendimiento_km_litro.
+Personal: ID, nombre, rol (chofer, ayudante), tarifa_viaticos.
+Ventas: ID, cliente, volumen_total, peso_total, destino, estado.
+Despachos: ID, venta_id, vehiculo_id, chofer_id, ayudante_id, fecha_estimada_salida, fecha_estimada_llegada, ruta, estado.
+Rutas_Puntos: ID, despacho_id, ubicacion, orden. 
+Peajes. Cantidad de Peajes entre los principales puntos de salida y destino
+
+
+Costos_Viaje: ID, despacho_id, costo_peajes, costo_combustible, costo_viaticos, total."
+Fase 2: Módulo de Pre-Despacho (Lógica de Negocio)
+Este prompt le enseña a la IA cómo manejar la asignación inteligente de carga.
+Comando para Replit: "Crea la interfaz y la lógica del módulo de 'Pre-Despacho'. Esta vista debe mostrar una lista de ventas pendientes. Al seleccionar una venta, el sistema debe leer su volumen y peso, y mediante una función, recomendar automáticamente la unidad de transporte más adecuada de la tabla Vehiculos que soporte esa carga. En este formulario, permite al usuario:
+Confirmar o cambiar el vehículo (propio o subcontratado).
+Asignar un Chofer y un Ayudante mediante selectores.
+Establecer el Destino final y agregar múltiples 'Puntos en la ruta'.
+Definir fecha/hora estimada de salida (ETD) y llegada (ETA)."
+Fase 3: Motor de Costos y Viáticos
+Aquí nos aseguramos de que el sistema calcule los gastos automáticamente antes de autorizar la salida.
+Comando para Replit: "Desarrolla el motor de cálculo financiero en la vista de Pre-Despacho. Antes de confirmar el viaje, el sistema debe calcular y mostrar:
+Costo de combustible: Basado en la distancia aproximada de la ruta ingresada y el rendimiento_km_litro del vehículo asignado, multiplicado por un costo estándar del tipo de combustible.
+Peajes: Un campo para ingresar manualmente el costo estimado de peajes de la ruta.
+Viáticos: Una función que calcule automáticamente el monto a pagar según los días de viaje (diferencia entre ETD y ETA) y las tarifas predeterminadas del chofer y ayudante seleccionados. Muestra un panel de resumen con el 'Costo Total Estimado del Viaje' y un botón para 'Aprobar Despacho'."
+Fase 4: Dashboard Gerencial y Tracking
+La vista macro para el equipo comercial y directivo.
+Comando para Replit: "Construye un Dashboard gerencial interactivo como página principal de la aplicación. Necesito dos componentes visuales clave:
+Planificador Semanal (Gantt o Calendario): Una vista que muestre todas las unidades vehiculares y los días que están ocupadas en despachos versus los días que están disponibles. El objetivo es que el equipo comercial sepa exactamente cuándo pueden prometer una entrega.
+Panel de Unidades en Tránsito: Una lista o cuadrícula de los despachos actualmente en curso (estado 'En Ruta'). Cada tarjeta debe mostrar el vehículo, destino, ETA y un botón prominente de 'Acceso a GPS'. Por ahora, haz que este botón abra un modal con un iframe de Google Maps apuntando a la última ubicación conocida del punto de ruta, preparado para integrarse con una API de rastreo real en el futuro."
