@@ -3,30 +3,20 @@ import { eq, and } from "drizzle-orm";
 import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable } from "@workspace/db";
 import {
   ListDispatchesQueryParams,
-  ListDispatchesResponse,
   CreateDispatchBody,
-  CreateDispatchResponse,
   GetDispatchParams,
-  GetDispatchResponse,
   UpdateDispatchParams,
   UpdateDispatchBody,
-  UpdateDispatchResponse,
   DeleteDispatchParams,
   ApproveDispatchParams,
-  ApproveDispatchResponse,
   GetDispatchCostsParams,
-  GetDispatchCostsResponse,
   UpdateDispatchCostsParams,
   UpdateDispatchCostsBody,
-  UpdateDispatchCostsResponse,
   ListRoutePointsParams,
-  ListRoutePointsResponse,
   AddRoutePointParams,
   AddRoutePointBody,
-  AddRoutePointResponse,
   DeleteRoutePointParams,
   EstimateDispatchCostsParams,
-  EstimateDispatchCostsResponse,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -57,7 +47,7 @@ router.get("/dispatches", async (req, res): Promise<void> => {
     dispatches = dispatches.filter((d) => d.estado === query.data.status);
   }
   const rows = await Promise.all(dispatches.map(buildDispatchRow));
-  res.json(ListDispatchesResponse.parse(rows));
+  res.json(rows);
 });
 
 router.post("/dispatches", async (req, res): Promise<void> => {
@@ -69,7 +59,6 @@ router.post("/dispatches", async (req, res): Promise<void> => {
   const { routePoints, ...dispatchData } = parsed.data;
   const [dispatch] = await db.insert(dispatchesTable).values(dispatchData).returning();
 
-  // Create travel costs record
   await db.insert(travelCostsTable).values({
     despachoId: dispatch.id,
     costoPeajes: 0,
@@ -78,18 +67,16 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     total: 0,
   });
 
-  // Add route points if provided
   if (routePoints && routePoints.length > 0) {
     await db.insert(routePointsTable).values(
       routePoints.map((rp) => ({ ...rp, despachoId: dispatch.id })),
     );
   }
 
-  // Mark sale as dispatched
   await db.update(salesTable).set({ estado: "despachado" }).where(eq(salesTable.id, dispatch.ventaId));
 
   const row = await buildDispatchRow(dispatch);
-  res.status(201).json(CreateDispatchResponse.parse(row));
+  res.status(201).json(row);
 });
 
 router.get("/dispatches/:id", async (req, res): Promise<void> => {
@@ -106,7 +93,7 @@ router.get("/dispatches/:id", async (req, res): Promise<void> => {
   const row = await buildDispatchRow(dispatch);
   const points = await db.select().from(routePointsTable).where(eq(routePointsTable.despachoId, params.data.id)).orderBy(routePointsTable.orden);
   const [costs] = await db.select().from(travelCostsTable).where(eq(travelCostsTable.despachoId, params.data.id));
-  res.json(GetDispatchResponse.parse({ ...row, routePoints: points, costs: costs ?? null }));
+  res.json({ ...row, routePoints: points, costs: costs ?? null });
 });
 
 router.patch("/dispatches/:id", async (req, res): Promise<void> => {
@@ -126,7 +113,7 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     return;
   }
   const row = await buildDispatchRow(dispatch);
-  res.json(UpdateDispatchResponse.parse(row));
+  res.json(row);
 });
 
 router.delete("/dispatches/:id", async (req, res): Promise<void> => {
@@ -159,7 +146,7 @@ router.post("/dispatches/:id/approve", async (req, res): Promise<void> => {
     return;
   }
   const row = await buildDispatchRow(dispatch);
-  res.json(ApproveDispatchResponse.parse(row));
+  res.json(row);
 });
 
 router.get("/dispatches/:id/costs", async (req, res): Promise<void> => {
@@ -173,7 +160,7 @@ router.get("/dispatches/:id/costs", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Costs not found" });
     return;
   }
-  res.json(GetDispatchCostsResponse.parse(costs));
+  res.json(costs);
 });
 
 router.patch("/dispatches/:id/costs", async (req, res): Promise<void> => {
@@ -198,7 +185,7 @@ router.patch("/dispatches/:id/costs", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Costs not found" });
     return;
   }
-  res.json(UpdateDispatchCostsResponse.parse(costs));
+  res.json(costs);
 });
 
 router.get("/dispatches/:id/route-points", async (req, res): Promise<void> => {
@@ -212,7 +199,7 @@ router.get("/dispatches/:id/route-points", async (req, res): Promise<void> => {
     .from(routePointsTable)
     .where(eq(routePointsTable.despachoId, params.data.id))
     .orderBy(routePointsTable.orden);
-  res.json(ListRoutePointsResponse.parse(points));
+  res.json(points);
 });
 
 router.post("/dispatches/:id/route-points", async (req, res): Promise<void> => {
@@ -230,7 +217,7 @@ router.post("/dispatches/:id/route-points", async (req, res): Promise<void> => {
     .insert(routePointsTable)
     .values({ ...parsed.data, despachoId: params.data.id })
     .returning();
-  res.status(201).json(AddRoutePointResponse.parse(point));
+  res.status(201).json(point);
 });
 
 router.delete("/dispatches/:dispatchId/route-points/:pointId", async (req, res): Promise<void> => {
@@ -277,14 +264,12 @@ router.get("/dispatches/:id/estimate-costs", async (req, res): Promise<void> => 
   const litrosEstimados = distanciaKm / rendimiento;
   const costoCombustible = litrosEstimados * costoPorLitro;
 
-  // Calculate days
   const salida = new Date(dispatch.fechaEstimadaSalida);
   const llegada = new Date(dispatch.fechaEstimadaLlegada);
   const dias = Math.max(1, Math.ceil((llegada.getTime() - salida.getTime()) / (1000 * 60 * 60 * 24)));
 
   const costoViaticos = dias * ((driver?.tarifaViaticos ?? 0) + assistantRate);
 
-  // Look up tolls
   const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, dispatch.ventaId));
   const allTolls = await db.select().from(tollRoutesTable);
   let costoPeajes = 0;
@@ -299,18 +284,7 @@ router.get("/dispatches/:id/estimate-costs", async (req, res): Promise<void> => 
 
   const total = costoCombustible + costoViaticos + costoPeajes;
 
-  res.json(
-    EstimateDispatchCostsResponse.parse({
-      costoCombustible,
-      costoViaticos,
-      costoPeajes,
-      total,
-      dias,
-      litrosEstimados,
-      distanciaKm,
-      costoPorLitro,
-    }),
-  );
+  res.json({ costoCombustible, costoViaticos, costoPeajes, total, dias, litrosEstimados, distanciaKm, costoPorLitro });
 });
 
 export default router;

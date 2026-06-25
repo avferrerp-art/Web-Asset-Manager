@@ -3,14 +3,10 @@ import { eq } from "drizzle-orm";
 import { db, salesTable } from "@workspace/db";
 import {
   ListSalesQueryParams,
-  ListSalesResponse,
   CreateSaleBody,
-  CreateSaleResponse,
   GetSaleParams,
-  GetSaleResponse,
   UpdateSaleParams,
   UpdateSaleBody,
-  UpdateSaleResponse,
   DeleteSaleParams,
 } from "@workspace/api-zod";
 
@@ -22,7 +18,7 @@ router.get("/sales", async (req, res): Promise<void> => {
   if (query.success && query.data.status) {
     results = results.filter((s) => s.estado === query.data.status);
   }
-  res.json(ListSalesResponse.parse(results));
+  res.json(results);
 });
 
 router.post("/sales", async (req, res): Promise<void> => {
@@ -33,7 +29,7 @@ router.post("/sales", async (req, res): Promise<void> => {
   }
   const data = { ...parsed.data, estado: parsed.data.estado ?? "pendiente" };
   const [sale] = await db.insert(salesTable).values(data).returning();
-  res.status(201).json(CreateSaleResponse.parse(sale));
+  res.status(201).json(sale);
 });
 
 router.get("/sales/:id", async (req, res): Promise<void> => {
@@ -47,7 +43,7 @@ router.get("/sales/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Sale not found" });
     return;
   }
-  res.json(GetSaleResponse.parse(sale));
+  res.json(sale);
 });
 
 router.patch("/sales/:id", async (req, res): Promise<void> => {
@@ -66,7 +62,7 @@ router.patch("/sales/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Sale not found" });
     return;
   }
-  res.json(UpdateSaleResponse.parse(sale));
+  res.json(sale);
 });
 
 router.delete("/sales/:id", async (req, res): Promise<void> => {

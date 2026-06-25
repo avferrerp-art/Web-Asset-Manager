@@ -1,12 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, and, gte, lte, sql } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, travelCostsTable, routePointsTable } from "@workspace/db";
-import {
-  GetDashboardSummaryResponse,
-  GetVehicleScheduleQueryParams,
-  GetVehicleScheduleResponse,
-  GetActiveDispatchesResponse,
-} from "@workspace/api-zod";
+import { GetVehicleScheduleQueryParams } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
@@ -32,7 +27,7 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     })
     .reduce((sum, c) => sum + (c.total ?? 0), 0);
 
-  const summary = {
+  res.json({
     totalVehiculos: vehicles.length,
     vehiculosDisponibles,
     vehiculosEnRuta,
@@ -41,9 +36,7 @@ router.get("/dashboard/summary", async (_req, res): Promise<void> => {
     despachosEnRuta: dispatches.filter((d) => d.estado === "en-ruta").length,
     despachosEntregados: dispatches.filter((d) => d.estado === "entregado").length,
     costoTotalEsteMes,
-  };
-
-  res.json(GetDashboardSummaryResponse.parse(summary));
+  });
 });
 
 router.get("/dashboard/vehicle-schedule", async (req, res): Promise<void> => {
@@ -57,10 +50,6 @@ router.get("/dashboard/vehicle-schedule", async (req, res): Promise<void> => {
     weekStart.setDate(weekStart.getDate() - weekStart.getDay());
     weekStart.setHours(0, 0, 0, 0);
   }
-
-  const weekEnd = new Date(weekStart);
-  weekEnd.setDate(weekEnd.getDate() + 6);
-  weekEnd.setHours(23, 59, 59, 999);
 
   const vehicles = await db.select().from(vehiclesTable);
   const dispatches = await db.select().from(dispatchesTable);
@@ -94,7 +83,7 @@ router.get("/dashboard/vehicle-schedule", async (req, res): Promise<void> => {
           destino: sale?.destino ?? "Sin destino",
         };
       })
-      .filter(Boolean) as Array<{ fecha: string; despachoId: number; estado: string; destino: string }>;
+      .filter(Boolean);
 
     return {
       vehiculoId: v.id,
@@ -104,7 +93,7 @@ router.get("/dashboard/vehicle-schedule", async (req, res): Promise<void> => {
     };
   });
 
-  res.json(GetVehicleScheduleResponse.parse(schedule));
+  res.json(schedule);
 });
 
 router.get("/dashboard/active-dispatches", async (_req, res): Promise<void> => {
@@ -125,7 +114,6 @@ router.get("/dashboard/active-dispatches", async (_req, res): Promise<void> => {
         assistantName = assistant?.nombre ?? null;
       }
 
-      // Get last known location from route points
       const points = await db
         .select()
         .from(routePointsTable)
@@ -151,7 +139,7 @@ router.get("/dashboard/active-dispatches", async (_req, res): Promise<void> => {
     }),
   );
 
-  res.json(GetActiveDispatchesResponse.parse(result));
+  res.json(result);
 });
 
 export default router;

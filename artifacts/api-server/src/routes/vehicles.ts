@@ -2,24 +2,19 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, vehiclesTable } from "@workspace/db";
 import {
-  ListVehiclesResponse,
   CreateVehicleBody,
-  CreateVehicleResponse,
   GetVehicleParams,
-  GetVehicleResponse,
   UpdateVehicleParams,
   UpdateVehicleBody,
-  UpdateVehicleResponse,
   DeleteVehicleParams,
   RecommendVehicleBody,
-  RecommendVehicleResponse,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
 
 router.get("/vehicles", async (_req, res): Promise<void> => {
   const vehicles = await db.select().from(vehiclesTable).orderBy(vehiclesTable.createdAt);
-  res.json(ListVehiclesResponse.parse(vehicles));
+  res.json(vehicles);
 });
 
 router.post("/vehicles/recommend", async (req, res): Promise<void> => {
@@ -38,7 +33,7 @@ router.post("/vehicles/recommend", async (req, res): Promise<void> => {
     const bWaste = (b.capacidadPeso - pesoTotal) / b.capacidadPeso + (b.capacidadVolumen - volumenTotal) / b.capacidadVolumen;
     return aWaste - bWaste;
   });
-  res.json(RecommendVehicleResponse.parse(suitable));
+  res.json(suitable);
 });
 
 router.post("/vehicles", async (req, res): Promise<void> => {
@@ -48,7 +43,7 @@ router.post("/vehicles", async (req, res): Promise<void> => {
     return;
   }
   const [vehicle] = await db.insert(vehiclesTable).values(parsed.data).returning();
-  res.status(201).json(CreateVehicleResponse.parse(vehicle));
+  res.status(201).json(vehicle);
 });
 
 router.get("/vehicles/:id", async (req, res): Promise<void> => {
@@ -62,7 +57,7 @@ router.get("/vehicles/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Vehicle not found" });
     return;
   }
-  res.json(GetVehicleResponse.parse(vehicle));
+  res.json(vehicle);
 });
 
 router.patch("/vehicles/:id", async (req, res): Promise<void> => {
@@ -81,7 +76,7 @@ router.patch("/vehicles/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Vehicle not found" });
     return;
   }
-  res.json(UpdateVehicleResponse.parse(vehicle));
+  res.json(vehicle);
 });
 
 router.delete("/vehicles/:id", async (req, res): Promise<void> => {

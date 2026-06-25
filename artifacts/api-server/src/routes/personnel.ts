@@ -2,14 +2,10 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, personnelTable } from "@workspace/db";
 import {
-  ListPersonnelResponse,
   CreatePersonnelBody,
-  CreatePersonnelResponse,
   GetPersonnelParams,
-  GetPersonnelResponse,
   UpdatePersonnelParams,
   UpdatePersonnelBody,
-  UpdatePersonnelResponse,
   DeletePersonnelParams,
 } from "@workspace/api-zod";
 
@@ -17,7 +13,7 @@ const router: IRouter = Router();
 
 router.get("/personnel", async (_req, res): Promise<void> => {
   const personnel = await db.select().from(personnelTable).orderBy(personnelTable.createdAt);
-  res.json(ListPersonnelResponse.parse(personnel));
+  res.json(personnel);
 });
 
 router.post("/personnel", async (req, res): Promise<void> => {
@@ -27,7 +23,7 @@ router.post("/personnel", async (req, res): Promise<void> => {
     return;
   }
   const [person] = await db.insert(personnelTable).values(parsed.data).returning();
-  res.status(201).json(CreatePersonnelResponse.parse(person));
+  res.status(201).json(person);
 });
 
 router.get("/personnel/:id", async (req, res): Promise<void> => {
@@ -41,7 +37,7 @@ router.get("/personnel/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Personnel not found" });
     return;
   }
-  res.json(GetPersonnelResponse.parse(person));
+  res.json(person);
 });
 
 router.patch("/personnel/:id", async (req, res): Promise<void> => {
@@ -60,7 +56,7 @@ router.patch("/personnel/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Personnel not found" });
     return;
   }
-  res.json(UpdatePersonnelResponse.parse(person));
+  res.json(person);
 });
 
 router.delete("/personnel/:id", async (req, res): Promise<void> => {
