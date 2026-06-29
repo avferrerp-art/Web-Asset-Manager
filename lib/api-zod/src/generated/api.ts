@@ -215,6 +215,10 @@ export const ListSalesQueryParams = zod.object({
 export const ListSalesResponseItem = zod.object({
   "id": zod.number(),
   "cliente": zod.string(),
+  "vendedor": zod.string().nullish(),
+  "personaContacto": zod.string().nullish(),
+  "numeroCel": zod.string().nullish(),
+  "tipoMaterial": zod.string().nullish(),
   "volumenTotal": zod.number(),
   "pesoTotal": zod.number(),
   "destino": zod.string(),
@@ -230,6 +234,10 @@ export const ListSalesResponse = zod.array(ListSalesResponseItem)
  */
 export const CreateSaleBody = zod.object({
   "cliente": zod.string(),
+  "vendedor": zod.string().optional(),
+  "personaContacto": zod.string().optional(),
+  "numeroCel": zod.string().optional(),
+  "tipoMaterial": zod.string().optional(),
   "volumenTotal": zod.number(),
   "pesoTotal": zod.number(),
   "destino": zod.string(),
@@ -240,6 +248,10 @@ export const CreateSaleBody = zod.object({
 export const CreateSaleResponse = zod.object({
   "id": zod.number(),
   "cliente": zod.string(),
+  "vendedor": zod.string().nullish(),
+  "personaContacto": zod.string().nullish(),
+  "numeroCel": zod.string().nullish(),
+  "tipoMaterial": zod.string().nullish(),
   "volumenTotal": zod.number(),
   "pesoTotal": zod.number(),
   "destino": zod.string(),
@@ -259,6 +271,10 @@ export const GetSaleParams = zod.object({
 export const GetSaleResponse = zod.object({
   "id": zod.number(),
   "cliente": zod.string(),
+  "vendedor": zod.string().nullish(),
+  "personaContacto": zod.string().nullish(),
+  "numeroCel": zod.string().nullish(),
+  "tipoMaterial": zod.string().nullish(),
   "volumenTotal": zod.number(),
   "pesoTotal": zod.number(),
   "destino": zod.string(),
@@ -277,6 +293,10 @@ export const UpdateSaleParams = zod.object({
 
 export const UpdateSaleBody = zod.object({
   "cliente": zod.string().optional(),
+  "vendedor": zod.string().optional(),
+  "personaContacto": zod.string().optional(),
+  "numeroCel": zod.string().optional(),
+  "tipoMaterial": zod.string().optional(),
   "volumenTotal": zod.number().optional(),
   "pesoTotal": zod.number().optional(),
   "destino": zod.string().optional(),
@@ -287,6 +307,10 @@ export const UpdateSaleBody = zod.object({
 export const UpdateSaleResponse = zod.object({
   "id": zod.number(),
   "cliente": zod.string(),
+  "vendedor": zod.string().nullish(),
+  "personaContacto": zod.string().nullish(),
+  "numeroCel": zod.string().nullish(),
+  "tipoMaterial": zod.string().nullish(),
   "volumenTotal": zod.number(),
   "pesoTotal": zod.number(),
   "destino": zod.string(),

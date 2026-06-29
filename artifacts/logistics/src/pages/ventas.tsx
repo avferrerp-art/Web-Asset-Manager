@@ -20,6 +20,10 @@ import { Badge } from "@/components/ui/badge";
 
 const saleSchema = z.object({
   cliente: z.string().min(1, "Requerido"),
+  vendedor: z.string().optional(),
+  personaContacto: z.string().optional(),
+  numeroCel: z.string().optional(),
+  tipoMaterial: z.string().optional(),
   destino: z.string().min(1, "Requerido"),
   pesoTotal: z.coerce.number().min(0),
   volumenTotal: z.coerce.number().min(0),
@@ -50,7 +54,18 @@ export default function Ventas() {
 
   const form = useForm<z.infer<typeof saleSchema>>({
     resolver: zodResolver(saleSchema),
-    defaultValues: { cliente: "", destino: "", pesoTotal: 0, volumenTotal: 0, estado: "pendiente", notas: "" }
+    defaultValues: {
+      cliente: "",
+      vendedor: "",
+      personaContacto: "",
+      numeroCel: "",
+      tipoMaterial: "",
+      destino: "",
+      pesoTotal: 0,
+      volumenTotal: 0,
+      estado: "pendiente",
+      notas: ""
+    }
   });
 
   const onSubmit = (values: z.infer<typeof saleSchema>) => {
@@ -75,7 +90,18 @@ export default function Ventas() {
 
   const handleEdit = (sale: any) => {
     setEditingSale(sale);
-    form.reset({ cliente: sale.cliente, destino: sale.destino, pesoTotal: sale.pesoTotal, volumenTotal: sale.volumenTotal, estado: sale.estado, notas: sale.notas || "" });
+    form.reset({
+      cliente: sale.cliente,
+      vendedor: sale.vendedor || "",
+      personaContacto: sale.personaContacto || "",
+      numeroCel: sale.numeroCel || "",
+      tipoMaterial: sale.tipoMaterial || "",
+      destino: sale.destino,
+      pesoTotal: sale.pesoTotal,
+      volumenTotal: sale.volumenTotal,
+      estado: sale.estado,
+      notas: sale.notas || ""
+    });
     setIsDialogOpen(true);
   };
 
@@ -106,26 +132,76 @@ export default function Ventas() {
               <Plus className="w-4 h-4" /> Nueva Orden
             </Button>
           </DialogTrigger>
-          <DialogContent>
+          <DialogContent className="sm:max-w-[580px]">
             <DialogHeader>
               <DialogTitle>{editingSale ? "Editar Orden" : "Nueva Orden"}</DialogTitle>
             </DialogHeader>
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+
+                {/* Nro de Orden (solo visible al editar, de solo lectura) */}
+                {editingSale && (
+                  <div className="space-y-1">
+                    <label className="text-sm font-medium leading-none">Nro de Orden</label>
+                    <Input value={`#${editingSale.id}`} readOnly className="bg-muted text-muted-foreground cursor-not-allowed" />
+                  </div>
+                )}
+
+                {/* Vendedor */}
+                <FormField control={form.control} name="vendedor" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Vendedor</FormLabel>
+                    <FormControl><Input data-testid="input-vendedor" placeholder="Nombre del vendedor" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                {/* Cliente */}
                 <FormField control={form.control} name="cliente" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Cliente</FormLabel>
-                    <FormControl><Input data-testid="input-cliente" {...field} /></FormControl>
+                    <FormControl><Input data-testid="input-cliente" placeholder="Nombre del cliente o empresa" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
+
+                {/* Persona Contacto + Número Cel */}
+                <div className="grid grid-cols-2 gap-4">
+                  <FormField control={form.control} name="personaContacto" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Persona de Contacto</FormLabel>
+                      <FormControl><Input data-testid="input-contacto" placeholder="Nombre del contacto" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="numeroCel" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Número Celular</FormLabel>
+                      <FormControl><Input data-testid="input-cel" placeholder="+52 55 0000 0000" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+
+                {/* Destino */}
                 <FormField control={form.control} name="destino" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Destino</FormLabel>
-                    <FormControl><Input data-testid="input-destino" {...field} /></FormControl>
+                    <FormControl><Input data-testid="input-destino" placeholder="Ciudad o dirección de entrega" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
+
+                {/* Tipo de Material */}
+                <FormField control={form.control} name="tipoMaterial" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Tipo de Material</FormLabel>
+                    <FormControl><Input data-testid="input-material" placeholder="Ej. Cajas NAP, Bobinas, Pallets..." {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+
+                {/* Peso + Volumen */}
                 <div className="grid grid-cols-2 gap-4">
                   <FormField control={form.control} name="pesoTotal" render={({ field }) => (
                     <FormItem>
@@ -142,6 +218,8 @@ export default function Ventas() {
                     </FormItem>
                   )} />
                 </div>
+
+                {/* Estado (solo al editar) */}
                 {editingSale && (
                   <FormField control={form.control} name="estado" render={({ field }) => (
                     <FormItem>
@@ -161,14 +239,17 @@ export default function Ventas() {
                     </FormItem>
                   )} />
                 )}
+
+                {/* Notas */}
                 <FormField control={form.control} name="notas" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Notas</FormLabel>
-                    <FormControl><Input data-testid="input-notas" {...field} /></FormControl>
+                    <FormControl><Input data-testid="input-notas" placeholder="Instrucciones especiales, urgencia, etc." {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
                 )} />
-                <div className="flex justify-end pt-4">
+
+                <div className="flex justify-end pt-2">
                   <Button data-testid="button-submit-sale" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
                     {editingSale ? "Actualizar" : "Crear"}
                   </Button>
@@ -185,7 +266,8 @@ export default function Ventas() {
             <TableHeader>
               <TableRow>
                 <TableHead>ID</TableHead>
-                <TableHead>Cliente / Destino</TableHead>
+                <TableHead>Cliente / Contacto</TableHead>
+                <TableHead>Destino / Material</TableHead>
                 <TableHead>Carga</TableHead>
                 <TableHead>Estado</TableHead>
                 <TableHead className="w-[100px]"></TableHead>
@@ -193,15 +275,26 @@ export default function Ventas() {
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center">Cargando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
               ) : sales?.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">Sin órdenes registradas.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Sin órdenes registradas.</TableCell></TableRow>
               ) : sales?.map((sale) => (
                 <TableRow key={sale.id} data-testid={`row-sale-${sale.id}`}>
                   <TableCell className="font-medium">#{sale.id}</TableCell>
                   <TableCell>
                     <div className="font-medium">{sale.cliente}</div>
-                    <div className="text-sm text-muted-foreground">{sale.destino}</div>
+                    {sale.personaContacto && (
+                      <div className="text-xs text-muted-foreground">{sale.personaContacto}{sale.numeroCel ? ` · ${sale.numeroCel}` : ""}</div>
+                    )}
+                    {sale.vendedor && (
+                      <div className="text-xs text-muted-foreground/70">Vend: {sale.vendedor}</div>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">{sale.destino}</div>
+                    {sale.tipoMaterial && (
+                      <div className="text-xs text-muted-foreground">{sale.tipoMaterial}</div>
+                    )}
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">{sale.pesoTotal} kg</div>

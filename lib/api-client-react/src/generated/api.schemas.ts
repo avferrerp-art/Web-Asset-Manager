@@ -81,6 +81,14 @@ export interface PersonnelUpdate {
 export interface Sale {
   id: number;
   cliente: string;
+  /** @nullable */
+  vendedor?: string | null;
+  /** @nullable */
+  personaContacto?: string | null;
+  /** @nullable */
+  numeroCel?: string | null;
+  /** @nullable */
+  tipoMaterial?: string | null;
   volumenTotal: number;
   pesoTotal: number;
   destino: string;
@@ -93,6 +101,10 @@ export interface Sale {
 
 export interface SaleInput {
   cliente: string;
+  vendedor?: string;
+  personaContacto?: string;
+  numeroCel?: string;
+  tipoMaterial?: string;
   volumenTotal: number;
   pesoTotal: number;
   destino: string;
@@ -102,6 +114,10 @@ export interface SaleInput {
 
 export interface SaleUpdate {
   cliente?: string;
+  vendedor?: string;
+  personaContacto?: string;
+  numeroCel?: string;
+  tipoMaterial?: string;
   volumenTotal?: number;
   pesoTotal?: number;
   destino?: string;

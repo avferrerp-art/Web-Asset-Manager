@@ -5,6 +5,10 @@ import { z } from "zod/v4";
 export const salesTable = pgTable("sales", {
   id: serial("id").primaryKey(),
   cliente: text("cliente").notNull(),
+  vendedor: text("vendedor"),
+  personaContacto: text("persona_contacto"),
+  numeroCel: text("numero_cel"),
+  tipoMaterial: text("tipo_material"),
   volumenTotal: real("volumen_total").notNull(),
   pesoTotal: real("peso_total").notNull(),
   destino: text("destino").notNull(),

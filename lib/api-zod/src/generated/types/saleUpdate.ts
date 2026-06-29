@@ -8,6 +8,10 @@
 
 export interface SaleUpdate {
   cliente?: string;
+  vendedor?: string;
+  personaContacto?: string;
+  numeroCel?: string;
+  tipoMaterial?: string;
   volumenTotal?: number;
   pesoTotal?: number;
   destino?: string;

@@ -868,6 +868,14 @@ components:
           type: integer
         cliente:
           type: string
+        vendedor:
+          type: ["string", "null"]
+        personaContacto:
+          type: ["string", "null"]
+        numeroCel:
+          type: ["string", "null"]
+        tipoMaterial:
+          type: ["string", "null"]
         volumenTotal:
           type: number
         pesoTotal:
@@ -888,6 +896,14 @@ components:
       properties:
         cliente:
           type: string
+        vendedor:
+          type: string
+        personaContacto:
+          type: string
+        numeroCel:
+          type: string
+        tipoMaterial:
+          type: string
         volumenTotal:
           type: number
         pesoTotal:
@@ -903,6 +919,14 @@ components:
       type: object
       properties:
         cliente:
+          type: string
+        vendedor:
+          type: string
+        personaContacto:
+          type: string
+        numeroCel:
+          type: string
+        tipoMaterial:
           type: string
         volumenTotal:
           type: number

@@ -9,6 +9,14 @@
 export interface Sale {
   id: number;
   cliente: string;
+  /** @nullable */
+  vendedor?: string | null;
+  /** @nullable */
+  personaContacto?: string | null;
+  /** @nullable */
+  numeroCel?: string | null;
+  /** @nullable */
+  tipoMaterial?: string | null;
   volumenTotal: number;
   pesoTotal: number;
   destino: string;
