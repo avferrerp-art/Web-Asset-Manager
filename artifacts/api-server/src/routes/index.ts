@@ -6,6 +6,7 @@ import salesRouter from "./sales";
 import dispatchesRouter from "./dispatches";
 import tollsRouter from "./tolls";
 import dashboardRouter from "./dashboard";
+import ordersExtractRouter from "./orders/extract";
 
 const router: IRouter = Router();
 
@@ -16,5 +17,6 @@ router.use(salesRouter);
 router.use(dispatchesRouter);
 router.use(tollsRouter);
 router.use(dashboardRouter);
+router.use(ordersExtractRouter);
 
 export default router;

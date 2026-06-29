@@ -5,6 +5,10 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
+export interface ErrorResponse {
+  error: string;
+}
+
 export interface HealthStatus {
   status: string;
 }
@@ -301,6 +305,23 @@ export interface VehicleScheduleEntry {
   modelo: string;
   tipo: string;
   diasOcupados: ScheduleDay[];
+}
+
+export interface ExtractedOrderData {
+  /** @nullable */
+  cliente?: string | null;
+  /** @nullable */
+  vendedor?: string | null;
+  /** @nullable */
+  destino?: string | null;
+  /** @nullable */
+  tipoMaterial?: string | null;
+  /** @nullable */
+  notas?: string | null;
+  /** @nullable */
+  fechaEntrega?: string | null;
+  /** @nullable */
+  numeroOrden?: string | null;
 }
 
 export interface ActiveDispatch {

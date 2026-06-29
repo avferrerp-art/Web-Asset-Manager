@@ -13,6 +13,8 @@ export * from './dispatch';
 export * from './dispatchDetail';
 export * from './dispatchInput';
 export * from './dispatchUpdate';
+export * from './errorResponse';
+export * from './extractedOrderData';
 export * from './getVehicleScheduleParams';
 export * from './healthStatus';
 export * from './listDispatchesParams';

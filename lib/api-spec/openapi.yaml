@@ -731,6 +731,13 @@ paths:
 
 components:
   schemas:
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+
     HealthStatus:
       type: object
       properties:
@@ -1247,6 +1254,24 @@ components:
           type: string
         destino:
           type: string
+
+    ExtractedOrderData:
+      type: object
+      properties:
+        cliente:
+          type: ["string", "null"]
+        vendedor:
+          type: ["string", "null"]
+        destino:
+          type: ["string", "null"]
+        tipoMaterial:
+          type: ["string", "null"]
+        notas:
+          type: ["string", "null"]
+        fechaEntrega:
+          type: ["string", "null"]
+        numeroOrden:
+          type: ["string", "null"]
 
     ActiveDispatch:
       type: object

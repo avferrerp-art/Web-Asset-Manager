@@ -1,11 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   useListSales, getListSalesQueryKey,
   useCreateSale, useUpdateSale, useDeleteSale
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2 } from "lucide-react";
+import { Plus, Edit2, Trash2, Upload, Loader2, FileText, X } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertDescription } from "@/components/ui/alert";
 
 const saleSchema = z.object({
   cliente: z.string().min(1, "Requerido"),
@@ -43,6 +44,10 @@ export default function Ventas() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<any>(null);
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
+  const [extractError, setExtractError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const { data: sales, isLoading } = useListSales(undefined, {
     query: { queryKey: getListSalesQueryKey() }
@@ -68,6 +73,47 @@ export default function Ventas() {
     }
   });
 
+  const handleFileUpload = async (file: File) => {
+    setIsExtracting(true);
+    setExtractError(null);
+    setUploadedFileName(file.name);
+
+    const formData = new FormData();
+    formData.append("file", file);
+
+    try {
+      const response = await fetch("/api/orders/extract", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setExtractError(data.error ?? "Error al procesar el documento.");
+        return;
+      }
+
+      // Pre-fill form with extracted data (only if the field has a value)
+      if (data.cliente) form.setValue("cliente", data.cliente);
+      if (data.vendedor) form.setValue("vendedor", data.vendedor);
+      if (data.destino) form.setValue("destino", data.destino);
+      if (data.tipoMaterial) form.setValue("tipoMaterial", data.tipoMaterial);
+
+      // Build notes from order reference + delivery date
+      const notasParts: string[] = [];
+      if (data.notas) notasParts.push(data.notas);
+      if (data.fechaEntrega) notasParts.push(`Entrega: ${data.fechaEntrega}`);
+      if (notasParts.length > 0) form.setValue("notas", notasParts.join(" | "));
+
+      toast({ title: "Orden procesada correctamente", description: "Los campos han sido completados automáticamente." });
+    } catch {
+      setExtractError("Error de conexión al procesar el archivo.");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   const onSubmit = (values: z.infer<typeof saleSchema>) => {
     if (editingSale) {
       updateMutation.mutate({ id: editingSale.id, data: values }, {
@@ -90,6 +136,8 @@ export default function Ventas() {
 
   const handleEdit = (sale: any) => {
     setEditingSale(sale);
+    setUploadedFileName(null);
+    setExtractError(null);
     form.reset({
       cliente: sale.cliente,
       vendedor: sale.vendedor || "",
@@ -116,6 +164,17 @@ export default function Ventas() {
     }
   };
 
+  const handleDialogClose = (open: boolean) => {
+    setIsDialogOpen(open);
+    if (!open) {
+      setEditingSale(null);
+      setUploadedFileName(null);
+      setExtractError(null);
+      form.reset();
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
@@ -123,19 +182,84 @@ export default function Ventas() {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Órdenes de Venta</h1>
           <p className="text-muted-foreground">Gestión de solicitudes de entrega.</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={(open) => {
-          setIsDialogOpen(open);
-          if (!open) { setEditingSale(null); form.reset(); }
-        }}>
+        <Dialog open={isDialogOpen} onOpenChange={handleDialogClose}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-sale" className="gap-2">
               <Plus className="w-4 h-4" /> Nueva Orden
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[580px]">
+          <DialogContent className="sm:max-w-[580px] max-h-[90vh] overflow-y-auto">
             <DialogHeader>
               <DialogTitle>{editingSale ? "Editar Orden" : "Nueva Orden"}</DialogTitle>
             </DialogHeader>
+
+            {/* PDF Upload Section (only for new orders) */}
+            {!editingSale && (
+              <div className="space-y-2">
+                <div
+                  className={`border-2 border-dashed rounded-lg p-4 transition-colors cursor-pointer hover:bg-muted/30 ${
+                    isExtracting ? "opacity-60 pointer-events-none" : "border-muted-foreground/30 hover:border-primary/50"
+                  }`}
+                  onClick={() => fileInputRef.current?.click()}
+                  onDragOver={(e) => e.preventDefault()}
+                  onDrop={(e) => {
+                    e.preventDefault();
+                    const file = e.dataTransfer.files[0];
+                    if (file) handleFileUpload(file);
+                  }}
+                >
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".pdf"
+                    className="hidden"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) handleFileUpload(file);
+                    }}
+                  />
+                  <div className="flex flex-col items-center gap-2 text-center">
+                    {isExtracting ? (
+                      <>
+                        <Loader2 className="w-8 h-8 text-primary animate-spin" />
+                        <p className="text-sm font-medium text-foreground">Procesando orden con IA...</p>
+                        <p className="text-xs text-muted-foreground">Extrayendo datos del documento</p>
+                      </>
+                    ) : uploadedFileName ? (
+                      <>
+                        <FileText className="w-8 h-8 text-green-500" />
+                        <p className="text-sm font-medium text-foreground">{uploadedFileName}</p>
+                        <p className="text-xs text-muted-foreground">Haz clic para reemplazar</p>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-8 h-8 text-muted-foreground" />
+                        <p className="text-sm font-medium text-foreground">Cargar orden PDF</p>
+                        <p className="text-xs text-muted-foreground">
+                          Arrastra un PDF o haz clic para seleccionar · Los campos se pre-llenarán automáticamente
+                        </p>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {extractError && (
+                  <Alert variant="destructive" className="py-2">
+                    <AlertDescription className="flex items-center justify-between">
+                      <span className="text-sm">{extractError}</span>
+                      <button onClick={() => setExtractError(null)}><X className="w-4 h-4" /></button>
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {uploadedFileName && !isExtracting && !extractError && (
+                  <p className="text-xs text-green-600 text-center">
+                    ✓ Datos extraídos. Revisa y completa los campos manuales (peso, volumen, contacto).
+                  </p>
+                )}
+              </div>
+            )}
+
             <Form {...form}>
               <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
 
@@ -250,7 +374,7 @@ export default function Ventas() {
                 )} />
 
                 <div className="flex justify-end pt-2">
-                  <Button data-testid="button-submit-sale" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
+                  <Button data-testid="button-submit-sale" type="submit" disabled={createMutation.isPending || updateMutation.isPending || isExtracting}>
                     {editingSale ? "Actualizar" : "Crear"}
                   </Button>
                 </div>
