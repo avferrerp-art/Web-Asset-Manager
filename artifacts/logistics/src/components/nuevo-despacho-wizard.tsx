@@ -7,6 +7,7 @@ import {
   useCreateDispatch, getListDispatchesQueryKey,
   useUpdateDispatch,
 } from "@workspace/api-client-react";
+import type { DispatchInput } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -143,7 +144,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
   }
 
   function handleRouteChange(val: string) {
-    const id = val === "0" ? 0 : parseInt(val);
+    const id = parseInt(val);
     const route = routes?.find((r) => r.id === id);
     setAssignment((prev) => ({
       ...prev,
@@ -156,6 +157,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     return (
       assignment.vehiculoId > 0 &&
       assignment.choferId > 0 &&
+      assignment.routeId > 0 &&
       assignment.distanciaKm > 0 &&
       assignment.fechaEstimadaSalida &&
       assignment.fechaEstimadaLlegada
@@ -164,7 +166,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
 
   function handleApprove() {
     if (!selectedSale) return;
-    const payload: Record<string, unknown> = {
+    const payload: DispatchInput = {
       ventaId: selectedSale.id,
       vehiculoId: assignment.vehiculoId,
       choferId: assignment.choferId,
@@ -172,15 +174,13 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
       fechaEstimadaLlegada: assignment.fechaEstimadaLlegada,
       ruta: selectedSale.destino,
       distanciaKm: assignment.distanciaKm,
+      routeId: assignment.routeId,
+      totalPeajes: costoPeajes,
+      ...(assignment.ayudanteId > 0 ? { ayudanteId: assignment.ayudanteId } : {}),
     };
-    if (assignment.ayudanteId > 0) payload.ayudanteId = assignment.ayudanteId;
-    if (assignment.routeId > 0) {
-      payload.routeId = assignment.routeId;
-      payload.totalPeajes = costoPeajes;
-    }
 
     createDispatch.mutate(
-      { data: payload as any },
+      { data: payload },
       {
         onSuccess: (dispatch) => {
           if (marcarEnRuta) {
@@ -367,18 +367,16 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
             {/* Route */}
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5 text-sm">
-                <RouteIcon className="w-3.5 h-3.5" /> Ruta predefinida{" "}
-                <span className="font-normal text-muted-foreground">(opcional)</span>
+                <RouteIcon className="w-3.5 h-3.5" /> Ruta <span className="text-destructive">*</span>
               </Label>
               <Select
-                value={assignment.routeId > 0 ? assignment.routeId.toString() : "0"}
+                value={assignment.routeId > 0 ? assignment.routeId.toString() : ""}
                 onValueChange={handleRouteChange}
               >
                 <SelectTrigger data-testid="wizard-select-ruta">
-                  <SelectValue placeholder="Sin ruta asignada" />
+                  <SelectValue placeholder="Seleccionar ruta" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="0">Sin ruta asignada</SelectItem>
                   {routes?.map((r) => (
                     <SelectItem key={r.id} value={r.id.toString()}>
                       {r.nombre ? `${r.nombre} — ` : ""}
