@@ -1291,6 +1291,10 @@ components:
           type: string
         distanciaKm:
           type: number
+        routeId:
+          type: integer
+        totalPeajes:
+          type: number
         routePoints:
           type: array
           items:

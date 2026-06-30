@@ -384,6 +384,8 @@ export const CreateDispatchBody = zod.object({
   "fechaEstimadaLlegada": zod.string(),
   "ruta": zod.string().optional(),
   "distanciaKm": zod.number().optional(),
+  "routeId": zod.number().optional(),
+  "totalPeajes": zod.number().optional(),
   "routePoints": zod.array(zod.object({
   "ubicacion": zod.string(),
   "orden": zod.number(),
