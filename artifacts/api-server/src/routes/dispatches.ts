@@ -59,12 +59,13 @@ router.post("/dispatches", async (req, res): Promise<void> => {
   const { routePoints, ...dispatchData } = parsed.data;
   const [dispatch] = await db.insert(dispatchesTable).values(dispatchData).returning();
 
+  const initialPeajes = dispatch.totalPeajes ?? 0;
   await db.insert(travelCostsTable).values({
     despachoId: dispatch.id,
-    costoPeajes: 0,
+    costoPeajes: initialPeajes,
     costoCombustible: 0,
     costoViaticos: 0,
-    total: 0,
+    total: initialPeajes,
   });
 
   if (routePoints && routePoints.length > 0) {

@@ -3,6 +3,7 @@ import {
   useListSales, getListSalesQueryKey,
   useListVehicles, getListVehiclesQueryKey,
   useListPersonnel, getListPersonnelQueryKey,
+  useListRoutes, getListRoutesQueryKey,
   useCreateDispatch, getListDispatchesQueryKey
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +18,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Truck } from "lucide-react";
+import { Truck, Route as RouteIcon } from "lucide-react";
 
 const dispatchSchema = z.object({
   vehiculoId: z.coerce.number().min(1, "Requerido"),
@@ -26,7 +27,8 @@ const dispatchSchema = z.object({
   fechaEstimadaSalida: z.string().min(1, "Requerido"),
   fechaEstimadaLlegada: z.string().min(1, "Requerido"),
   ruta: z.string().optional(),
-  distanciaKm: z.coerce.number().min(1, "Requerido")
+  distanciaKm: z.coerce.number().min(1, "Requerido"),
+  routeId: z.coerce.number().optional(),
 });
 
 export default function PreDespacho() {
@@ -47,6 +49,10 @@ export default function PreDespacho() {
     query: { queryKey: getListPersonnelQueryKey() }
   });
 
+  const { data: routes } = useListRoutes({
+    query: { queryKey: getListRoutesQueryKey() }
+  });
+
   const createDispatchMutation = useCreateDispatch();
 
   const form = useForm<z.infer<typeof dispatchSchema>>({
@@ -57,7 +63,8 @@ export default function PreDespacho() {
       fechaEstimadaSalida: "",
       fechaEstimadaLlegada: "",
       ruta: "",
-      distanciaKm: 0
+      distanciaKm: 0,
+      routeId: undefined,
     }
   });
 
@@ -67,10 +74,12 @@ export default function PreDespacho() {
   const watchedDistancia = form.watch("distanciaKm");
   const watchedSalida = form.watch("fechaEstimadaSalida");
   const watchedLlegada = form.watch("fechaEstimadaLlegada");
+  const watchedRouteId = form.watch("routeId");
 
   const selectedVehicle = vehicles?.find(v => v.id === Number(watchedVehicleId));
   const selectedChofer = personnel?.find(p => p.id === Number(watchedChoferId));
   const selectedAyudante = personnel?.find(p => p.id === Number(watchedAyudanteId));
+  const selectedRoute = routes?.find(r => r.id === Number(watchedRouteId));
 
   const dias = watchedSalida && watchedLlegada
     ? Math.max(1, Math.ceil((new Date(watchedLlegada).getTime() - new Date(watchedSalida).getTime()) / (1000 * 60 * 60 * 24)))
@@ -81,15 +90,24 @@ export default function PreDespacho() {
     : 0;
   const costoCombustible = litros * 1.5;
   const costoViaticos = dias * ((selectedChofer?.tarifaViaticos ?? 0) + (selectedAyudante?.tarifaViaticos ?? 0));
-  const totalEstimado = costoCombustible + costoViaticos;
+
+  const costoPeajes =
+    selectedRoute != null && selectedVehicle?.tarifaPeaje != null
+      ? (selectedRoute.tolls?.length ?? 0) * selectedVehicle.tarifaPeaje
+      : null;
+
+  const totalEstimado = costoCombustible + costoViaticos + (costoPeajes ?? 0);
 
   const onSubmit = (values: z.infer<typeof dispatchSchema>) => {
     if (!selectedSale) return;
-    const payload = { ...values, ventaId: selectedSale.id };
-    if (!payload.ayudanteId || payload.ayudanteId === 0) {
-      delete (payload as any).ayudanteId;
+    const payload: Record<string, unknown> = { ...values, ventaId: selectedSale.id };
+    if (!payload.ayudanteId || payload.ayudanteId === 0) delete payload.ayudanteId;
+    if (!payload.routeId || payload.routeId === 0) {
+      delete payload.routeId;
+    } else if (costoPeajes != null) {
+      payload.totalPeajes = costoPeajes;
     }
-    createDispatchMutation.mutate({ data: payload }, {
+    createDispatchMutation.mutate({ data: payload as unknown as Parameters<typeof createDispatchMutation.mutate>[0]["data"] }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListDispatchesQueryKey() });
@@ -105,13 +123,20 @@ export default function PreDespacho() {
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
+
+    const matchingRoute = routes?.find(r =>
+      r.destino.toLowerCase().includes(sale.destino.toLowerCase()) ||
+      sale.destino.toLowerCase().includes(r.destino.toLowerCase())
+    );
+
     form.reset({
       vehiculoId: bestVehicle ? bestVehicle.id : (vehicles?.[0]?.id ?? 0),
       choferId: 0,
       fechaEstimadaSalida: today.toISOString().slice(0, 16),
       fechaEstimadaLlegada: tomorrow.toISOString().slice(0, 16),
       ruta: sale.destino,
-      distanciaKm: 100
+      distanciaKm: matchingRoute?.distanciaKm ?? 100,
+      routeId: matchingRoute?.id ?? undefined,
     });
   };
 
@@ -165,7 +190,7 @@ export default function PreDespacho() {
       </Card>
 
       <Dialog open={!!selectedSale} onOpenChange={(open) => !open && setSelectedSale(null)}>
-        <DialogContent className="sm:max-w-[700px]">
+        <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Configurar Despacho — Orden #{selectedSale?.id}</DialogTitle>
           </DialogHeader>
@@ -181,6 +206,46 @@ export default function PreDespacho() {
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+
+              {/* Ruta predefinida */}
+              <FormField control={form.control} name="routeId" render={({ field }) => (
+                <FormItem>
+                  <FormLabel className="flex items-center gap-1.5">
+                    <RouteIcon className="w-3.5 h-3.5" />
+                    Ruta predefinida <span className="text-muted-foreground font-normal">(opcional)</span>
+                  </FormLabel>
+                  <Select
+                    onValueChange={(v) => {
+                      const id = v === "0" ? undefined : parseInt(v);
+                      field.onChange(id);
+                      if (id) {
+                        const route = routes?.find(r => r.id === id);
+                        if (route?.distanciaKm) {
+                          form.setValue("distanciaKm", route.distanciaKm);
+                        }
+                      }
+                    }}
+                    value={field.value?.toString() ?? "0"}
+                  >
+                    <FormControl>
+                      <SelectTrigger data-testid="select-ruta">
+                        <SelectValue placeholder="Sin ruta asignada" />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="0">Sin ruta asignada</SelectItem>
+                      {routes?.map(r => (
+                        <SelectItem key={r.id} value={r.id.toString()}>
+                          {r.nombre ? `${r.nombre} — ` : ""}{r.origen} → {r.destino}
+                          {r.tolls?.length ? ` (${r.tolls.length} caseta${r.tolls.length !== 1 ? "s" : ""})` : ""}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
+
               <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="vehiculoId" render={({ field }) => (
                   <FormItem>
@@ -262,6 +327,18 @@ export default function PreDespacho() {
                 )} />
               </div>
 
+              {/* Detalle de casetas cuando hay ruta seleccionada */}
+              {selectedRoute && costoPeajes != null && (
+                <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2 border border-border/50">
+                  <RouteIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
+                  <span className="text-muted-foreground">Peajes calculados:</span>
+                  <span className="font-semibold">${costoPeajes.toFixed(2)}</span>
+                  <span className="text-xs text-muted-foreground">
+                    ({selectedRoute.tolls?.length ?? 0} caseta{(selectedRoute.tolls?.length ?? 0) !== 1 ? "s" : ""} × ${selectedVehicle?.tarifaPeaje?.toFixed(2) ?? "0.00"}/caseta)
+                  </span>
+                </div>
+              )}
+
               <div className="bg-primary/10 border border-primary/20 p-4 rounded-md">
                 <h4 className="font-semibold mb-3 flex items-center gap-2 text-sm">
                   <Truck className="w-4 h-4" /> Estimación de Costos
@@ -279,7 +356,14 @@ export default function PreDespacho() {
                   </div>
                   <div className="text-center p-2 bg-background rounded border border-border">
                     <div className="text-xs text-muted-foreground">Peajes</div>
-                    <div className="font-bold text-sm text-muted-foreground">Al guardar</div>
+                    {costoPeajes != null ? (
+                      <>
+                        <div className="font-bold text-sm">${costoPeajes.toFixed(2)}</div>
+                        <div className="text-[10px] text-muted-foreground">{selectedRoute?.tolls?.length ?? 0} caseta(s)</div>
+                      </>
+                    ) : (
+                      <div className="font-bold text-sm text-muted-foreground">—</div>
+                    )}
                   </div>
                   <div className="text-center p-2 bg-primary/20 rounded border border-primary/30">
                     <div className="text-xs text-muted-foreground">Total Est.</div>
