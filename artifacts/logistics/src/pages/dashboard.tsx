@@ -9,10 +9,11 @@ import {
   useGetVehicleSchedule,
   getGetVehicleScheduleQueryKey,
 } from "@workspace/api-client-react";
-import { Truck, AlertCircle, CheckCircle2, MapPin, ChevronLeft, ChevronRight, RefreshCw } from "lucide-react";
+import { Truck, AlertCircle, CheckCircle2, MapPin, ChevronLeft, ChevronRight, RefreshCw, Plus } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { NuevoDespachoWizard } from "@/components/nuevo-despacho-wizard";
 
 function getWeekStart(offset = 0): string {
   const d = new Date();
@@ -35,6 +36,7 @@ export default function Dashboard() {
   const [, setLocation] = useLocation();
   const [weekOffset, setWeekOffset] = useState(0);
   const [gpsDispatch, setGpsDispatch] = useState<any>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const weekStart = getWeekStart(weekOffset);
 
@@ -78,11 +80,20 @@ export default function Dashboard() {
       <div className="flex flex-col gap-1">
         <div className="flex items-center justify-between">
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Torre de Control</h1>
-          {lastUpdate && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1">
-              <RefreshCw className="w-3 h-3" /> Actualizado: {lastUpdate}
-            </span>
-          )}
+          <div className="flex items-center gap-3">
+            {lastUpdate && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" /> Actualizado: {lastUpdate}
+              </span>
+            )}
+            <Button
+              data-testid="button-nuevo-despacho"
+              onClick={() => setWizardOpen(true)}
+              className="gap-2"
+            >
+              <Plus className="w-4 h-4" /> Nuevo Despacho
+            </Button>
+          </div>
         </div>
         <p className="text-muted-foreground">Resumen de flota y operaciones activas.</p>
       </div>
@@ -324,6 +335,8 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      <NuevoDespachoWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
       {/* GPS Modal */}
       <Dialog open={!!gpsDispatch} onOpenChange={(open) => !open && setGpsDispatch(null)}>

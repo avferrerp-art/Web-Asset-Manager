@@ -18,7 +18,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Truck, Route as RouteIcon } from "lucide-react";
+import { Truck, Route as RouteIcon, Plus } from "lucide-react";
+import { NuevoDespachoWizard } from "@/components/nuevo-despacho-wizard";
 
 const dispatchSchema = z.object({
   vehiculoId: z.coerce.number().min(1, "Requerido"),
@@ -35,6 +36,7 @@ export default function PreDespacho() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [selectedSale, setSelectedSale] = useState<any>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -144,10 +146,20 @@ export default function PreDespacho() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight text-foreground">Pre-Despacho</h1>
-        <p className="text-muted-foreground">Autorizar envíos pendientes y asignar recursos.</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">Pre-Despacho</h1>
+          <p className="text-muted-foreground">Autorizar envíos pendientes y asignar recursos.</p>
+        </div>
+        <Button
+          data-testid="button-nuevo-despacho-predespacho"
+          onClick={() => setWizardOpen(true)}
+          className="gap-2 shrink-0"
+        >
+          <Plus className="w-4 h-4" /> Nuevo Despacho
+        </Button>
       </div>
+      <NuevoDespachoWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
       <Card>
         <CardHeader>
