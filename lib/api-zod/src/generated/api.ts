@@ -343,6 +343,95 @@ export const DeleteSaleResponse = zod.void()
 
 
 /**
+ * @summary List items for a sale
+ */
+export const ListSaleItemsParams = zod.object({
+  "saleId": zod.coerce.number()
+})
+
+export const ListSaleItemsResponseItem = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "descripcion": zod.string(),
+  "cantidad": zod.number(),
+  "pesoUnitario": zod.number(),
+  "largo": zod.number(),
+  "ancho": zod.number(),
+  "alto": zod.number(),
+  "createdAt": zod.string()
+})
+export const ListSaleItemsResponse = zod.array(ListSaleItemsResponseItem)
+
+
+/**
+ * @summary Add an item to a sale
+ */
+export const CreateSaleItemParams = zod.object({
+  "saleId": zod.coerce.number()
+})
+
+export const CreateSaleItemBody = zod.object({
+  "descripcion": zod.string(),
+  "cantidad": zod.number().optional(),
+  "pesoUnitario": zod.number().optional(),
+  "largo": zod.number().optional(),
+  "ancho": zod.number().optional(),
+  "alto": zod.number().optional()
+})
+
+export const CreateSaleItemResponse = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "descripcion": zod.string(),
+  "cantidad": zod.number(),
+  "pesoUnitario": zod.number(),
+  "largo": zod.number(),
+  "ancho": zod.number(),
+  "alto": zod.number(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Update a sale item
+ */
+export const UpdateSaleItemParams = zod.object({
+  "itemId": zod.coerce.number()
+})
+
+export const UpdateSaleItemBody = zod.object({
+  "descripcion": zod.string(),
+  "cantidad": zod.number().optional(),
+  "pesoUnitario": zod.number().optional(),
+  "largo": zod.number().optional(),
+  "ancho": zod.number().optional(),
+  "alto": zod.number().optional()
+})
+
+export const UpdateSaleItemResponse = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "descripcion": zod.string(),
+  "cantidad": zod.number(),
+  "pesoUnitario": zod.number(),
+  "largo": zod.number(),
+  "ancho": zod.number(),
+  "alto": zod.number(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a sale item
+ */
+export const DeleteSaleItemParams = zod.object({
+  "itemId": zod.coerce.number()
+})
+
+export const DeleteSaleItemResponse = zod.void()
+
+
+/**
  * @summary List all dispatches
  */
 export const ListDispatchesQueryParams = zod.object({

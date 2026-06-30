@@ -9,3 +9,4 @@ export * from "./route_tolls";
 export * from "./route_waypoints";
 export * from "./conversations";
 export * from "./messages";
+export * from "./sale_items";

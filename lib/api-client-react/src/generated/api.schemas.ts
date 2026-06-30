@@ -143,6 +143,27 @@ export interface SaleUpdate {
   notas?: string;
 }
 
+export interface SaleItem {
+  id: number;
+  ventaId: number;
+  descripcion: string;
+  cantidad: number;
+  pesoUnitario: number;
+  largo: number;
+  ancho: number;
+  alto: number;
+  createdAt: string;
+}
+
+export interface SaleItemInput {
+  descripcion: string;
+  cantidad?: number;
+  pesoUnitario?: number;
+  largo?: number;
+  ancho?: number;
+  alto?: number;
+}
+
 export interface Dispatch {
   id: number;
   ventaId: number;

@@ -35,6 +35,8 @@ export * from './routeWaypointInput';
 export * from './routeWaypointUpdate';
 export * from './sale';
 export * from './saleInput';
+export * from './saleItem';
+export * from './saleItemInput';
 export * from './saleUpdate';
 export * from './scheduleDay';
 export * from './tollRoute';

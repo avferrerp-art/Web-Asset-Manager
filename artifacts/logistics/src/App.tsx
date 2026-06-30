@@ -11,6 +11,7 @@ import Ventas from "@/pages/ventas";
 import Vehiculos from "@/pages/vehiculos";
 import Personal from "@/pages/personal";
 import Rutas from "@/pages/rutas";
+import Carga from "@/pages/carga";
 
 const queryClient = new QueryClient();
 
@@ -25,6 +26,7 @@ function Router() {
         <Route path="/vehiculos" component={Vehiculos} />
         <Route path="/personal" component={Personal} />
         <Route path="/rutas" component={Rutas} />
+        <Route path="/carga" component={Carga} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

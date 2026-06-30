@@ -8,6 +8,7 @@ import tollsRouter from "./tolls";
 import routesRouter from "./routes";
 import dashboardRouter from "./dashboard";
 import ordersExtractRouter from "./orders/extract";
+import saleItemsRouter from "./sale-items";
 
 const router: IRouter = Router();
 
@@ -15,6 +16,7 @@ router.use(healthRouter);
 router.use(vehiclesRouter);
 router.use(personnelRouter);
 router.use(salesRouter);
+router.use(saleItemsRouter);
 router.use(dispatchesRouter);
 router.use(tollsRouter);
 router.use(routesRouter);

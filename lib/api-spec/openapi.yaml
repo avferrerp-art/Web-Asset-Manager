@@ -328,6 +328,93 @@ paths:
         "404":
           description: Not found
 
+  # --- SALE ITEMS ---
+  /sales/{saleId}/items:
+    get:
+      operationId: listSaleItems
+      tags: [sales]
+      summary: List items for a sale
+      parameters:
+        - name: saleId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of sale items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SaleItem"
+    post:
+      operationId: createSaleItem
+      tags: [sales]
+      summary: Add an item to a sale
+      parameters:
+        - name: saleId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaleItemInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleItem"
+
+  /sales/items/{itemId}:
+    patch:
+      operationId: updateSaleItem
+      tags: [sales]
+      summary: Update a sale item
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaleItemInput"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleItem"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteSaleItem
+      tags: [sales]
+      summary: Delete a sale item
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
   # --- DISPATCHES ---
   /dispatches:
     get:
@@ -1179,6 +1266,47 @@ components:
           type: string
         notas:
           type: string
+
+    # --- SALE ITEMS ---
+    SaleItem:
+      type: object
+      required: [id, ventaId, descripcion, cantidad, pesoUnitario, largo, ancho, alto, createdAt]
+      properties:
+        id:
+          type: integer
+        ventaId:
+          type: integer
+        descripcion:
+          type: string
+        cantidad:
+          type: integer
+        pesoUnitario:
+          type: number
+        largo:
+          type: number
+        ancho:
+          type: number
+        alto:
+          type: number
+        createdAt:
+          type: string
+
+    SaleItemInput:
+      type: object
+      required: [descripcion]
+      properties:
+        descripcion:
+          type: string
+        cantidad:
+          type: integer
+        pesoUnitario:
+          type: number
+        largo:
+          type: number
+        ancho:
+          type: number
+        alto:
+          type: number
 
     # --- DISPATCHES ---
     Dispatch:

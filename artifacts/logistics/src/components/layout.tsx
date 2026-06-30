@@ -7,7 +7,8 @@ import {
   Users, 
   MapPin, 
   Navigation,
-  FileText
+  FileText,
+  Weight
 } from "lucide-react";
 import {
   Sidebar,
@@ -31,6 +32,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/vehiculos", label: "Vehículos", icon: Truck },
     { href: "/personal", label: "Personal", icon: Users },
     { href: "/rutas", label: "Rutas", icon: MapPin },
+    { href: "/carga", label: "Calc. de Carga", icon: Weight },
   ];
 
   return (
