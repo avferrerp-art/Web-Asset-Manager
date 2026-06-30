@@ -32,6 +32,7 @@ export * from './routeTollInput';
 export * from './routeUpdate';
 export * from './routeWaypoint';
 export * from './routeWaypointInput';
+export * from './routeWaypointUpdate';
 export * from './sale';
 export * from './saleInput';
 export * from './saleUpdate';

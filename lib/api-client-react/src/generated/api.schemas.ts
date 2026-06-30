@@ -368,6 +368,11 @@ export interface RouteWaypointInput {
   orden: number;
 }
 
+export interface RouteWaypointUpdate {
+  ubicacion?: string;
+  orden?: number;
+}
+
 export interface DashboardSummary {
   totalVehiculos: number;
   vehiculosDisponibles: number;

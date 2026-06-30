@@ -8,6 +8,7 @@ import {
   useDeleteRouteToll,
   useAddRouteWaypoint,
   useDeleteRouteWaypoint,
+  useUpdateRouteWaypoint,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +23,8 @@ import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
-  Star, Plus, Trash2, Loader2, MapPin, ArrowRight, Navigation, Edit2, X, Route as RouteIcon
+  Star, Plus, Trash2, Loader2, MapPin, ArrowRight, Navigation, Edit2, X, Route as RouteIcon,
+  ChevronUp, ChevronDown
 } from "lucide-react";
 import {
   AlertDialog,
@@ -175,6 +177,7 @@ function RouteDialog({
   const deleteTollMutation = useDeleteRouteToll();
   const addWaypointMutation = useAddRouteWaypoint();
   const deleteWaypointMutation = useDeleteRouteWaypoint();
+  const updateWaypointMutation = useUpdateRouteWaypoint();
 
   const [tollInput, setTollInput] = useState("");
   const [waypointInput, setWaypointInput] = useState("");
@@ -318,6 +321,36 @@ function RouteDialog({
     );
   };
 
+  const handleMoveWaypoint = (index: number, direction: "up" | "down") => {
+    const routeId = savedRouteId ?? route?.id;
+    if (!routeId) return;
+    const sorted = [...localWaypoints].sort((a, b) => a.orden - b.orden);
+    const swapIndex = direction === "up" ? index - 1 : index + 1;
+    if (swapIndex < 0 || swapIndex >= sorted.length) return;
+
+    const wpA = sorted[index];
+    const wpB = sorted[swapIndex];
+    const ordenA = wpA.orden;
+    const ordenB = wpB.orden;
+
+    setLocalWaypoints((prev) =>
+      prev.map((w) => {
+        if (w.id === wpA.id) return { ...w, orden: ordenB };
+        if (w.id === wpB.id) return { ...w, orden: ordenA };
+        return w;
+      })
+    );
+
+    updateWaypointMutation.mutate(
+      { routeId, waypointId: wpA.id, data: { orden: ordenB } },
+      { onSuccess: () => invalidate() }
+    );
+    updateWaypointMutation.mutate(
+      { routeId, waypointId: wpB.id, data: { orden: ordenA } },
+      { onSuccess: () => invalidate() }
+    );
+  };
+
   const isSaving = createMutation.isPending || updateMutation.isPending;
   const activeRouteId = savedRouteId ?? route?.id;
 
@@ -398,18 +431,40 @@ function RouteDialog({
                   Paradas intermedias
                 </p>
                 <div className="space-y-1.5 mb-3">
-                  {localWaypoints.map((wp) => (
-                    <div key={wp.id} className="flex items-center gap-2 text-sm bg-muted/40 rounded px-2.5 py-1.5">
-                      <span className="text-muted-foreground text-xs w-5">{wp.orden}.</span>
+                  {[...localWaypoints].sort((a, b) => a.orden - b.orden).map((wp, i, arr) => (
+                    <div key={wp.id} className="flex items-center gap-1 text-sm bg-muted/40 rounded px-2.5 py-1.5">
+                      <span className="text-muted-foreground text-xs w-5 shrink-0">{wp.orden}.</span>
                       <span className="flex-1">{wp.ubicacion}</span>
-                      <Button
-                        size="icon"
-                        variant="ghost"
-                        className="h-5 w-5"
-                        onClick={() => handleDeleteWaypoint(activeRouteId, wp.id)}
-                      >
-                        <X className="w-3 h-3 text-destructive/70" />
-                      </Button>
+                      <div className="flex items-center gap-0.5 shrink-0">
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-5 w-5"
+                          disabled={i === 0 || updateWaypointMutation.isPending}
+                          onClick={() => handleMoveWaypoint(i, "up")}
+                          title="Subir"
+                        >
+                          <ChevronUp className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-5 w-5"
+                          disabled={i === arr.length - 1 || updateWaypointMutation.isPending}
+                          onClick={() => handleMoveWaypoint(i, "down")}
+                          title="Bajar"
+                        >
+                          <ChevronDown className="w-3 h-3" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          className="h-5 w-5"
+                          onClick={() => handleDeleteWaypoint(activeRouteId, wp.id)}
+                        >
+                          <X className="w-3 h-3 text-destructive/70" />
+                        </Button>
+                      </div>
                     </div>
                   ))}
                   {localWaypoints.length === 0 && (

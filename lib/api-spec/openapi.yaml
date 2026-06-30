@@ -847,6 +847,36 @@ paths:
                 $ref: "#/components/schemas/RouteWaypoint"
 
   /routes/{routeId}/waypoints/{waypointId}:
+    patch:
+      operationId: updateRouteWaypoint
+      tags: [routes]
+      summary: Update a waypoint (reorder or rename)
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: waypointId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteWaypointUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteWaypoint"
+        "404":
+          description: Not found
     delete:
       operationId: deleteRouteWaypoint
       tags: [routes]
@@ -1531,6 +1561,14 @@ components:
     RouteWaypointInput:
       type: object
       required: [ubicacion, orden]
+      properties:
+        ubicacion:
+          type: string
+        orden:
+          type: integer
+
+    RouteWaypointUpdate:
+      type: object
       properties:
         ubicacion:
           type: string

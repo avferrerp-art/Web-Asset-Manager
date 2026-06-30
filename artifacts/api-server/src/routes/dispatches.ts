@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable } from "@workspace/db";
+import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable } from "@workspace/db";
 import {
   ListDispatchesQueryParams,
   CreateDispatchBody,
@@ -270,16 +270,10 @@ router.get("/dispatches/:id/estimate-costs", async (req, res): Promise<void> => 
 
   const costoViaticos = dias * ((driver?.tarifaViaticos ?? 0) + assistantRate);
 
-  const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, dispatch.ventaId));
-  const allTolls = await db.select().from(tollRoutesTable);
   let costoPeajes = 0;
-  if (sale) {
-    const match = allTolls.find(
-      (t) =>
-        t.destino.toLowerCase().includes(sale.destino.toLowerCase()) ||
-        sale.destino.toLowerCase().includes(t.destino.toLowerCase()),
-    );
-    costoPeajes = 0;
+  if (dispatch.routeId) {
+    const routeTolls = await db.select().from(routeTollsTable).where(eq(routeTollsTable.routeId, dispatch.routeId));
+    costoPeajes = routeTolls.length * (vehicle?.tarifaPeaje ?? 0);
   }
 
   const total = costoCombustible + costoViaticos + costoPeajes;

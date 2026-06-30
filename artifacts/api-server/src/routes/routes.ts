@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, asc } from "drizzle-orm";
+import { eq, and, asc } from "drizzle-orm";
 import { db, tollRoutesTable, routeTollsTable, routeWaypointsTable } from "@workspace/db";
 import {
   CreateRouteBody,
@@ -13,6 +13,8 @@ import {
   AddRouteWaypointParams,
   AddRouteWaypointBody,
   DeleteRouteWaypointParams,
+  UpdateRouteWaypointParams,
+  UpdateRouteWaypointBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -125,7 +127,7 @@ router.delete("/routes/:routeId/tolls/:tollId", async (req, res): Promise<void> 
   }
   const [deleted] = await db
     .delete(routeTollsTable)
-    .where(eq(routeTollsTable.id, params.data.tollId))
+    .where(and(eq(routeTollsTable.id, params.data.tollId), eq(routeTollsTable.routeId, params.data.routeId)))
     .returning();
   if (!deleted) {
     res.status(404).json({ error: "Toll not found" });
@@ -152,6 +154,29 @@ router.post("/routes/:id/waypoints", async (req, res): Promise<void> => {
   res.status(201).json(waypoint);
 });
 
+router.patch("/routes/:routeId/waypoints/:waypointId", async (req, res): Promise<void> => {
+  const params = UpdateRouteWaypointParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = UpdateRouteWaypointBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const [updated] = await db
+    .update(routeWaypointsTable)
+    .set(parsed.data)
+    .where(and(eq(routeWaypointsTable.id, params.data.waypointId), eq(routeWaypointsTable.routeId, params.data.routeId)))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Waypoint not found" });
+    return;
+  }
+  res.json(updated);
+});
+
 router.delete("/routes/:routeId/waypoints/:waypointId", async (req, res): Promise<void> => {
   const params = DeleteRouteWaypointParams.safeParse(req.params);
   if (!params.success) {
@@ -160,7 +185,7 @@ router.delete("/routes/:routeId/waypoints/:waypointId", async (req, res): Promis
   }
   const [deleted] = await db
     .delete(routeWaypointsTable)
-    .where(eq(routeWaypointsTable.id, params.data.waypointId))
+    .where(and(eq(routeWaypointsTable.id, params.data.waypointId), eq(routeWaypointsTable.routeId, params.data.routeId)))
     .returning();
   if (!deleted) {
     res.status(404).json({ error: "Waypoint not found" });

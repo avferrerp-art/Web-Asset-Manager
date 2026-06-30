@@ -955,6 +955,27 @@ export const AddRouteWaypointResponse = zod.object({
 
 
 /**
+ * @summary Update a waypoint (reorder or rename)
+ */
+export const UpdateRouteWaypointParams = zod.object({
+  "routeId": zod.coerce.number(),
+  "waypointId": zod.coerce.number()
+})
+
+export const UpdateRouteWaypointBody = zod.object({
+  "ubicacion": zod.string().optional(),
+  "orden": zod.number().optional()
+})
+
+export const UpdateRouteWaypointResponse = zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "ubicacion": zod.string(),
+  "orden": zod.number()
+})
+
+
+/**
  * @summary Remove a waypoint from a route
  */
 export const DeleteRouteWaypointParams = zod.object({

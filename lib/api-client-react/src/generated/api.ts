@@ -44,6 +44,7 @@ import type {
   RouteUpdate,
   RouteWaypoint,
   RouteWaypointInput,
+  RouteWaypointUpdate,
   Sale,
   SaleInput,
   SaleUpdate,
@@ -3087,6 +3088,79 @@ export const useAddRouteWaypoint = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAddRouteWaypointMutationOptions(options));
+    }
+
+export const getUpdateRouteWaypointUrl = (routeId: number,
+    waypointId: number,) => {
+
+
+
+
+  return `/api/routes/${routeId}/waypoints/${waypointId}`
+}
+
+/**
+ * @summary Update a waypoint (reorder or rename)
+ */
+export const updateRouteWaypoint = async (routeId: number,
+    waypointId: number,
+    routeWaypointUpdate: RouteWaypointUpdate, options?: RequestInit): Promise<RouteWaypoint> => {
+
+  return customFetch<RouteWaypoint>(getUpdateRouteWaypointUrl(routeId,waypointId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(routeWaypointUpdate)
+  }
+);}
+
+
+
+
+export const getUpdateRouteWaypointMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRouteWaypoint>>, TError,{routeId: number;waypointId: number;data: BodyType<RouteWaypointUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateRouteWaypoint>>, TError,{routeId: number;waypointId: number;data: BodyType<RouteWaypointUpdate>}, TContext> => {
+
+const mutationKey = ['updateRouteWaypoint'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateRouteWaypoint>>, {routeId: number;waypointId: number;data: BodyType<RouteWaypointUpdate>}> = (props) => {
+          const {routeId,waypointId,data} = props ?? {};
+
+          return  updateRouteWaypoint(routeId,waypointId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateRouteWaypointMutationResult = NonNullable<Awaited<ReturnType<typeof updateRouteWaypoint>>>
+    export type UpdateRouteWaypointMutationBody = BodyType<RouteWaypointUpdate>
+    export type UpdateRouteWaypointMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a waypoint (reorder or rename)
+ */
+export const useUpdateRouteWaypoint = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRouteWaypoint>>, TError,{routeId: number;waypointId: number;data: BodyType<RouteWaypointUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateRouteWaypoint>>,
+        TError,
+        {routeId: number;waypointId: number;data: BodyType<RouteWaypointUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateRouteWaypointMutationOptions(options));
     }
 
 export const getDeleteRouteWaypointUrl = (routeId: number,
