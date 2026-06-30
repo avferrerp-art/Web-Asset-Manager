@@ -5,6 +5,7 @@ import {
   useUpdateDispatch,
   useListVehicles, getListVehiclesQueryKey,
   useListPersonnel, getListPersonnelQueryKey,
+  useListRoutes, getListRoutesQueryKey,
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -38,6 +39,7 @@ const editSchema = z.object({
   ruta: z.string().optional(),
   distanciaKm: z.coerce.number().min(0).optional(),
   estado: z.string().min(1, "Requerido"),
+  routeId: z.coerce.number().optional(),
 });
 
 function toDatetimeLocal(val: string | null | undefined) {
@@ -67,6 +69,7 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
 
   const { data: vehicles } = useListVehicles({ query: { queryKey: getListVehiclesQueryKey() } });
   const { data: personnel } = useListPersonnel({ query: { queryKey: getListPersonnelQueryKey() } });
+  const { data: routes } = useListRoutes({ query: { queryKey: getListRoutesQueryKey() } });
 
   const updateMutation = useUpdateDispatch();
 
@@ -81,8 +84,19 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
       ruta: "",
       distanciaKm: 0,
       estado: "pre-despacho",
+      routeId: undefined,
     }
   });
+
+  const watchedVehicleId = form.watch("vehiculoId");
+  const watchedRouteId = form.watch("routeId");
+
+  const selectedVehicle = vehicles?.find(v => v.id === watchedVehicleId);
+  const selectedRoute = routes?.find(r => r.id === watchedRouteId);
+  const calculatedTotalPeajes =
+    selectedVehicle?.tarifaPeaje != null && selectedRoute != null
+      ? selectedRoute.tolls.length * selectedVehicle.tarifaPeaje
+      : null;
 
   const startEditing = () => {
     if (!dispatch) return;
@@ -95,6 +109,7 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
       ruta: dispatch.ruta ?? "",
       distanciaKm: dispatch.distanciaKm ?? 0,
       estado: dispatch.estado,
+      routeId: dispatch.routeId ?? undefined,
     });
     setIsEditing(true);
   };
@@ -102,6 +117,8 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
   const onSubmit = (values: z.infer<typeof editSchema>) => {
     const payload: Record<string, unknown> = { ...values };
     if (!payload.ayudanteId || payload.ayudanteId === 0) delete payload.ayudanteId;
+    if (!payload.routeId || payload.routeId === 0) delete payload.routeId;
+    if (calculatedTotalPeajes != null) payload.totalPeajes = calculatedTotalPeajes;
     updateMutation.mutate(
       { id: dispatchId, data: payload as Parameters<typeof updateMutation.mutate>[0]["data"] },
       {
@@ -247,6 +264,41 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
               </FormItem>
             )} />
 
+            <FormField control={form.control} name="routeId" render={({ field }) => (
+              <FormItem>
+                <FormLabel>Ruta predefinida <span className="text-muted-foreground font-normal">(opcional)</span></FormLabel>
+                <Select
+                  onValueChange={(v) => field.onChange(v === "0" ? undefined : parseInt(v))}
+                  value={field.value?.toString() ?? "0"}
+                >
+                  <FormControl>
+                    <SelectTrigger><SelectValue placeholder="Sin ruta asignada" /></SelectTrigger>
+                  </FormControl>
+                  <SelectContent>
+                    <SelectItem value="0">Sin ruta asignada</SelectItem>
+                    {routes?.map(r => (
+                      <SelectItem key={r.id} value={r.id.toString()}>
+                        {r.nombre} — {r.origen} → {r.destino}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <FormMessage />
+              </FormItem>
+            )} />
+
+            {calculatedTotalPeajes != null && (
+              <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2 border border-border/50">
+                <span className="text-muted-foreground">Peajes calculados:</span>
+                <span className="font-semibold text-foreground">
+                  ${calculatedTotalPeajes.toFixed(2)}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  ({selectedRoute?.tolls.length} caseta{selectedRoute?.tolls.length !== 1 ? "s" : ""} × ${selectedVehicle?.tarifaPeaje?.toFixed(2)})
+                </span>
+              </div>
+            )}
+
             <div className="flex gap-2 pt-2">
               <Button type="submit" className="flex-1" disabled={updateMutation.isPending}>
                 {updateMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Save className="w-4 h-4 mr-1" />}
@@ -267,6 +319,15 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
           <DetailRow label="Destino" value={dispatch.destino} />
           <DetailRow label="Ruta" value={dispatch.ruta} />
           <DetailRow label="Distancia" value={dispatch.distanciaKm ? `${dispatch.distanciaKm} km` : null} />
+          {dispatch.routeId && (
+            <DetailRow
+              label="Ruta predefinida"
+              value={routes?.find(r => r.id === dispatch.routeId)?.nombre ?? `Ruta #${dispatch.routeId}`}
+            />
+          )}
+          {dispatch.totalPeajes != null && (
+            <DetailRow label="Total peajes" value={`$${Number(dispatch.totalPeajes).toFixed(2)}`} />
+          )}
 
           <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mt-5 mb-3 pt-3 border-t border-border">Recursos asignados</p>
           <DetailRow label="Vehículo" value={dispatch.vehiculoModelo} />

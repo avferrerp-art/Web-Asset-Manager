@@ -279,7 +279,7 @@ router.get("/dispatches/:id/estimate-costs", async (req, res): Promise<void> => 
         t.destino.toLowerCase().includes(sale.destino.toLowerCase()) ||
         sale.destino.toLowerCase().includes(t.destino.toLowerCase()),
     );
-    costoPeajes = match?.costoTotal ?? 0;
+    costoPeajes = 0;
   }
 
   const total = costoCombustible + costoViaticos + costoPeajes;

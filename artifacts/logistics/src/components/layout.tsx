@@ -30,7 +30,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/ventas", label: "Ventas", icon: FileText },
     { href: "/vehiculos", label: "Vehículos", icon: Truck },
     { href: "/personal", label: "Personal", icon: Users },
-    { href: "/peajes", label: "Peajes", icon: MapPin },
+    { href: "/rutas", label: "Rutas", icon: MapPin },
   ];
 
   return (

@@ -360,6 +360,8 @@ export const ListDispatchesResponseItem = zod.object({
   "ruta": zod.string().nullish(),
   "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
   "distanciaKm": zod.number().nullish(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -401,6 +403,8 @@ export const CreateDispatchResponse = zod.object({
   "ruta": zod.string().nullish(),
   "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
   "distanciaKm": zod.number().nullish(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -428,6 +432,8 @@ export const GetDispatchResponse = zod.object({
   "ruta": zod.string().nullish(),
   "estado": zod.string(),
   "distanciaKm": zod.number().nullish(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -469,7 +475,9 @@ export const UpdateDispatchBody = zod.object({
   "fechaEstimadaLlegada": zod.string().optional(),
   "ruta": zod.string().optional(),
   "estado": zod.string().optional(),
-  "distanciaKm": zod.number().optional()
+  "distanciaKm": zod.number().optional(),
+  "routeId": zod.number().optional(),
+  "totalPeajes": zod.number().optional()
 })
 
 export const UpdateDispatchResponse = zod.object({
@@ -483,6 +491,8 @@ export const UpdateDispatchResponse = zod.object({
   "ruta": zod.string().nullish(),
   "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
   "distanciaKm": zod.number().nullish(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -520,6 +530,8 @@ export const ApproveDispatchResponse = zod.object({
   "ruta": zod.string().nullish(),
   "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
   "distanciaKm": zod.number().nullish(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -673,11 +685,13 @@ export const EstimateDispatchCostsResponse = zod.object({
  */
 export const ListTollsResponseItem = zod.object({
   "id": zod.number(),
+  "nombre": zod.string().nullish(),
+  "tipo": zod.string().optional(),
   "origen": zod.string(),
   "destino": zod.string(),
-  "cantidadPeajes": zod.number(),
-  "costoTotal": zod.number(),
-  "descripcion": zod.string().nullish()
+  "distanciaKm": zod.number().nullish(),
+  "favorita": zod.boolean().optional(),
+  "createdAt": zod.string().optional()
 })
 export const ListTollsResponse = zod.array(ListTollsResponseItem)
 
@@ -686,20 +700,23 @@ export const ListTollsResponse = zod.array(ListTollsResponseItem)
  * @summary Create a toll route
  */
 export const CreateTollBody = zod.object({
+  "nombre": zod.string(),
+  "tipo": zod.string(),
   "origen": zod.string(),
   "destino": zod.string(),
-  "cantidadPeajes": zod.number(),
-  "costoTotal": zod.number(),
-  "descripcion": zod.string().optional()
+  "distanciaKm": zod.number().optional(),
+  "favorita": zod.boolean().optional()
 })
 
 export const CreateTollResponse = zod.object({
   "id": zod.number(),
+  "nombre": zod.string().nullish(),
+  "tipo": zod.string().optional(),
   "origen": zod.string(),
   "destino": zod.string(),
-  "cantidadPeajes": zod.number(),
-  "costoTotal": zod.number(),
-  "descripcion": zod.string().nullish()
+  "distanciaKm": zod.number().nullish(),
+  "favorita": zod.boolean().optional(),
+  "createdAt": zod.string().optional()
 })
 
 
@@ -711,20 +728,23 @@ export const UpdateTollParams = zod.object({
 })
 
 export const UpdateTollBody = zod.object({
+  "nombre": zod.string().optional(),
+  "tipo": zod.string().optional(),
   "origen": zod.string().optional(),
   "destino": zod.string().optional(),
-  "cantidadPeajes": zod.number().optional(),
-  "costoTotal": zod.number().optional(),
-  "descripcion": zod.string().optional()
+  "distanciaKm": zod.number().optional(),
+  "favorita": zod.boolean().optional()
 })
 
 export const UpdateTollResponse = zod.object({
   "id": zod.number(),
+  "nombre": zod.string().nullish(),
+  "tipo": zod.string().optional(),
   "origen": zod.string(),
   "destino": zod.string(),
-  "cantidadPeajes": zod.number(),
-  "costoTotal": zod.number(),
-  "descripcion": zod.string().nullish()
+  "distanciaKm": zod.number().nullish(),
+  "favorita": zod.boolean().optional(),
+  "createdAt": zod.string().optional()
 })
 
 
@@ -736,6 +756,213 @@ export const DeleteTollParams = zod.object({
 })
 
 export const DeleteTollResponse = zod.void()
+
+
+/**
+ * @summary List all routes with embedded tolls and waypoints
+ */
+export const ListRoutesResponseItem = zod.object({
+  "id": zod.number(),
+  "nombre": zod.string(),
+  "tipo": zod.string().describe('sencillo | redondo | multidestino'),
+  "origen": zod.string(),
+  "destino": zod.string(),
+  "distanciaKm": zod.number().nullish(),
+  "favorita": zod.boolean(),
+  "tolls": zod.array(zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "nombre": zod.string(),
+  "orden": zod.number()
+})),
+  "waypoints": zod.array(zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "ubicacion": zod.string(),
+  "orden": zod.number()
+})),
+  "createdAt": zod.string().optional()
+})
+export const ListRoutesResponse = zod.array(ListRoutesResponseItem)
+
+
+/**
+ * @summary Create a route
+ */
+export const CreateRouteBody = zod.object({
+  "nombre": zod.string(),
+  "tipo": zod.string(),
+  "origen": zod.string(),
+  "destino": zod.string(),
+  "distanciaKm": zod.number().optional(),
+  "favorita": zod.boolean().optional()
+})
+
+export const CreateRouteResponse = zod.object({
+  "id": zod.number(),
+  "nombre": zod.string(),
+  "tipo": zod.string().describe('sencillo | redondo | multidestino'),
+  "origen": zod.string(),
+  "destino": zod.string(),
+  "distanciaKm": zod.number().nullish(),
+  "favorita": zod.boolean(),
+  "tolls": zod.array(zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "nombre": zod.string(),
+  "orden": zod.number()
+})),
+  "waypoints": zod.array(zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "ubicacion": zod.string(),
+  "orden": zod.number()
+})),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Get a route by ID
+ */
+export const GetRouteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetRouteResponse = zod.object({
+  "id": zod.number(),
+  "nombre": zod.string(),
+  "tipo": zod.string().describe('sencillo | redondo | multidestino'),
+  "origen": zod.string(),
+  "destino": zod.string(),
+  "distanciaKm": zod.number().nullish(),
+  "favorita": zod.boolean(),
+  "tolls": zod.array(zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "nombre": zod.string(),
+  "orden": zod.number()
+})),
+  "waypoints": zod.array(zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "ubicacion": zod.string(),
+  "orden": zod.number()
+})),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Update a route
+ */
+export const UpdateRouteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateRouteBody = zod.object({
+  "nombre": zod.string().optional(),
+  "tipo": zod.string().optional(),
+  "origen": zod.string().optional(),
+  "destino": zod.string().optional(),
+  "distanciaKm": zod.number().optional(),
+  "favorita": zod.boolean().optional()
+})
+
+export const UpdateRouteResponse = zod.object({
+  "id": zod.number(),
+  "nombre": zod.string(),
+  "tipo": zod.string().describe('sencillo | redondo | multidestino'),
+  "origen": zod.string(),
+  "destino": zod.string(),
+  "distanciaKm": zod.number().nullish(),
+  "favorita": zod.boolean(),
+  "tolls": zod.array(zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "nombre": zod.string(),
+  "orden": zod.number()
+})),
+  "waypoints": zod.array(zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "ubicacion": zod.string(),
+  "orden": zod.number()
+})),
+  "createdAt": zod.string().optional()
+})
+
+
+/**
+ * @summary Delete a route
+ */
+export const DeleteRouteParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteRouteResponse = zod.void()
+
+
+/**
+ * @summary Add a toll station to a route
+ */
+export const AddRouteTollParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AddRouteTollBody = zod.object({
+  "nombre": zod.string(),
+  "orden": zod.number().optional()
+})
+
+export const AddRouteTollResponse = zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "nombre": zod.string(),
+  "orden": zod.number()
+})
+
+
+/**
+ * @summary Remove a toll station from a route
+ */
+export const DeleteRouteTollParams = zod.object({
+  "routeId": zod.coerce.number(),
+  "tollId": zod.coerce.number()
+})
+
+export const DeleteRouteTollResponse = zod.void()
+
+
+/**
+ * @summary Add a waypoint to a route (multidestino)
+ */
+export const AddRouteWaypointParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const AddRouteWaypointBody = zod.object({
+  "ubicacion": zod.string(),
+  "orden": zod.number()
+})
+
+export const AddRouteWaypointResponse = zod.object({
+  "id": zod.number(),
+  "routeId": zod.number(),
+  "ubicacion": zod.string(),
+  "orden": zod.number()
+})
+
+
+/**
+ * @summary Remove a waypoint from a route
+ */
+export const DeleteRouteWaypointParams = zod.object({
+  "routeId": zod.coerce.number(),
+  "waypointId": zod.coerce.number()
+})
+
+export const DeleteRouteWaypointResponse = zod.void()
 
 
 /**

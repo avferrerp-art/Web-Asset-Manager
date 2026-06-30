@@ -10,7 +10,7 @@ import Despachos from "@/pages/despachos";
 import Ventas from "@/pages/ventas";
 import Vehiculos from "@/pages/vehiculos";
 import Personal from "@/pages/personal";
-import Peajes from "@/pages/peajes";
+import Rutas from "@/pages/rutas";
 
 const queryClient = new QueryClient();
 
@@ -24,7 +24,7 @@ function Router() {
         <Route path="/ventas" component={Ventas} />
         <Route path="/vehiculos" component={Vehiculos} />
         <Route path="/personal" component={Personal} />
-        <Route path="/peajes" component={Peajes} />
+        <Route path="/rutas" component={Rutas} />
         <Route component={NotFound} />
       </Switch>
     </Layout>

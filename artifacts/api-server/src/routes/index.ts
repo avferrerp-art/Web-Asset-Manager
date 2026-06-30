@@ -5,6 +5,7 @@ import personnelRouter from "./personnel";
 import salesRouter from "./sales";
 import dispatchesRouter from "./dispatches";
 import tollsRouter from "./tolls";
+import routesRouter from "./routes";
 import dashboardRouter from "./dashboard";
 import ordersExtractRouter from "./orders/extract";
 
@@ -16,6 +17,7 @@ router.use(personnelRouter);
 router.use(salesRouter);
 router.use(dispatchesRouter);
 router.use(tollsRouter);
+router.use(routesRouter);
 router.use(dashboardRouter);
 router.use(ordersExtractRouter);
 

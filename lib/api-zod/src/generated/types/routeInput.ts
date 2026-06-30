@@ -6,15 +6,11 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface TollRoute {
-  id: number;
-  /** @nullable */
-  nombre?: string | null;
-  tipo?: string;
+export interface RouteInput {
+  nombre: string;
+  tipo: string;
   origen: string;
   destino: string;
-  /** @nullable */
-  distanciaKm?: number | null;
+  distanciaKm?: number;
   favorita?: boolean;
-  createdAt?: string;
 }

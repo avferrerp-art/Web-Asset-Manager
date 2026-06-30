@@ -5,5 +5,7 @@ export * from "./dispatches";
 export * from "./route_points";
 export * from "./travel_costs";
 export * from "./toll_routes";
+export * from "./route_tolls";
+export * from "./route_waypoints";
 export * from "./conversations";
 export * from "./messages";

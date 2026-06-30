@@ -1,1 +1,4 @@
-- [API server restart after codegen](api-server-restart-after-codegen.md) — must restart API server workflow after any lib/schema/codegen change; bundle is static.
+- [API server rebuild](api-server-rebuild.md) — must restart workflow after any lib (api-zod, db) changes; server bundles at startup, not hot-reload
+- [DB push TTY prompt](db-push-tty.md) — drizzle-kit push prompts interactively for column conflicts; apply DDL directly via executeSql in code_execution sandbox instead
+- [Hook call convention](hook-call-convention.md) — all generated hooks use single arg object: useHook({ query: {...} })
+- [Cache bust pattern](cache-bust-pattern.md) — after mutations call removeQueries + invalidateQueries together to bust 304 HTTP cache

@@ -158,6 +158,10 @@ export interface Dispatch {
   estado: string;
   /** @nullable */
   distanciaKm?: number | null;
+  /** @nullable */
+  routeId?: number | null;
+  /** @nullable */
+  totalPeajes?: number | null;
   createdAt: string;
   /** @nullable */
   vehiculoModelo?: string | null;
@@ -207,6 +211,10 @@ export interface DispatchDetail {
   estado: string;
   /** @nullable */
   distanciaKm?: number | null;
+  /** @nullable */
+  routeId?: number | null;
+  /** @nullable */
+  totalPeajes?: number | null;
   createdAt: string;
   /** @nullable */
   vehiculoModelo?: string | null;
@@ -250,6 +258,8 @@ export interface DispatchUpdate {
   ruta?: string;
   estado?: string;
   distanciaKm?: number;
+  routeId?: number;
+  totalPeajes?: number;
 }
 
 export interface TravelCostInput {
@@ -272,28 +282,90 @@ export interface CostEstimate {
 
 export interface TollRoute {
   id: number;
+  /** @nullable */
+  nombre?: string | null;
+  tipo?: string;
   origen: string;
   destino: string;
-  cantidadPeajes: number;
-  costoTotal: number;
   /** @nullable */
-  descripcion?: string | null;
+  distanciaKm?: number | null;
+  favorita?: boolean;
+  createdAt?: string;
 }
 
 export interface TollRouteInput {
+  nombre: string;
+  tipo: string;
   origen: string;
   destino: string;
-  cantidadPeajes: number;
-  costoTotal: number;
-  descripcion?: string;
+  distanciaKm?: number;
+  favorita?: boolean;
 }
 
 export interface TollRouteUpdate {
+  nombre?: string;
+  tipo?: string;
   origen?: string;
   destino?: string;
-  cantidadPeajes?: number;
-  costoTotal?: number;
-  descripcion?: string;
+  distanciaKm?: number;
+  favorita?: boolean;
+}
+
+export interface RouteToll {
+  id: number;
+  routeId: number;
+  nombre: string;
+  orden: number;
+}
+
+export interface RouteWaypoint {
+  id: number;
+  routeId: number;
+  ubicacion: string;
+  orden: number;
+}
+
+export interface Route {
+  id: number;
+  nombre: string;
+  /** sencillo | redondo | multidestino */
+  tipo: string;
+  origen: string;
+  destino: string;
+  /** @nullable */
+  distanciaKm?: number | null;
+  favorita: boolean;
+  tolls: RouteToll[];
+  waypoints: RouteWaypoint[];
+  createdAt?: string;
+}
+
+export interface RouteInput {
+  nombre: string;
+  tipo: string;
+  origen: string;
+  destino: string;
+  distanciaKm?: number;
+  favorita?: boolean;
+}
+
+export interface RouteUpdate {
+  nombre?: string;
+  tipo?: string;
+  origen?: string;
+  destino?: string;
+  distanciaKm?: number;
+  favorita?: boolean;
+}
+
+export interface RouteTollInput {
+  nombre: string;
+  orden?: number;
+}
+
+export interface RouteWaypointInput {
+  ubicacion: string;
+  orden: number;
 }
 
 export interface DashboardSummary {

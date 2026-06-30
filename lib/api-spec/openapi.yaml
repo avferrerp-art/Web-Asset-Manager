@@ -19,7 +19,9 @@ tags:
   - name: dispatches
     description: Dispatch and pre-dispatch management
   - name: tolls
-    description: Toll routes management
+    description: Toll routes management (legacy)
+  - name: routes
+    description: Routes management with toll stations and waypoints
   - name: dashboard
     description: Dashboard and summary data
 
@@ -678,6 +680,194 @@ paths:
         "404":
           description: Not found
 
+  # --- ROUTES ---
+  /routes:
+    get:
+      operationId: listRoutes
+      tags: [routes]
+      summary: List all routes with embedded tolls and waypoints
+      responses:
+        "200":
+          description: List of routes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Route"
+    post:
+      operationId: createRoute
+      tags: [routes]
+      summary: Create a route
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+
+  /routes/{id}:
+    get:
+      operationId: getRoute
+      tags: [routes]
+      summary: Get a route by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Route with tolls and waypoints
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateRoute
+      tags: [routes]
+      summary: Update a route
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Route"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteRoute
+      tags: [routes]
+      summary: Delete a route
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /routes/{id}/tolls:
+    post:
+      operationId: addRouteToll
+      tags: [routes]
+      summary: Add a toll station to a route
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteTollInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteToll"
+
+  /routes/{routeId}/tolls/{tollId}:
+    delete:
+      operationId: deleteRouteToll
+      tags: [routes]
+      summary: Remove a toll station from a route
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: tollId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /routes/{id}/waypoints:
+    post:
+      operationId: addRouteWaypoint
+      tags: [routes]
+      summary: Add a waypoint to a route (multidestino)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteWaypointInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteWaypoint"
+
+  /routes/{routeId}/waypoints/{waypointId}:
+    delete:
+      operationId: deleteRouteWaypoint
+      tags: [routes]
+      summary: Remove a waypoint from a route
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: waypointId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
   # --- DASHBOARD ---
   /dashboard/summary:
     get:
@@ -986,6 +1176,10 @@ components:
           description: "pre-despacho | aprobado | en-ruta | entregado | cancelado"
         distanciaKm:
           type: ["number", "null"]
+        routeId:
+          type: ["integer", "null"]
+        totalPeajes:
+          type: ["number", "null"]
         createdAt:
           type: string
         # Joined fields
@@ -1023,6 +1217,10 @@ components:
         estado:
           type: string
         distanciaKm:
+          type: ["number", "null"]
+        routeId:
+          type: ["integer", "null"]
+        totalPeajes:
           type: ["number", "null"]
         createdAt:
           type: string
@@ -1086,6 +1284,10 @@ components:
         estado:
           type: string
         distanciaKm:
+          type: number
+        routeId:
+          type: integer
+        totalPeajes:
           type: number
 
     # --- ROUTE POINTS ---
@@ -1172,52 +1374,168 @@ components:
         costoPorLitro:
           type: number
 
-    # --- TOLL ROUTES ---
+    # --- TOLL ROUTES (legacy) ---
     TollRoute:
       type: object
-      required: [id, origen, destino, cantidadPeajes, costoTotal]
+      required: [id, origen, destino]
       properties:
         id:
           type: integer
+        nombre:
+          type: ["string", "null"]
+        tipo:
+          type: string
         origen:
           type: string
         destino:
           type: string
-        cantidadPeajes:
-          type: integer
-        costoTotal:
-          type: number
-        descripcion:
-          type: ["string", "null"]
+        distanciaKm:
+          type: ["number", "null"]
+        favorita:
+          type: boolean
+        createdAt:
+          type: string
 
     TollRouteInput:
       type: object
-      required: [origen, destino, cantidadPeajes, costoTotal]
+      required: [nombre, tipo, origen, destino]
       properties:
+        nombre:
+          type: string
+        tipo:
+          type: string
         origen:
           type: string
         destino:
           type: string
-        cantidadPeajes:
-          type: integer
-        costoTotal:
+        distanciaKm:
           type: number
-        descripcion:
-          type: string
+        favorita:
+          type: boolean
 
     TollRouteUpdate:
       type: object
       properties:
+        nombre:
+          type: string
+        tipo:
+          type: string
         origen:
           type: string
         destino:
           type: string
-        cantidadPeajes:
-          type: integer
-        costoTotal:
+        distanciaKm:
           type: number
-        descripcion:
+        favorita:
+          type: boolean
+
+    # --- ROUTES ---
+    Route:
+      type: object
+      required: [id, nombre, tipo, origen, destino, favorita, tolls, waypoints]
+      properties:
+        id:
+          type: integer
+        nombre:
           type: string
+        tipo:
+          type: string
+          description: "sencillo | redondo | multidestino"
+        origen:
+          type: string
+        destino:
+          type: string
+        distanciaKm:
+          type: ["number", "null"]
+        favorita:
+          type: boolean
+        tolls:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteToll"
+        waypoints:
+          type: array
+          items:
+            $ref: "#/components/schemas/RouteWaypoint"
+        createdAt:
+          type: string
+
+    RouteInput:
+      type: object
+      required: [nombre, tipo, origen, destino]
+      properties:
+        nombre:
+          type: string
+        tipo:
+          type: string
+        origen:
+          type: string
+        destino:
+          type: string
+        distanciaKm:
+          type: number
+        favorita:
+          type: boolean
+
+    RouteUpdate:
+      type: object
+      properties:
+        nombre:
+          type: string
+        tipo:
+          type: string
+        origen:
+          type: string
+        destino:
+          type: string
+        distanciaKm:
+          type: number
+        favorita:
+          type: boolean
+
+    RouteToll:
+      type: object
+      required: [id, routeId, nombre, orden]
+      properties:
+        id:
+          type: integer
+        routeId:
+          type: integer
+        nombre:
+          type: string
+        orden:
+          type: integer
+
+    RouteTollInput:
+      type: object
+      required: [nombre]
+      properties:
+        nombre:
+          type: string
+        orden:
+          type: integer
+
+    RouteWaypoint:
+      type: object
+      required: [id, routeId, ubicacion, orden]
+      properties:
+        id:
+          type: integer
+        routeId:
+          type: integer
+        ubicacion:
+          type: string
+        orden:
+          type: integer
+
+    RouteWaypointInput:
+      type: object
+      required: [ubicacion, orden]
+      properties:
+        ubicacion:
+          type: string
+        orden:
+          type: integer
 
     # --- DASHBOARD ---
     DashboardSummary:

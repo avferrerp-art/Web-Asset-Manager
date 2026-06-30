@@ -5,16 +5,20 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
+import type { RouteToll } from './routeToll';
+import type { RouteWaypoint } from './routeWaypoint';
 
-export interface TollRoute {
+export interface Route {
   id: number;
-  /** @nullable */
-  nombre?: string | null;
-  tipo?: string;
+  nombre: string;
+  /** sencillo | redondo | multidestino */
+  tipo: string;
   origen: string;
   destino: string;
   /** @nullable */
   distanciaKm?: number | null;
-  favorita?: boolean;
+  favorita: boolean;
+  tolls: RouteToll[];
+  waypoints: RouteWaypoint[];
   createdAt?: string;
 }

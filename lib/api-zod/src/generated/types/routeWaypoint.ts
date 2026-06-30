@@ -6,11 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface TollRouteInput {
-  nombre: string;
-  tipo: string;
-  origen: string;
-  destino: string;
-  distanciaKm?: number;
-  favorita?: boolean;
+export interface RouteWaypoint {
+  id: number;
+  routeId: number;
+  ubicacion: string;
+  orden: number;
 }

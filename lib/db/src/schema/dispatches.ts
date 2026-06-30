@@ -4,6 +4,7 @@ import { z } from "zod/v4";
 import { salesTable } from "./sales";
 import { vehiclesTable } from "./vehicles";
 import { personnelTable } from "./personnel";
+import { tollRoutesTable } from "./toll_routes";
 
 export const dispatchesTable = pgTable("dispatches", {
   id: serial("id").primaryKey(),
@@ -16,6 +17,8 @@ export const dispatchesTable = pgTable("dispatches", {
   ruta: text("ruta"),
   estado: text("estado").notNull().default("pre-despacho"),
   distanciaKm: real("distancia_km"),
+  routeId: integer("route_id").references(() => tollRoutesTable.id),
+  totalPeajes: real("total_peajes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
