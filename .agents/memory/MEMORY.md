@@ -1,0 +1,1 @@
+- [API server restart after codegen](api-server-restart-after-codegen.md) — must restart API server workflow after any lib/schema/codegen change; bundle is static.
