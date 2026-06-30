@@ -263,7 +263,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="sm:max-w-[680px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[680px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
         <DialogHeader>
           <DialogTitle className="text-lg">Nuevo Despacho</DialogTitle>
         </DialogHeader>
@@ -338,27 +338,31 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                         : "border-border bg-card hover:bg-accent/30"
                     }`}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <div
-                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                          selectedSale?.id === sale.id
-                            ? "border-primary bg-primary"
-                            : "border-border"
-                        }`}
-                      >
-                        {selectedSale?.id === sale.id && (
-                          <div className="w-2 h-2 rounded-full bg-white" />
-                        )}
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <div className="font-semibold text-sm truncate">
-                          #{sale.id} — {sale.cliente}
+                    <div className="flex items-center justify-between gap-3 min-w-0">
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                            selectedSale?.id === sale.id
+                              ? "border-primary bg-primary"
+                              : "border-border"
+                          }`}
+                        >
+                          {selectedSale?.id === sale.id && (
+                            <div className="w-2 h-2 rounded-full bg-white" />
+                          )}
                         </div>
-                        <div className="text-xs text-muted-foreground truncate">
-                          {sale.destino} · {sale.pesoTotal} kg · {sale.volumenTotal} m³
-                          {sale.tipoMaterial ? ` · ${sale.tipoMaterial}` : ""}
+                        <div className="min-w-0">
+                          <div className="font-semibold text-sm truncate">
+                            #{sale.id} — {sale.cliente}
+                          </div>
+                          <div className="text-xs text-muted-foreground truncate">
+                            {sale.destino} · {sale.pesoTotal} kg · {sale.volumenTotal} m³
+                          </div>
                         </div>
                       </div>
+                      <Badge variant="outline" className="text-[10px] shrink-0 max-w-[120px] truncate block">
+                        {sale.tipoMaterial ?? "—"}
+                      </Badge>
                     </div>
                   </button>
                 ))}
