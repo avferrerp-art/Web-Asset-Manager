@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useLocation } from "wouter";
 import {
   useListSales, getListSalesQueryKey,
   useListVehicles, getListVehiclesQueryKey,
@@ -22,8 +23,15 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
-  CheckCircle2, ChevronRight, Route as RouteIcon, Truck, Users, CalendarClock, PackageCheck, AlertTriangle,
+  CheckCircle2, ChevronRight, Route as RouteIcon, Truck, Users, CalendarClock, PackageCheck,
+  AlertTriangle, MapPin, RefreshCw, ExternalLink,
 } from "lucide-react";
+
+function fmtDateShort(s: string) {
+  return new Date(s).toLocaleDateString("es-VE", {
+    day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+  });
+}
 
 interface WizardState {
   vehiculoId: number;
@@ -59,6 +67,7 @@ interface Props {
 export function NuevoDespachoWizard({ open, onClose }: Props) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
   const [step, setStep] = useState(1);
   const [selectedSale, setSelectedSale] = useState<any>(null);
@@ -549,17 +558,76 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
             </div>
 
             {/* Alerta de conflicto de vehículo */}
-            {vehicleConflict && (
-              <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
-                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
-                <div>
-                  <p className="font-semibold">Vehículo no disponible para la fecha y hora elegidas</p>
-                  <p className="text-xs mt-0.5 text-destructive/80">
-                    Ya tiene un despacho programado (#{vehicleConflict.id}) que se solapa con este período.
-                  </p>
+            {vehicleConflict && (() => {
+              const conflictDestino = vehicleConflict.destino ?? vehicleConflict.ruta ?? null;
+              const sameDestino = conflictDestino && selectedSale?.destino &&
+                (conflictDestino.toLowerCase().includes(selectedSale.destino.toLowerCase()) ||
+                 selectedSale.destino.toLowerCase().includes(conflictDestino.toLowerCase()));
+              return (
+                <div className="rounded-lg border border-destructive/40 bg-destructive/5 overflow-hidden text-sm">
+                  {/* Cabecera */}
+                  <div className="flex items-center gap-2 px-3 py-2 bg-destructive/15">
+                    <AlertTriangle className="w-4 h-4 text-destructive shrink-0" />
+                    <p className="font-semibold text-destructive">Vehículo ocupado en ese período</p>
+                  </div>
+
+                  {/* Detalle del conflicto */}
+                  <div className="px-3 pt-2.5 pb-2 grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+                    <span className="text-muted-foreground">Despacho</span>
+                    <span className="font-medium">#{vehicleConflict.id}
+                      {vehicleConflict.estado && (
+                        <span className="ml-1.5 capitalize text-muted-foreground">({vehicleConflict.estado})</span>
+                      )}
+                    </span>
+                    <span className="text-muted-foreground">Destino</span>
+                    <span className="font-medium">{conflictDestino ?? "—"}</span>
+                    <span className="text-muted-foreground">Salida</span>
+                    <span className="font-medium">{fmtDateShort(vehicleConflict.fechaEstimadaSalida)}</span>
+                    <span className="text-muted-foreground">Llegada</span>
+                    <span className="font-medium">{fmtDateShort(vehicleConflict.fechaEstimadaLlegada)}</span>
+                    {vehicleConflict.choferNombre && <>
+                      <span className="text-muted-foreground">Chofer</span>
+                      <span className="font-medium">{vehicleConflict.choferNombre}</span>
+                    </>}
+                  </div>
+
+                  {/* Sugerencia de mismo destino */}
+                  {sameDestino && (
+                    <div className="mx-3 mb-2 flex items-start gap-2 rounded-md bg-emerald-500/10 border border-emerald-500/30 px-3 py-2 text-emerald-600 dark:text-emerald-400">
+                      <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                      <div className="text-xs">
+                        <p className="font-semibold">Mismo destino detectado</p>
+                        <p className="mt-0.5 opacity-80">
+                          El despacho #{vehicleConflict.id} ya va a {conflictDestino}. Podrías coordinar ambas cargas en ese viaje.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Acciones */}
+                  <div className="flex flex-wrap items-center gap-2 px-3 pb-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={() => setAssignment(p => ({ ...p, vehiculoId: 0 }))}
+                    >
+                      <RefreshCw className="w-3 h-3" /> Cambiar vehículo
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant={sameDestino ? "secondary" : "ghost"}
+                      className="h-7 gap-1.5 text-xs"
+                      onClick={() => { onClose(); navigate("/despachos"); }}
+                    >
+                      <ExternalLink className="w-3 h-3" /> Ver despacho #{vehicleConflict.id}
+                    </Button>
+                  </div>
                 </div>
-              </div>
-            )}
+              );
+            })()}
 
             <div className="flex justify-between pt-2">
               <Button variant="ghost" onClick={() => setStep(1)}>
