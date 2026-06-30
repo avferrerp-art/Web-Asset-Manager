@@ -338,31 +338,27 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                         : "border-border bg-card hover:bg-accent/30"
                     }`}
                   >
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div
-                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
-                            selectedSale?.id === sale.id
-                              ? "border-primary bg-primary"
-                              : "border-border"
-                          }`}
-                        >
-                          {selectedSale?.id === sale.id && (
-                            <div className="w-2 h-2 rounded-full bg-white" />
-                          )}
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div
+                        className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          selectedSale?.id === sale.id
+                            ? "border-primary bg-primary"
+                            : "border-border"
+                        }`}
+                      >
+                        {selectedSale?.id === sale.id && (
+                          <div className="w-2 h-2 rounded-full bg-white" />
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="font-semibold text-sm truncate">
+                          #{sale.id} — {sale.cliente}
                         </div>
-                        <div>
-                          <div className="font-semibold text-sm">
-                            #{sale.id} — {sale.cliente}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {sale.destino} · {sale.pesoTotal} kg · {sale.volumenTotal} m³
-                          </div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {sale.destino} · {sale.pesoTotal} kg · {sale.volumenTotal} m³
+                          {sale.tipoMaterial ? ` · ${sale.tipoMaterial}` : ""}
                         </div>
                       </div>
-                      <Badge variant="outline" className="text-[10px] shrink-0">
-                        {sale.tipoMaterial ?? "—"}
-                      </Badge>
                     </div>
                   </button>
                 ))}
