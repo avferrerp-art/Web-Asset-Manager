@@ -48,6 +48,7 @@ type RouteItem = {
   favorita: boolean;
   tolls: { id: number; routeId: number; nombre: string; orden: number }[];
   waypoints: { id: number; routeId: number; ubicacion: string; orden: number }[];
+  linkedDispatchCount?: number;
   createdAt?: string;
 };
 
@@ -582,6 +583,20 @@ export default function Rutas() {
           setDeleteId(null);
           toast({ title: "Ruta eliminada" });
         },
+        onError: (err: unknown) => {
+          const res = (err as { response?: { data?: { error?: string; dispatchCount?: number } } })?.response?.data;
+          if (res?.error === "route_has_dispatches") {
+            const n = res.dispatchCount ?? 0;
+            toast({
+              title: "No se puede eliminar la ruta",
+              description: `Esta ruta está vinculada a ${n} despacho${n === 1 ? "" : "s"}. Desvincula los despachos antes de eliminarla.`,
+              variant: "destructive",
+            });
+          } else {
+            toast({ title: "Error al eliminar la ruta", variant: "destructive" });
+          }
+          setDeleteId(null);
+        },
       }
     );
   };
@@ -657,8 +672,20 @@ export default function Rutas() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>¿Eliminar ruta?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Esta acción no se puede deshacer. Se eliminará la ruta y todas sus casetas y paradas.
+            <AlertDialogDescription asChild>
+              <div className="space-y-2">
+                <p>Esta acción no se puede deshacer. Se eliminará la ruta y todas sus casetas y paradas.</p>
+                {(() => {
+                  const route = routes?.find((r) => r.id === deleteId) as RouteItem | undefined;
+                  const n = route?.linkedDispatchCount ?? 0;
+                  if (n === 0) return null;
+                  return (
+                    <p className="rounded-md bg-destructive/10 border border-destructive/30 px-3 py-2 text-sm text-destructive font-medium">
+                      ⚠️ Esta ruta está vinculada a {n} despacho{n === 1 ? "" : "s"} activo{n === 1 ? "" : "s"}. No podrá eliminarse mientras tenga despachos asociados.
+                    </p>
+                  );
+                })()}
+              </div>
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -666,6 +693,7 @@ export default function Rutas() {
             <AlertDialogAction
               onClick={() => { if (deleteId !== null) handleDelete(deleteId); }}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={deleteMutation.isPending}
             >
               {deleteMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : "Eliminar"}
             </AlertDialogAction>

@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq, and, asc } from "drizzle-orm";
-import { db, tollRoutesTable, routeTollsTable, routeWaypointsTable } from "@workspace/db";
+import { eq, and, asc, count } from "drizzle-orm";
+import { db, tollRoutesTable, routeTollsTable, routeWaypointsTable, dispatchesTable } from "@workspace/db";
 import {
   CreateRouteBody,
   UpdateRouteParams,
@@ -24,7 +24,8 @@ async function buildRoute(id: number) {
   if (!route) return null;
   const tolls = await db.select().from(routeTollsTable).where(eq(routeTollsTable.routeId, id)).orderBy(asc(routeTollsTable.orden));
   const waypoints = await db.select().from(routeWaypointsTable).where(eq(routeWaypointsTable.routeId, id)).orderBy(asc(routeWaypointsTable.orden));
-  return { ...route, tolls, waypoints };
+  const [{ value: linkedDispatchCount }] = await db.select({ value: count() }).from(dispatchesTable).where(eq(dispatchesTable.routeId, id));
+  return { ...route, tolls, waypoints, linkedDispatchCount };
 }
 
 router.get("/routes", async (_req, res): Promise<void> => {
@@ -86,6 +87,18 @@ router.delete("/routes/:id", async (req, res): Promise<void> => {
   const params = DeleteRouteParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [{ value: dispatchCount }] = await db
+    .select({ value: count() })
+    .from(dispatchesTable)
+    .where(eq(dispatchesTable.routeId, params.data.id));
+  if (dispatchCount > 0) {
+    res.status(409).json({
+      error: "route_has_dispatches",
+      dispatchCount,
+      message: `Esta ruta está vinculada a ${dispatchCount} despacho${dispatchCount === 1 ? "" : "s"} y no puede eliminarse.`,
+    });
     return;
   }
   const [deleted] = await db
