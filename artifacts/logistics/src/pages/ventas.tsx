@@ -39,9 +39,20 @@ const ESTADO_BADGE: Record<string, React.ReactElement> = {
   cancelado:  <Badge variant="outline" className="text-red-500 border-red-500/50">Cancelado</Badge>,
 };
 
+const FILTERS = [
+  { key: "todas",      label: "Todas" },
+  { key: "pendiente",  label: "Pendiente" },
+  { key: "despachado", label: "Despachado" },
+  { key: "entregado",  label: "Entregado" },
+  { key: "cancelado",  label: "Cancelado" },
+] as const;
+
+type FilterKey = (typeof FILTERS)[number]["key"];
+
 export default function Ventas() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const [activeFilter, setActiveFilter] = useState<FilterKey>("todas");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<any>(null);
   const [isExtracting, setIsExtracting] = useState(false);
@@ -52,6 +63,13 @@ export default function Ventas() {
   const { data: sales, isLoading } = useListSales(undefined, {
     query: { queryKey: getListSalesQueryKey() }
   });
+
+  const filteredSales = activeFilter === "todas"
+    ? (sales ?? [])
+    : (sales ?? []).filter(s => s.estado === activeFilter);
+
+  const countByStatus = (key: string) =>
+    key === "todas" ? (sales?.length ?? 0) : (sales?.filter(s => s.estado === key).length ?? 0);
 
   const createMutation = useCreateSale();
   const updateMutation = useUpdateSale();
@@ -384,6 +402,41 @@ export default function Ventas() {
         </Dialog>
       </div>
 
+      {/* Status filter pills */}
+      <div className="flex flex-wrap gap-2">
+        {FILTERS.map(({ key, label }) => {
+          const count = countByStatus(key);
+          const isActive = activeFilter === key;
+          const colorMap: Record<string, string> = {
+            pendiente:  "data-[active=true]:bg-orange-500/20 data-[active=true]:border-orange-500 data-[active=true]:text-orange-400",
+            despachado: "data-[active=true]:bg-blue-500/20 data-[active=true]:border-blue-500 data-[active=true]:text-blue-400",
+            entregado:  "data-[active=true]:bg-green-500/20 data-[active=true]:border-green-500 data-[active=true]:text-green-400",
+            cancelado:  "data-[active=true]:bg-red-500/20 data-[active=true]:border-red-500 data-[active=true]:text-red-400",
+          };
+          return (
+            <button
+              key={key}
+              data-testid={`filter-${key}`}
+              data-active={isActive}
+              onClick={() => setActiveFilter(key)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-colors
+                ${isActive
+                  ? `border-primary bg-primary/20 text-primary ${colorMap[key] ?? ""}`
+                  : "border-border bg-card text-muted-foreground hover:bg-accent/30 hover:text-foreground"}
+              `}
+            >
+              {label}
+              {!isLoading && (
+                <span className={`text-[11px] rounded-full px-1.5 py-0.5 font-bold min-w-[20px] text-center
+                  ${isActive ? "bg-primary/30" : "bg-muted"}`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -400,9 +453,11 @@ export default function Ventas() {
             <TableBody>
               {isLoading ? (
                 <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
-              ) : sales?.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Sin órdenes registradas.</TableCell></TableRow>
-              ) : sales?.map((sale) => (
+              ) : filteredSales.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  {activeFilter === "todas" ? "Sin órdenes registradas." : `Sin órdenes con estado "${activeFilter}".`}
+                </TableCell></TableRow>
+              ) : filteredSales.map((sale) => (
                 <TableRow key={sale.id} data-testid={`row-sale-${sale.id}`}>
                   <TableCell className="font-medium">#{sale.id}</TableCell>
                   <TableCell>
