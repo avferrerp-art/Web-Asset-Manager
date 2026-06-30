@@ -344,7 +344,7 @@ export default function PreDespacho() {
                 <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2 border border-border/50">
                   <RouteIcon className="w-3.5 h-3.5 text-muted-foreground shrink-0" />
                   <span className="text-muted-foreground">Peajes calculados:</span>
-                  <span className="font-semibold">${costoPeajes.toFixed(2)}</span>
+                  <span className="font-semibold" data-testid="toll-cost-display">${costoPeajes.toFixed(2)}</span>
                   <span className="text-xs text-muted-foreground">
                     ({selectedRoute.tolls?.length ?? 0} caseta{(selectedRoute.tolls?.length ?? 0) !== 1 ? "s" : ""} × ${selectedVehicle?.tarifaPeaje?.toFixed(2) ?? "0.00"}/caseta)
                   </span>
@@ -370,7 +370,7 @@ export default function PreDespacho() {
                     <div className="text-xs text-muted-foreground">Peajes</div>
                     {costoPeajes != null ? (
                       <>
-                        <div className="font-bold text-sm">${costoPeajes.toFixed(2)}</div>
+                        <div className="font-bold text-sm" data-testid="toll-cost-summary">${costoPeajes.toFixed(2)}</div>
                         <div className="text-[10px] text-muted-foreground">{selectedRoute?.tolls?.length ?? 0} caseta(s)</div>
                       </>
                     ) : (
