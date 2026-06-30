@@ -28,6 +28,11 @@ export interface Vehicle {
   rendimientoKmLitro: number;
   /** @nullable */
   placa?: string | null;
+  /**
+     * Tarifa de peaje por despacho en moneda local
+     * @nullable
+     */
+  tarifaPeaje?: number | null;
   createdAt: string;
 }
 
@@ -39,6 +44,7 @@ export interface VehicleInput {
   tipoCombustible: string;
   rendimientoKmLitro: number;
   placa?: string;
+  tarifaPeaje?: number;
 }
 
 export interface VehicleUpdate {
@@ -49,6 +55,7 @@ export interface VehicleUpdate {
   tipoCombustible?: string;
   rendimientoKmLitro?: number;
   placa?: string;
+  tarifaPeaje?: number;
 }
 
 export interface LoadRequirement {

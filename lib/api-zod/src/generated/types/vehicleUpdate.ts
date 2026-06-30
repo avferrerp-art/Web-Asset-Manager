@@ -14,4 +14,5 @@ export interface VehicleUpdate {
   tipoCombustible?: string;
   rendimientoKmLitro?: number;
   placa?: string;
+  tarifaPeaje?: number;
 }

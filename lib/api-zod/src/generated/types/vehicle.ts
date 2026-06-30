@@ -21,5 +21,10 @@ export interface Vehicle {
   rendimientoKmLitro: number;
   /** @nullable */
   placa?: string | null;
+  /**
+     * Tarifa de peaje por despacho en moneda local
+     * @nullable
+     */
+  tarifaPeaje?: number | null;
   createdAt: string;
 }

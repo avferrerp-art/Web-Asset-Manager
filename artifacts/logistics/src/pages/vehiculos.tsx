@@ -25,6 +25,7 @@ const vehicleSchema = z.object({
   tipoCombustible: z.string().min(1, "Requerido"),
   rendimientoKmLitro: z.coerce.number().min(0),
   placa: z.string().optional(),
+  tarifaPeaje: z.coerce.number().min(0).optional(),
 });
 
 export default function Vehiculos() {
@@ -50,7 +51,8 @@ export default function Vehiculos() {
       capacidadVolumen: 0,
       tipoCombustible: "diesel",
       rendimientoKmLitro: 0,
-      placa: ""
+      placa: "",
+      tarifaPeaje: 0,
     }
   });
 
@@ -83,7 +85,8 @@ export default function Vehiculos() {
       capacidadVolumen: vehicle.capacidadVolumen,
       tipoCombustible: vehicle.tipoCombustible,
       rendimientoKmLitro: vehicle.rendimientoKmLitro,
-      placa: vehicle.placa || ""
+      placa: vehicle.placa || "",
+      tarifaPeaje: vehicle.tarifaPeaje ?? 0,
     });
     setIsDialogOpen(true);
   };
@@ -188,6 +191,13 @@ export default function Vehiculos() {
                       <FormMessage />
                     </FormItem>
                   )} />
+                  <FormField control={form.control} name="tarifaPeaje" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tarifa Peaje ($)</FormLabel>
+                      <FormControl><Input data-testid="input-tarifa-peaje" type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
                 </div>
                 <div className="flex justify-end pt-4">
                   <Button data-testid="button-submit-vehicle" type="submit" disabled={createMutation.isPending || updateMutation.isPending}>
@@ -209,6 +219,7 @@ export default function Vehiculos() {
                 <TableHead>Tipo</TableHead>
                 <TableHead>Capacidad</TableHead>
                 <TableHead>Combustible / Rendimiento</TableHead>
+                <TableHead>Tarifa Peaje</TableHead>
                 <TableHead className="w-[100px]"></TableHead>
               </TableRow>
             </TableHeader>
@@ -231,6 +242,9 @@ export default function Vehiculos() {
                   <TableCell>
                     <div className="text-sm capitalize">{vehicle.tipoCombustible}</div>
                     <div className="text-sm text-muted-foreground">{vehicle.rendimientoKmLitro} km/L</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">{vehicle.tarifaPeaje != null ? `$${Number(vehicle.tarifaPeaje).toFixed(2)}` : "—"}</div>
                   </TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">

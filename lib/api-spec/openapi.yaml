@@ -772,6 +772,9 @@ components:
           description: Fuel efficiency in km/liter
         placa:
           type: ["string", "null"]
+        tarifaPeaje:
+          type: ["number", "null"]
+          description: Tarifa de peaje por despacho en moneda local
         createdAt:
           type: string
 
@@ -793,6 +796,8 @@ components:
           type: number
         placa:
           type: string
+        tarifaPeaje:
+          type: number
 
     VehicleUpdate:
       type: object
@@ -811,6 +816,8 @@ components:
           type: number
         placa:
           type: string
+        tarifaPeaje:
+          type: number
 
     LoadRequirement:
       type: object
