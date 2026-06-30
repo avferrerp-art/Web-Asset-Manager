@@ -30,6 +30,7 @@ export const ListVehiclesResponseItem = zod.object({
   "rendimientoKmLitro": zod.number().describe('Fuel efficiency in km\/liter'),
   "placa": zod.string().nullish(),
   "tarifaPeaje": zod.number().nullish().describe('Tarifa de peaje por despacho en moneda local'),
+  "tanqueLitros": zod.number().nullish().describe('Capacidad del tanque en litros'),
   "createdAt": zod.string()
 })
 export const ListVehiclesResponse = zod.array(ListVehiclesResponseItem)
@@ -46,7 +47,8 @@ export const CreateVehicleBody = zod.object({
   "tipoCombustible": zod.string(),
   "rendimientoKmLitro": zod.number(),
   "placa": zod.string().optional(),
-  "tarifaPeaje": zod.number().optional()
+  "tarifaPeaje": zod.number().optional(),
+  "tanqueLitros": zod.number().optional()
 })
 
 export const CreateVehicleResponse = zod.object({
@@ -59,6 +61,7 @@ export const CreateVehicleResponse = zod.object({
   "rendimientoKmLitro": zod.number().describe('Fuel efficiency in km\/liter'),
   "placa": zod.string().nullish(),
   "tarifaPeaje": zod.number().nullish().describe('Tarifa de peaje por despacho en moneda local'),
+  "tanqueLitros": zod.number().nullish().describe('Capacidad del tanque en litros'),
   "createdAt": zod.string()
 })
 
@@ -80,6 +83,7 @@ export const GetVehicleResponse = zod.object({
   "rendimientoKmLitro": zod.number().describe('Fuel efficiency in km\/liter'),
   "placa": zod.string().nullish(),
   "tarifaPeaje": zod.number().nullish().describe('Tarifa de peaje por despacho en moneda local'),
+  "tanqueLitros": zod.number().nullish().describe('Capacidad del tanque en litros'),
   "createdAt": zod.string()
 })
 
@@ -99,7 +103,8 @@ export const UpdateVehicleBody = zod.object({
   "tipoCombustible": zod.string().optional(),
   "rendimientoKmLitro": zod.number().optional(),
   "placa": zod.string().optional(),
-  "tarifaPeaje": zod.number().optional()
+  "tarifaPeaje": zod.number().optional(),
+  "tanqueLitros": zod.number().optional()
 })
 
 export const UpdateVehicleResponse = zod.object({
@@ -112,6 +117,7 @@ export const UpdateVehicleResponse = zod.object({
   "rendimientoKmLitro": zod.number().describe('Fuel efficiency in km\/liter'),
   "placa": zod.string().nullish(),
   "tarifaPeaje": zod.number().nullish().describe('Tarifa de peaje por despacho en moneda local'),
+  "tanqueLitros": zod.number().nullish().describe('Capacidad del tanque en litros'),
   "createdAt": zod.string()
 })
 
@@ -637,6 +643,7 @@ export const RecommendVehicleResponseItem = zod.object({
   "rendimientoKmLitro": zod.number().describe('Fuel efficiency in km\/liter'),
   "placa": zod.string().nullish(),
   "tarifaPeaje": zod.number().nullish().describe('Tarifa de peaje por despacho en moneda local'),
+  "tanqueLitros": zod.number().nullish().describe('Capacidad del tanque en litros'),
   "createdAt": zod.string()
 })
 export const RecommendVehicleResponse = zod.array(RecommendVehicleResponseItem)

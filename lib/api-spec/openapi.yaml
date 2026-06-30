@@ -775,6 +775,9 @@ components:
         tarifaPeaje:
           type: ["number", "null"]
           description: Tarifa de peaje por despacho en moneda local
+        tanqueLitros:
+          type: ["number", "null"]
+          description: Capacidad del tanque en litros
         createdAt:
           type: string
 
@@ -798,6 +801,8 @@ components:
           type: string
         tarifaPeaje:
           type: number
+        tanqueLitros:
+          type: number
 
     VehicleUpdate:
       type: object
@@ -817,6 +822,8 @@ components:
         placa:
           type: string
         tarifaPeaje:
+          type: number
+        tanqueLitros:
           type: number
 
     LoadRequirement:

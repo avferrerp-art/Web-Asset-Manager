@@ -26,5 +26,10 @@ export interface Vehicle {
      * @nullable
      */
   tarifaPeaje?: number | null;
+  /**
+     * Capacidad del tanque en litros
+     * @nullable
+     */
+  tanqueLitros?: number | null;
   createdAt: string;
 }

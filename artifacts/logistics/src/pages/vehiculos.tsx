@@ -26,7 +26,20 @@ const vehicleSchema = z.object({
   rendimientoKmLitro: z.coerce.number().min(0),
   placa: z.string().optional(),
   tarifaPeaje: z.coerce.number().min(0).optional(),
+  tanqueLitros: z.coerce.number().min(0).optional(),
 });
+
+const EMPTY_DEFAULTS = {
+  tipo: "propio",
+  modelo: "",
+  capacidadPeso: 0,
+  capacidadVolumen: 0,
+  tipoCombustible: "diesel",
+  rendimientoKmLitro: 0,
+  placa: "",
+  tarifaPeaje: 0,
+  tanqueLitros: 0,
+};
 
 export default function Vehiculos() {
   const queryClient = useQueryClient();
@@ -44,34 +57,36 @@ export default function Vehiculos() {
 
   const form = useForm<z.infer<typeof vehicleSchema>>({
     resolver: zodResolver(vehicleSchema),
-    defaultValues: {
-      tipo: "propio",
-      modelo: "",
-      capacidadPeso: 0,
-      capacidadVolumen: 0,
-      tipoCombustible: "diesel",
-      rendimientoKmLitro: 0,
-      placa: "",
-      tarifaPeaje: 0,
-    }
+    defaultValues: EMPTY_DEFAULTS,
   });
+
+  const refreshVehicles = () => {
+    queryClient.removeQueries({ queryKey: getListVehiclesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
+  };
 
   const onSubmit = (values: z.infer<typeof vehicleSchema>) => {
     if (editingVehicle) {
       updateMutation.mutate({ id: editingVehicle.id, data: values }, {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
+          refreshVehicles();
           setIsDialogOpen(false);
           toast({ title: "Vehículo actualizado correctamente" });
-        }
+        },
+        onError: (err: any) => {
+          toast({ title: "Error al actualizar", description: err?.message ?? "Intenta de nuevo", variant: "destructive" });
+        },
       });
     } else {
       createMutation.mutate({ data: values }, {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
+          refreshVehicles();
           setIsDialogOpen(false);
           toast({ title: "Vehículo creado correctamente" });
-        }
+        },
+        onError: (err: any) => {
+          toast({ title: "Error al crear", description: err?.message ?? "Intenta de nuevo", variant: "destructive" });
+        },
       });
     }
   };
@@ -87,6 +102,7 @@ export default function Vehiculos() {
       rendimientoKmLitro: vehicle.rendimientoKmLitro,
       placa: vehicle.placa || "",
       tarifaPeaje: vehicle.tarifaPeaje ?? 0,
+      tanqueLitros: vehicle.tanqueLitros ?? 0,
     });
     setIsDialogOpen(true);
   };
@@ -95,9 +111,12 @@ export default function Vehiculos() {
     if (confirm("¿Deseas eliminar este vehículo?")) {
       deleteMutation.mutate({ id }, {
         onSuccess: () => {
-          queryClient.invalidateQueries({ queryKey: getListVehiclesQueryKey() });
+          refreshVehicles();
           toast({ title: "Vehículo eliminado" });
-        }
+        },
+        onError: (err: any) => {
+          toast({ title: "Error al eliminar", description: err?.message ?? "Intenta de nuevo", variant: "destructive" });
+        },
       });
     }
   };
@@ -111,14 +130,14 @@ export default function Vehiculos() {
         </div>
         <Dialog open={isDialogOpen} onOpenChange={(open) => {
           setIsDialogOpen(open);
-          if (!open) { setEditingVehicle(null); form.reset(); }
+          if (!open) { setEditingVehicle(null); form.reset(EMPTY_DEFAULTS); }
         }}>
           <DialogTrigger asChild>
             <Button data-testid="button-add-vehicle" className="gap-2">
               <Plus className="w-4 h-4" /> Agregar Vehículo
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-[500px]">
+          <DialogContent className="sm:max-w-[560px]">
             <DialogHeader>
               <DialogTitle>{editingVehicle ? "Editar Vehículo" : "Agregar Vehículo"}</DialogTitle>
             </DialogHeader>
@@ -191,8 +210,15 @@ export default function Vehiculos() {
                       <FormMessage />
                     </FormItem>
                   )} />
-                  <FormField control={form.control} name="tarifaPeaje" render={({ field }) => (
+                  <FormField control={form.control} name="tanqueLitros" render={({ field }) => (
                     <FormItem>
+                      <FormLabel>Tanque (Lts)</FormLabel>
+                      <FormControl><Input data-testid="input-tanque-litros" type="number" step="1" placeholder="0" {...field} /></FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="tarifaPeaje" render={({ field }) => (
+                    <FormItem className="col-span-2">
                       <FormLabel>Tarifa Peaje ($)</FormLabel>
                       <FormControl><Input data-testid="input-tarifa-peaje" type="number" step="0.01" placeholder="0.00" {...field} /></FormControl>
                       <FormMessage />
@@ -219,15 +245,16 @@ export default function Vehiculos() {
                 <TableHead>Tipo</TableHead>
                 <TableHead>Capacidad</TableHead>
                 <TableHead>Combustible / Rendimiento</TableHead>
+                <TableHead>Tanque</TableHead>
                 <TableHead>Tarifa Peaje</TableHead>
                 <TableHead className="w-[100px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center">Cargando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="h-24 text-center">Cargando...</TableCell></TableRow>
               ) : vehicles?.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">Sin vehículos registrados.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">Sin vehículos registrados.</TableCell></TableRow>
               ) : vehicles?.map((vehicle) => (
                 <TableRow key={vehicle.id} data-testid={`row-vehicle-${vehicle.id}`}>
                   <TableCell>
@@ -242,6 +269,9 @@ export default function Vehiculos() {
                   <TableCell>
                     <div className="text-sm capitalize">{vehicle.tipoCombustible}</div>
                     <div className="text-sm text-muted-foreground">{vehicle.rendimientoKmLitro} km/L</div>
+                  </TableCell>
+                  <TableCell>
+                    <div className="text-sm">{vehicle.tanqueLitros != null ? `${vehicle.tanqueLitros} L` : "—"}</div>
                   </TableCell>
                   <TableCell>
                     <div className="text-sm">{vehicle.tarifaPeaje != null ? `$${Number(vehicle.tarifaPeaje).toFixed(2)}` : "—"}</div>

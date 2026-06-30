@@ -12,6 +12,7 @@ export const vehiclesTable = pgTable("vehicles", {
   rendimientoKmLitro: real("rendimiento_km_litro").notNull(),
   placa: text("placa"),
   tarifaPeaje: real("tarifa_peaje").default(0),
+  tanqueLitros: real("tanque_litros"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

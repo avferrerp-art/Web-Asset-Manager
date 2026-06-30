@@ -33,6 +33,11 @@ export interface Vehicle {
      * @nullable
      */
   tarifaPeaje?: number | null;
+  /**
+     * Capacidad del tanque en litros
+     * @nullable
+     */
+  tanqueLitros?: number | null;
   createdAt: string;
 }
 
@@ -45,6 +50,7 @@ export interface VehicleInput {
   rendimientoKmLitro: number;
   placa?: string;
   tarifaPeaje?: number;
+  tanqueLitros?: number;
 }
 
 export interface VehicleUpdate {
@@ -56,6 +62,7 @@ export interface VehicleUpdate {
   rendimientoKmLitro?: number;
   placa?: string;
   tarifaPeaje?: number;
+  tanqueLitros?: number;
 }
 
 export interface LoadRequirement {

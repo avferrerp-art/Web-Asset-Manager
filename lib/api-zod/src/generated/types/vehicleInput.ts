@@ -15,4 +15,5 @@ export interface VehicleInput {
   rendimientoKmLitro: number;
   placa?: string;
   tarifaPeaje?: number;
+  tanqueLitros?: number;
 }
