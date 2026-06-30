@@ -4,7 +4,8 @@ import {
   useListVehicles, getListVehiclesQueryKey,
   useListPersonnel, getListPersonnelQueryKey,
   useListRoutes, getListRoutesQueryKey,
-  useCreateDispatch, getListDispatchesQueryKey,
+  useListDispatches, getListDispatchesQueryKey,
+  useCreateDispatch,
   useUpdateDispatch,
 } from "@workspace/api-client-react";
 import type { DispatchInput } from "@workspace/api-client-react";
@@ -21,7 +22,7 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import {
-  CheckCircle2, ChevronRight, Route as RouteIcon, Truck, Users, CalendarClock, PackageCheck,
+  CheckCircle2, ChevronRight, Route as RouteIcon, Truck, Users, CalendarClock, PackageCheck, AlertTriangle,
 } from "lucide-react";
 
 interface WizardState {
@@ -86,10 +87,27 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     query: { queryKey: getListRoutesQueryKey() },
   });
 
+  const { data: allDispatches } = useListDispatches(undefined, {
+    query: { queryKey: getListDispatchesQueryKey() },
+  });
+
   const createDispatch = useCreateDispatch();
   const updateDispatch = useUpdateDispatch();
 
   const pendingSales = sales?.filter((s) => s.estado === "pendiente") ?? [];
+
+  const BUSY_STATES = ["pre-despacho", "aprobado", "en-ruta"];
+  const vehicleConflict = (() => {
+    if (!assignment.vehiculoId || !assignment.fechaEstimadaSalida || !assignment.fechaEstimadaLlegada || !allDispatches) return null;
+    const newStart = new Date(assignment.fechaEstimadaSalida).getTime();
+    const newEnd = new Date(assignment.fechaEstimadaLlegada).getTime();
+    return allDispatches.find(d =>
+      d.vehiculoId === assignment.vehiculoId &&
+      BUSY_STATES.includes(d.estado) &&
+      newStart < new Date(d.fechaEstimadaLlegada).getTime() &&
+      newEnd > new Date(d.fechaEstimadaSalida).getTime()
+    ) ?? null;
+  })();
 
   const selectedVehicle = vehicles?.find((v) => v.id === assignment.vehiculoId);
   const selectedChofer = personnel?.find((p) => p.id === assignment.choferId);
@@ -160,7 +178,8 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
       assignment.routeId > 0 &&
       assignment.distanciaKm > 0 &&
       assignment.fechaEstimadaSalida &&
-      assignment.fechaEstimadaLlegada
+      assignment.fechaEstimadaLlegada &&
+      !vehicleConflict
     );
   }
 
@@ -528,6 +547,19 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                 />
               </div>
             </div>
+
+            {/* Alerta de conflicto de vehículo */}
+            {vehicleConflict && (
+              <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <div>
+                  <p className="font-semibold">Vehículo no disponible para la fecha y hora elegidas</p>
+                  <p className="text-xs mt-0.5 text-destructive/80">
+                    Ya tiene un despacho programado (#{vehicleConflict.id}) que se solapa con este período.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <div className="flex justify-between pt-2">
               <Button variant="ghost" onClick={() => setStep(1)}>

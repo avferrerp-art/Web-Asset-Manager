@@ -4,6 +4,7 @@ import {
   useListVehicles, getListVehiclesQueryKey,
   useListPersonnel, getListPersonnelQueryKey,
   useListRoutes, getListRoutesQueryKey,
+  useListDispatches,
   useCreateDispatch, getListDispatchesQueryKey
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,7 +19,7 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Truck, Route as RouteIcon, Plus } from "lucide-react";
+import { Truck, Route as RouteIcon, Plus, AlertTriangle } from "lucide-react";
 import { NuevoDespachoWizard } from "@/components/nuevo-despacho-wizard";
 
 const dispatchSchema = z.object({
@@ -53,6 +54,10 @@ export default function PreDespacho() {
 
   const { data: routes } = useListRoutes({
     query: { queryKey: getListRoutesQueryKey() }
+  });
+
+  const { data: allDispatches } = useListDispatches(undefined, {
+    query: { queryKey: getListDispatchesQueryKey() }
   });
 
   const createDispatchMutation = useCreateDispatch();
@@ -99,6 +104,19 @@ export default function PreDespacho() {
       : null;
 
   const totalEstimado = costoCombustible + costoViaticos + (costoPeajes ?? 0);
+
+  const BUSY_STATES = ["pre-despacho", "aprobado", "en-ruta"];
+  const vehicleConflict = (() => {
+    if (!watchedVehicleId || !watchedSalida || !watchedLlegada || !allDispatches) return null;
+    const newStart = new Date(watchedSalida).getTime();
+    const newEnd = new Date(watchedLlegada).getTime();
+    return allDispatches.find(d =>
+      d.vehiculoId === Number(watchedVehicleId) &&
+      BUSY_STATES.includes(d.estado) &&
+      newStart < new Date(d.fechaEstimadaLlegada).getTime() &&
+      newEnd > new Date(d.fechaEstimadaSalida).getTime()
+    ) ?? null;
+  })();
 
   const onSubmit = (values: z.infer<typeof dispatchSchema>) => {
     if (!selectedSale) return;
@@ -339,6 +357,19 @@ export default function PreDespacho() {
                 )} />
               </div>
 
+              {/* Alerta de conflicto de vehículo */}
+              {vehicleConflict && (
+                <div className="flex items-start gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2.5 text-sm text-destructive">
+                  <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="font-semibold">Vehículo no disponible para la fecha y hora elegidas</p>
+                    <p className="text-xs mt-0.5 text-destructive/80">
+                      Ya tiene un despacho programado (#{vehicleConflict.id}) que se solapa con este período.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Detalle de casetas cuando hay ruta seleccionada */}
               {selectedRoute && costoPeajes != null && (
                 <div className="flex items-center gap-2 text-sm bg-muted/50 rounded-md px-3 py-2 border border-border/50">
@@ -385,7 +416,7 @@ export default function PreDespacho() {
               </div>
 
               <div className="flex justify-end pt-2">
-                <Button data-testid="button-approve-dispatch" type="submit" size="lg" className="w-full" disabled={createDispatchMutation.isPending}>
+                <Button data-testid="button-approve-dispatch" type="submit" size="lg" className="w-full" disabled={createDispatchMutation.isPending || !!vehicleConflict}>
                   {createDispatchMutation.isPending ? "Procesando..." : "Aprobar Despacho"}
                 </Button>
               </div>
