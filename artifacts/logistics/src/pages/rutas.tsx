@@ -90,7 +90,9 @@ function RouteCard({
         <div className="flex items-start justify-between gap-2">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              <span className="font-semibold text-base text-foreground truncate">{route.nombre}</span>
+              <span className="font-semibold text-base text-foreground truncate">
+                {route.nombre || `${route.origen} → ${route.destino}`}
+              </span>
               <Badge variant="outline" className={`text-xs ${TIPO_COLOR[route.tipo] ?? ""}`}>
                 {TIPO_LABEL[route.tipo] ?? route.tipo}
               </Badge>
