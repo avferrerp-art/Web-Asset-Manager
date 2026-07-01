@@ -45,16 +45,19 @@ async function computeCostEstimate(inputs: CostEstimateInputs) {
   const distanciaKm = inputs.distanciaKm ?? 100;
   const rendimiento = vehicle?.rendimientoKmLitro ?? 10;
 
-  let costoPorLitro = 1.5;
-  if (vehicle?.tipoCombustible) {
-    const [fuelPrice] = await db
-      .select()
-      .from(fuelPricesTable)
-      .where(eq(fuelPricesTable.tipoCombustible, vehicle.tipoCombustible));
-    if (fuelPrice) {
-      costoPorLitro = fuelPrice.precioPorLitro;
-    }
+  if (!vehicle?.tipoCombustible) {
+    throw new Error(`No se pudo determinar el tipo de combustible del vehículo ${inputs.vehiculoId}`);
   }
+  const [fuelPrice] = await db
+    .select()
+    .from(fuelPricesTable)
+    .where(eq(fuelPricesTable.tipoCombustible, vehicle.tipoCombustible));
+  if (!fuelPrice) {
+    throw new Error(
+      `No hay un precio de combustible configurado para "${vehicle.tipoCombustible}". Configúralo en Vehículos > Precios de combustible antes de continuar.`
+    );
+  }
+  const costoPorLitro = fuelPrice.precioPorLitro;
 
   const litrosEstimados = distanciaKm / rendimiento;
   const costoCombustible = litrosEstimados * costoPorLitro;
