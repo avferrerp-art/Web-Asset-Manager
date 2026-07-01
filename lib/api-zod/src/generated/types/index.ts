@@ -33,6 +33,7 @@ export * from './routePointInput';
 export * from './routeToll';
 export * from './routeTollInput';
 export * from './routeTollUpdate';
+export * from './routeTramo';
 export * from './routeUpdate';
 export * from './routeWaypoint';
 export * from './routeWaypointInput';

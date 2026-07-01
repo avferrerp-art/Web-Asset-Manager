@@ -146,6 +146,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     costoPeajes: number;
     total: number;
     litrosEstimados: number;
+    tramos?: { label: string; distanciaKm: number }[];
   } | null>(null);
 
   useEffect(() => {
@@ -208,7 +209,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
       ...prev,
       vehiculoId: bestVehicle?.id ?? vehicles?.[0]?.id ?? 0,
       routeId: matchingRoute?.id ?? 0,
-      distanciaKm: matchingRoute?.distanciaKm ?? 100,
+      distanciaKm: matchingRoute?.distanciaTotalKm ?? 100,
     }));
   }
 
@@ -218,7 +219,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     setAssignment((prev) => ({
       ...prev,
       routeId: id,
-      distanciaKm: prev.distanciaManual ? prev.distanciaKm : route?.distanciaKm ?? prev.distanciaKm,
+      distanciaKm: prev.distanciaManual ? prev.distanciaKm : route?.distanciaTotalKm ?? prev.distanciaKm,
     }));
   }
 
@@ -462,12 +463,24 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
               </Select>
               {selectedRoute && (selectedRoute.tolls?.length ?? 0) > 0 && (
                 <p className="text-xs text-muted-foreground pl-1">
-                  {selectedRoute.tolls?.length ?? 0} caseta(s) ={" "}
+                  {selectedRoute.tolls?.length ?? 0} caseta(s)
+                  {selectedRoute.tipo === "redondo" ? " (ida y vuelta)" : ""} ={" "}
                   <span className="font-semibold text-foreground">
                     ${costoPeajes.toFixed(2)}
                   </span>{" "}
                   en peajes
                 </p>
+              )}
+              {selectedRoute && selectedRoute.tipo !== "sencillo" && costPreview?.tramos && costPreview.tramos.length > 0 && (
+                <div className="text-xs bg-muted/30 rounded-md px-2.5 py-2 border border-border/40 space-y-1">
+                  <p className="text-muted-foreground font-medium">Desglose por tramo</p>
+                  {costPreview.tramos.map((t, i) => (
+                    <div key={i} className="flex items-center justify-between text-muted-foreground">
+                      <span className="truncate">{t.label}</span>
+                      <span className="shrink-0 ml-2">{t.distanciaKm} km</span>
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
 
@@ -519,7 +532,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                         setAssignment((p) => ({
                           ...p,
                           distanciaManual: checked === true,
-                          distanciaKm: checked === true ? p.distanciaKm : selectedRoute?.distanciaKm ?? p.distanciaKm,
+                          distanciaKm: checked === true ? p.distanciaKm : selectedRoute?.distanciaTotalKm ?? p.distanciaKm,
                         }))
                       }
                     />
@@ -736,10 +749,14 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                     </Badge>
                   )}
                 </div>
-                {selectedRoute?.tipo && selectedRoute.tipo !== "sencillo" && (
-                  <p className="text-[11px] text-amber-500 flex items-start gap-1 mt-1">
-                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
-                    Verifica que los {assignment.distanciaKm} km incluyan el recorrido completo de esta ruta {selectedRoute.tipo === "redondo" ? "redonda" : "multidestino"}.
+                {selectedRoute?.tipo === "redondo" && !assignment.distanciaManual && (
+                  <p className="text-[11px] text-muted-foreground flex items-start gap-1 mt-1">
+                    Distancia y peajes calculados automáticamente (ida y vuelta).
+                  </p>
+                )}
+                {selectedRoute?.tipo === "multidestino" && !assignment.distanciaManual && (
+                  <p className="text-[11px] text-muted-foreground flex items-start gap-1 mt-1">
+                    Distancia calculada automáticamente sumando los tramos de la ruta.
                   </p>
                 )}
               </div>
@@ -779,6 +796,17 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                   <div className="font-bold text-sm text-primary">${totalEstimado.toFixed(2)}</div>
                 </div>
               </div>
+              {selectedRoute && selectedRoute.tipo !== "sencillo" && costPreview?.tramos && costPreview.tramos.length > 0 && (
+                <div className="mt-3 text-xs bg-background/60 rounded-md px-2.5 py-2 border border-border/40 space-y-1">
+                  <p className="text-muted-foreground font-medium">Desglose por tramo</p>
+                  {costPreview.tramos.map((t, i) => (
+                    <div key={i} className="flex items-center justify-between text-muted-foreground">
+                      <span className="truncate">{t.label}</span>
+                      <span className="shrink-0 ml-2">{t.distanciaKm} km</span>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Dates summary */}

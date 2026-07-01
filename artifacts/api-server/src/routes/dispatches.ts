@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
-import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, fuelPricesTable } from "@workspace/db";
+import { eq, and, asc } from "drizzle-orm";
+import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable } from "@workspace/db";
+import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
 import {
   ListDispatchesQueryParams,
   CreateDispatchBody,
@@ -30,6 +31,18 @@ interface CostEstimateInputs {
   fechaEstimadaLlegada: string;
   distanciaKm?: number | null;
   routeId?: number | null;
+}
+
+async function fetchRouteCostBreakdown(routeId: number): Promise<RouteCostBreakdown | null> {
+  const [route] = await db.select().from(tollRoutesTable).where(eq(tollRoutesTable.id, routeId));
+  if (!route) return null;
+  const tolls = await db.select().from(routeTollsTable).where(eq(routeTollsTable.routeId, routeId));
+  const waypoints = await db
+    .select()
+    .from(routeWaypointsTable)
+    .where(eq(routeWaypointsTable.routeId, routeId))
+    .orderBy(asc(routeWaypointsTable.orden));
+  return computeRouteCostBreakdown(route, tolls, waypoints);
 }
 
 async function computeCostEstimate(inputs: CostEstimateInputs) {
@@ -69,14 +82,18 @@ async function computeCostEstimate(inputs: CostEstimateInputs) {
   const costoViaticos = dias * ((driver?.tarifaViaticos ?? 0) + assistantRate);
 
   let costoPeajes = 0;
+  let tramos: RouteTramo[] | undefined;
   if (inputs.routeId) {
-    const routeTolls = await db.select().from(routeTollsTable).where(eq(routeTollsTable.routeId, inputs.routeId));
-    costoPeajes = routeTolls.reduce((sum, toll) => sum + (toll.tarifa ?? 0), 0);
+    const breakdown = await fetchRouteCostBreakdown(inputs.routeId);
+    if (breakdown) {
+      costoPeajes = breakdown.costoPeajesTotal;
+      tramos = breakdown.tramos;
+    }
   }
 
   const total = costoCombustible + costoViaticos + costoPeajes;
 
-  return { costoCombustible, costoViaticos, costoPeajes, total, dias, litrosEstimados, distanciaKm, costoPorLitro };
+  return { costoCombustible, costoViaticos, costoPeajes, total, dias, litrosEstimados, distanciaKm, costoPorLitro, tramos };
 }
 
 async function resolveDistancia(dispatchData: {
@@ -85,9 +102,9 @@ async function resolveDistancia(dispatchData: {
   distanciaManual?: boolean;
 }) {
   if (dispatchData.routeId && !dispatchData.distanciaManual) {
-    const [route] = await db.select().from(tollRoutesTable).where(eq(tollRoutesTable.id, dispatchData.routeId));
-    if (route?.distanciaKm != null) {
-      return route.distanciaKm;
+    const breakdown = await fetchRouteCostBreakdown(dispatchData.routeId);
+    if (breakdown) {
+      return breakdown.distanciaTotalKm;
     }
   }
   return dispatchData.distanciaKm ?? null;

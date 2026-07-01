@@ -98,9 +98,7 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
   const selectedVehicle = vehicles?.find(v => v.id === watchedVehicleId);
   const selectedRoute = routes?.find(r => r.id === watchedRouteId);
   const calculatedTotalPeajes =
-    selectedRoute != null
-      ? selectedRoute.tolls.reduce((sum, t) => sum + (t.tarifa ?? 0), 0)
-      : null;
+    selectedRoute != null ? selectedRoute.costoPeajesTotal ?? 0 : null;
 
   const startEditing = () => {
     if (!dispatch) return;
@@ -121,8 +119,8 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
 
   React.useEffect(() => {
     if (!isEditing || watchedDistanciaManual) return;
-    if (selectedRoute?.distanciaKm != null) {
-      form.setValue("distanciaKm", selectedRoute.distanciaKm, { shouldDirty: true });
+    if (selectedRoute?.distanciaTotalKm != null) {
+      form.setValue("distanciaKm", selectedRoute.distanciaTotalKm, { shouldDirty: true });
     }
   }, [selectedRoute, isEditing, watchedDistanciaManual]);
 
@@ -319,8 +317,20 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
                   ${calculatedTotalPeajes.toFixed(2)}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  (suma de {selectedRoute?.tolls.length} caseta{selectedRoute?.tolls.length !== 1 ? "s" : ""} de la ruta)
+                  (suma de {selectedRoute?.tolls.length} caseta{selectedRoute?.tolls.length !== 1 ? "s" : ""} de la ruta
+                  {selectedRoute?.tipo === "redondo" ? ", ida y vuelta" : ""})
                 </span>
+              </div>
+            )}
+            {selectedRoute && selectedRoute.tipo !== "sencillo" && selectedRoute.tramos && selectedRoute.tramos.length > 0 && (
+              <div className="text-xs bg-muted/30 rounded-md px-3 py-2 border border-border/40 space-y-1">
+                <p className="text-muted-foreground font-medium">Desglose por tramo</p>
+                {selectedRoute.tramos.map((t, i) => (
+                  <div key={i} className="flex items-center justify-between text-muted-foreground">
+                    <span className="truncate">{t.label}</span>
+                    <span className="shrink-0 ml-2">{t.distanciaKm} km</span>
+                  </div>
+                ))}
               </div>
             )}
 

@@ -805,7 +805,11 @@ export const EstimateDispatchCostsResponse = zod.object({
   "dias": zod.number(),
   "litrosEstimados": zod.number(),
   "distanciaKm": zod.number(),
-  "costoPorLitro": zod.number().optional()
+  "costoPorLitro": zod.number().optional(),
+  "tramos": zod.array(zod.object({
+  "label": zod.string(),
+  "distanciaKm": zod.number()
+})).optional().describe('Desglose por tramo cuando la ruta es redondo o multidestino')
 })
 
 
@@ -830,7 +834,11 @@ export const EstimateDispatchCostsPreviewResponse = zod.object({
   "dias": zod.number(),
   "litrosEstimados": zod.number(),
   "distanciaKm": zod.number(),
-  "costoPorLitro": zod.number().optional()
+  "costoPorLitro": zod.number().optional(),
+  "tramos": zod.array(zod.object({
+  "label": zod.string(),
+  "distanciaKm": zod.number()
+})).optional().describe('Desglose por tramo cuando la ruta es redondo o multidestino')
 })
 
 
@@ -934,8 +942,15 @@ export const ListRoutesResponseItem = zod.object({
   "id": zod.number(),
   "routeId": zod.number(),
   "ubicacion": zod.string(),
-  "orden": zod.number()
+  "orden": zod.number(),
+  "distanciaKm": zod.number().describe('Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada')
 })),
+  "distanciaTotalKm": zod.number().optional().describe('Distancia total calculada según el tipo de ruta (duplicada para redondo, suma de tramos para multidestino)'),
+  "costoPeajesTotal": zod.number().optional().describe('Costo total de peajes calculado según el tipo de ruta (duplicado para redondo)'),
+  "tramos": zod.array(zod.object({
+  "label": zod.string(),
+  "distanciaKm": zod.number()
+})).optional().describe('Desglose de la ruta por tramo (ida\/vuelta para redondo, cada parada para multidestino)'),
   "createdAt": zod.string().optional()
 })
 export const ListRoutesResponse = zod.array(ListRoutesResponseItem)
@@ -972,8 +987,15 @@ export const CreateRouteResponse = zod.object({
   "id": zod.number(),
   "routeId": zod.number(),
   "ubicacion": zod.string(),
-  "orden": zod.number()
+  "orden": zod.number(),
+  "distanciaKm": zod.number().describe('Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada')
 })),
+  "distanciaTotalKm": zod.number().optional().describe('Distancia total calculada según el tipo de ruta (duplicada para redondo, suma de tramos para multidestino)'),
+  "costoPeajesTotal": zod.number().optional().describe('Costo total de peajes calculado según el tipo de ruta (duplicado para redondo)'),
+  "tramos": zod.array(zod.object({
+  "label": zod.string(),
+  "distanciaKm": zod.number()
+})).optional().describe('Desglose de la ruta por tramo (ida\/vuelta para redondo, cada parada para multidestino)'),
   "createdAt": zod.string().optional()
 })
 
@@ -1004,8 +1026,15 @@ export const GetRouteResponse = zod.object({
   "id": zod.number(),
   "routeId": zod.number(),
   "ubicacion": zod.string(),
-  "orden": zod.number()
+  "orden": zod.number(),
+  "distanciaKm": zod.number().describe('Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada')
 })),
+  "distanciaTotalKm": zod.number().optional().describe('Distancia total calculada según el tipo de ruta (duplicada para redondo, suma de tramos para multidestino)'),
+  "costoPeajesTotal": zod.number().optional().describe('Costo total de peajes calculado según el tipo de ruta (duplicado para redondo)'),
+  "tramos": zod.array(zod.object({
+  "label": zod.string(),
+  "distanciaKm": zod.number()
+})).optional().describe('Desglose de la ruta por tramo (ida\/vuelta para redondo, cada parada para multidestino)'),
   "createdAt": zod.string().optional()
 })
 
@@ -1045,8 +1074,15 @@ export const UpdateRouteResponse = zod.object({
   "id": zod.number(),
   "routeId": zod.number(),
   "ubicacion": zod.string(),
-  "orden": zod.number()
+  "orden": zod.number(),
+  "distanciaKm": zod.number().describe('Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada')
 })),
+  "distanciaTotalKm": zod.number().optional().describe('Distancia total calculada según el tipo de ruta (duplicada para redondo, suma de tramos para multidestino)'),
+  "costoPeajesTotal": zod.number().optional().describe('Costo total de peajes calculado según el tipo de ruta (duplicado para redondo)'),
+  "tramos": zod.array(zod.object({
+  "label": zod.string(),
+  "distanciaKm": zod.number()
+})).optional().describe('Desglose de la ruta por tramo (ida\/vuelta para redondo, cada parada para multidestino)'),
   "createdAt": zod.string().optional()
 })
 
@@ -1126,14 +1162,16 @@ export const AddRouteWaypointParams = zod.object({
 
 export const AddRouteWaypointBody = zod.object({
   "ubicacion": zod.string(),
-  "orden": zod.number()
+  "orden": zod.number(),
+  "distanciaKm": zod.number().optional().describe('Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada')
 })
 
 export const AddRouteWaypointResponse = zod.object({
   "id": zod.number(),
   "routeId": zod.number(),
   "ubicacion": zod.string(),
-  "orden": zod.number()
+  "orden": zod.number(),
+  "distanciaKm": zod.number().describe('Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada')
 })
 
 
@@ -1147,14 +1185,16 @@ export const UpdateRouteWaypointParams = zod.object({
 
 export const UpdateRouteWaypointBody = zod.object({
   "ubicacion": zod.string().optional(),
-  "orden": zod.number().optional()
+  "orden": zod.number().optional(),
+  "distanciaKm": zod.number().optional()
 })
 
 export const UpdateRouteWaypointResponse = zod.object({
   "id": zod.number(),
   "routeId": zod.number(),
   "ubicacion": zod.string(),
-  "orden": zod.number()
+  "orden": zod.number(),
+  "distanciaKm": zod.number().describe('Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada')
 })
 
 

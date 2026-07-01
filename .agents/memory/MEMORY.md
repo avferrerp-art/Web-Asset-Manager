@@ -2,3 +2,4 @@
 - [DB push TTY prompt](db-push-tty.md) — drizzle-kit push prompts interactively for column conflicts; apply DDL directly via executeSql in code_execution sandbox instead
 - [Hook call convention](hook-call-convention.md) — all generated hooks use single arg object: useHook({ query: {...} })
 - [Cache bust pattern](cache-bust-pattern.md) — after mutations call removeQueries + invalidateQueries together to bust 304 HTTP cache
+- [Route cost breakdown model](route-cost-breakdown.md) — redondo/multidestino distance & toll math lives in one shared helper; frontend must read distanciaTotalKm/costoPeajesTotal/tramos, never raw route.distanciaKm.

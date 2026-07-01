@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { tollRoutesTable } from "./toll_routes";
@@ -8,6 +8,7 @@ export const routeWaypointsTable = pgTable("route_waypoints", {
   routeId: integer("route_id").notNull().references(() => tollRoutesTable.id, { onDelete: "cascade" }),
   ubicacion: text("ubicacion").notNull(),
   orden: integer("orden").notNull(),
+  distanciaKm: real("distancia_km").notNull().default(0),
 });
 
 export const insertRouteWaypointSchema = createInsertSchema(routeWaypointsTable).omit({ id: true });

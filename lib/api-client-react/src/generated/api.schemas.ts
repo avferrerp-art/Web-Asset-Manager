@@ -306,6 +306,11 @@ export interface TravelCostInput {
   costoCombustiblePorLitro?: number;
 }
 
+export interface RouteTramo {
+  label: string;
+  distanciaKm: number;
+}
+
 export interface CostEstimate {
   costoCombustible: number;
   costoViaticos: number;
@@ -315,6 +320,8 @@ export interface CostEstimate {
   litrosEstimados: number;
   distanciaKm: number;
   costoPorLitro?: number;
+  /** Desglose por tramo cuando la ruta es redondo o multidestino */
+  tramos?: RouteTramo[];
 }
 
 export interface FuelPrice {
@@ -374,6 +381,8 @@ export interface RouteWaypoint {
   routeId: number;
   ubicacion: string;
   orden: number;
+  /** Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada */
+  distanciaKm: number;
 }
 
 export interface Route {
@@ -388,6 +397,12 @@ export interface Route {
   favorita: boolean;
   tolls: RouteToll[];
   waypoints: RouteWaypoint[];
+  /** Distancia total calculada según el tipo de ruta (duplicada para redondo, suma de tramos para multidestino) */
+  distanciaTotalKm?: number;
+  /** Costo total de peajes calculado según el tipo de ruta (duplicado para redondo) */
+  costoPeajesTotal?: number;
+  /** Desglose de la ruta por tramo (ida/vuelta para redondo, cada parada para multidestino) */
+  tramos?: RouteTramo[];
   createdAt?: string;
 }
 
@@ -424,11 +439,14 @@ export interface RouteTollUpdate {
 export interface RouteWaypointInput {
   ubicacion: string;
   orden: number;
+  /** Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada */
+  distanciaKm?: number;
 }
 
 export interface RouteWaypointUpdate {
   ubicacion?: string;
   orden?: number;
+  distanciaKm?: number;
 }
 
 export interface DashboardSummary {

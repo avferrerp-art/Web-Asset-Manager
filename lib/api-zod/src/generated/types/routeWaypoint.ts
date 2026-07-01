@@ -11,4 +11,6 @@ export interface RouteWaypoint {
   routeId: number;
   ubicacion: string;
   orden: number;
+  /** Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada */
+  distanciaKm: number;
 }

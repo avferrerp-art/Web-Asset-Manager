@@ -48,8 +48,11 @@ type RouteItem = {
   distanciaKm: number | null;
   favorita: boolean;
   tolls: { id: number; routeId: number; nombre: string; orden: number; tarifa: number }[];
-  waypoints: { id: number; routeId: number; ubicacion: string; orden: number }[];
+  waypoints: { id: number; routeId: number; ubicacion: string; orden: number; distanciaKm: number }[];
   linkedDispatchCount?: number;
+  distanciaTotalKm?: number;
+  costoPeajesTotal?: number;
+  tramos?: { label: string; distanciaKm: number }[];
   createdAt?: string;
 };
 
@@ -136,15 +139,16 @@ function RouteCard({
       </CardHeader>
       <CardContent className="pb-3 px-4">
         <div className="flex items-center gap-4 text-xs text-muted-foreground">
-          {route.distanciaKm != null && (
+          {route.distanciaTotalKm != null && (
             <span className="flex items-center gap-1">
               <RouteIcon className="w-3 h-3" />
-              {route.distanciaKm} km
+              {route.distanciaTotalKm} km {route.tipo !== "sencillo" ? "(total)" : ""}
             </span>
           )}
           <span className="flex items-center gap-1">
             <MapPin className="w-3 h-3" />
             {route.tolls.length} caseta{route.tolls.length !== 1 ? "s" : ""}
+            {route.costoPeajesTotal != null && ` · $${route.costoPeajesTotal.toFixed(2)}`}
           </span>
         </div>
         {route.tolls.length > 0 && (
@@ -154,6 +158,16 @@ function RouteCard({
                 <MapPin className="w-2.5 h-2.5" />
                 {t.nombre}
               </span>
+            ))}
+          </div>
+        )}
+        {route.tipo !== "sencillo" && route.tramos && route.tramos.length > 0 && (
+          <div className="mt-2 space-y-0.5">
+            {route.tramos.map((t, i) => (
+              <div key={i} className="text-[11px] text-muted-foreground/80 flex items-center justify-between">
+                <span className="truncate">{t.label}</span>
+                <span className="shrink-0 ml-2">{t.distanciaKm} km</span>
+              </div>
             ))}
           </div>
         )}
@@ -187,8 +201,9 @@ function RouteDialog({
   const [tollInput, setTollInput] = useState("");
   const [tollTarifaInput, setTollTarifaInput] = useState("");
   const [waypointInput, setWaypointInput] = useState("");
+  const [waypointDistanciaInput, setWaypointDistanciaInput] = useState("");
   const [localTolls, setLocalTolls] = useState<{ id: number; nombre: string; orden: number; tarifa: number }[]>([]);
-  const [localWaypoints, setLocalWaypoints] = useState<{ id: number; ubicacion: string; orden: number }[]>([]);
+  const [localWaypoints, setLocalWaypoints] = useState<{ id: number; ubicacion: string; orden: number; distanciaKm: number }[]>([]);
   const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
 
   const form = useForm<RouteFormValues>({
@@ -219,6 +234,7 @@ function RouteDialog({
       setTollInput("");
       setTollTarifaInput("");
       setWaypointInput("");
+      setWaypointDistanciaInput("");
     }
   }, [open, route]);
 
@@ -315,15 +331,33 @@ function RouteDialog({
       toast({ title: "Guarda la ruta primero para agregar paradas", variant: "destructive" });
       return;
     }
+    const distanciaKm = parseFloat(waypointDistanciaInput);
     addWaypointMutation.mutate(
-      { id: routeId, data: { ubicacion: loc, orden: localWaypoints.length + 1 } },
+      {
+        id: routeId,
+        data: {
+          ubicacion: loc,
+          orden: localWaypoints.length + 1,
+          ...(Number.isFinite(distanciaKm) ? { distanciaKm } : {}),
+        },
+      },
       {
         onSuccess: (newWp) => {
           setLocalWaypoints((prev) => [...prev, newWp]);
           setWaypointInput("");
+          setWaypointDistanciaInput("");
           invalidate();
         },
       }
+    );
+  };
+
+  const handleUpdateWaypointDistancia = (routeId: number, waypointId: number, distanciaKm: number) => {
+    if (!Number.isFinite(distanciaKm) || distanciaKm < 0) return;
+    setLocalWaypoints((prev) => prev.map((w) => (w.id === waypointId ? { ...w, distanciaKm } : w)));
+    updateWaypointMutation.mutate(
+      { routeId, waypointId, data: { distanciaKm } },
+      { onSuccess: () => invalidate() }
     );
   };
 
@@ -391,14 +425,22 @@ function RouteDialog({
                     <TabsTrigger value="multidestino" className="flex-1">Multidestino</TabsTrigger>
                   </TabsList>
                 </Tabs>
-                {(field.value === "redondo" || field.value === "multidestino") && (
-                  <p className="text-xs text-amber-500 flex items-start gap-1.5 mt-1.5">
-                    <span>⚠</span>
+                {field.value === "redondo" && (
+                  <p className="text-xs text-muted-foreground flex items-start gap-1.5 mt-1.5">
+                    <span>ℹ</span>
                     <span>
-                      La distancia (km) ingresada abajo se usa tal cual para el cálculo de combustible.
-                      En rutas {field.value === "redondo" ? "redondas" : "con múltiples destinos"}, verifica
-                      que incluya el recorrido {field.value === "redondo" ? "de ida y vuelta" : "por todas las paradas"};
-                      el sistema no lo ajusta automáticamente.
+                      La distancia y los peajes ingresados abajo representan solo el tramo de ida.
+                      El sistema duplica automáticamente ambos valores para el cálculo de costos de esta ruta redonda.
+                    </span>
+                  </p>
+                )}
+                {field.value === "multidestino" && (
+                  <p className="text-xs text-muted-foreground flex items-start gap-1.5 mt-1.5">
+                    <span>ℹ</span>
+                    <span>
+                      La distancia ingresada abajo es solo el tramo final (última parada → destino). Agrega las
+                      paradas intermedias con su distancia individual más abajo; el sistema suma todos los tramos
+                      automáticamente.
                     </span>
                   </p>
                 )}
@@ -463,7 +505,19 @@ function RouteDialog({
                   {[...localWaypoints].sort((a, b) => a.orden - b.orden).map((wp, i, arr) => (
                     <div key={wp.id} className="flex items-center gap-1 text-sm bg-muted/40 rounded px-2.5 py-1.5">
                       <span className="text-muted-foreground text-xs w-5 shrink-0">{wp.orden}.</span>
-                      <span className="flex-1">{wp.ubicacion}</span>
+                      <span className="flex-1 truncate">{wp.ubicacion}</span>
+                      <Input
+                        type="number"
+                        min={0}
+                        title="Distancia (km) desde el punto anterior"
+                        className="h-6 w-16 text-xs px-1.5 shrink-0"
+                        defaultValue={wp.distanciaKm}
+                        onBlur={(e) => {
+                          const val = parseFloat(e.target.value);
+                          if (val !== wp.distanciaKm) handleUpdateWaypointDistancia(activeRouteId, wp.id, val);
+                        }}
+                      />
+                      <span className="text-[10px] text-muted-foreground shrink-0">km</span>
                       <div className="flex items-center gap-0.5 shrink-0">
                         <Button
                           size="icon"
@@ -508,10 +562,22 @@ function RouteDialog({
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddWaypoint(); } }}
                     className="flex-1 h-8 text-sm"
                   />
+                  <Input
+                    type="number"
+                    min={0}
+                    placeholder="km"
+                    value={waypointDistanciaInput}
+                    onChange={(e) => setWaypointDistanciaInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddWaypoint(); } }}
+                    className="w-20 h-8 text-sm"
+                  />
                   <Button size="sm" variant="outline" onClick={handleAddWaypoint} disabled={addWaypointMutation.isPending}>
                     <Plus className="w-3.5 h-3.5 mr-1" /> Agregar
                   </Button>
                 </div>
+                <p className="text-[11px] text-muted-foreground mt-1.5">
+                  Km = distancia desde el punto anterior (origen o parada previa) hasta esta parada.
+                </p>
               </div>
             )}
 

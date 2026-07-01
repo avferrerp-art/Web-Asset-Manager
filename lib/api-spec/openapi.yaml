@@ -1658,6 +1658,11 @@ components:
           type: number
         costoPorLitro:
           type: number
+        tramos:
+          type: array
+          description: "Desglose por tramo cuando la ruta es redondo o multidestino"
+          items:
+            $ref: "#/components/schemas/RouteTramo"
 
     # --- FUEL PRICES ---
     FuelPrice:
@@ -1764,6 +1769,17 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RouteWaypoint"
+        distanciaTotalKm:
+          type: number
+          description: "Distancia total calculada según el tipo de ruta (duplicada para redondo, suma de tramos para multidestino)"
+        costoPeajesTotal:
+          type: number
+          description: "Costo total de peajes calculado según el tipo de ruta (duplicado para redondo)"
+        tramos:
+          type: array
+          description: "Desglose de la ruta por tramo (ida/vuelta para redondo, cada parada para multidestino)"
+          items:
+            $ref: "#/components/schemas/RouteTramo"
         createdAt:
           type: string
 
@@ -1839,7 +1855,7 @@ components:
 
     RouteWaypoint:
       type: object
-      required: [id, routeId, ubicacion, orden]
+      required: [id, routeId, ubicacion, orden, distanciaKm]
       properties:
         id:
           type: integer
@@ -1849,6 +1865,9 @@ components:
           type: string
         orden:
           type: integer
+        distanciaKm:
+          type: number
+          description: "Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada"
 
     RouteWaypointInput:
       type: object
@@ -1858,6 +1877,9 @@ components:
           type: string
         orden:
           type: integer
+        distanciaKm:
+          type: number
+          description: "Distancia en km desde el punto anterior (origen o parada previa) hasta esta parada"
 
     RouteWaypointUpdate:
       type: object
@@ -1866,6 +1888,17 @@ components:
           type: string
         orden:
           type: integer
+        distanciaKm:
+          type: number
+
+    RouteTramo:
+      type: object
+      required: [label, distanciaKm]
+      properties:
+        label:
+          type: string
+        distanciaKm:
+          type: number
 
     # --- DASHBOARD ---
     DashboardSummary:

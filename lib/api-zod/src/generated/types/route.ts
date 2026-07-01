@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { RouteToll } from './routeToll';
+import type { RouteTramo } from './routeTramo';
 import type { RouteWaypoint } from './routeWaypoint';
 
 export interface Route {
@@ -20,5 +21,11 @@ export interface Route {
   favorita: boolean;
   tolls: RouteToll[];
   waypoints: RouteWaypoint[];
+  /** Distancia total calculada según el tipo de ruta (duplicada para redondo, suma de tramos para multidestino) */
+  distanciaTotalKm?: number;
+  /** Costo total de peajes calculado según el tipo de ruta (duplicado para redondo) */
+  costoPeajesTotal?: number;
+  /** Desglose de la ruta por tramo (ida/vuelta para redondo, cada parada para multidestino) */
+  tramos?: RouteTramo[];
   createdAt?: string;
 }

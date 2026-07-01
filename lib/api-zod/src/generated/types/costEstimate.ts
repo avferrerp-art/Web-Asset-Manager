@@ -5,6 +5,7 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
+import type { RouteTramo } from './routeTramo';
 
 export interface CostEstimate {
   costoCombustible: number;
@@ -15,4 +16,6 @@ export interface CostEstimate {
   litrosEstimados: number;
   distanciaKm: number;
   costoPorLitro?: number;
+  /** Desglose por tramo cuando la ruta es redondo o multidestino */
+  tramos?: RouteTramo[];
 }

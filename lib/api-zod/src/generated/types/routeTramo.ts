@@ -6,8 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface RouteWaypointUpdate {
-  ubicacion?: string;
-  orden?: number;
-  distanciaKm?: number;
+export interface RouteTramo {
+  label: string;
+  distanciaKm: number;
 }

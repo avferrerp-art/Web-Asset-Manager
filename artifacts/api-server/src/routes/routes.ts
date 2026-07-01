@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq, and, asc, count } from "drizzle-orm";
 import { db, tollRoutesTable, routeTollsTable, routeWaypointsTable, dispatchesTable } from "@workspace/db";
+import { computeRouteCostBreakdown } from "../lib/routeCost";
 import {
   CreateRouteBody,
   UpdateRouteParams,
@@ -27,7 +28,16 @@ async function buildRoute(id: number) {
   const tolls = await db.select().from(routeTollsTable).where(eq(routeTollsTable.routeId, id)).orderBy(asc(routeTollsTable.orden));
   const waypoints = await db.select().from(routeWaypointsTable).where(eq(routeWaypointsTable.routeId, id)).orderBy(asc(routeWaypointsTable.orden));
   const [{ value: linkedDispatchCount }] = await db.select({ value: count() }).from(dispatchesTable).where(eq(dispatchesTable.routeId, id));
-  return { ...route, tolls, waypoints, linkedDispatchCount };
+  const breakdown = computeRouteCostBreakdown(route, tolls, waypoints);
+  return {
+    ...route,
+    tolls,
+    waypoints,
+    linkedDispatchCount,
+    distanciaTotalKm: breakdown.distanciaTotalKm,
+    costoPeajesTotal: breakdown.costoPeajesTotal,
+    tramos: breakdown.tramos,
+  };
 }
 
 router.get("/routes", async (_req, res): Promise<void> => {
@@ -187,7 +197,12 @@ router.post("/routes/:id/waypoints", async (req, res): Promise<void> => {
   }
   const [waypoint] = await db
     .insert(routeWaypointsTable)
-    .values({ routeId: params.data.id, ubicacion: parsed.data.ubicacion, orden: parsed.data.orden })
+    .values({
+      routeId: params.data.id,
+      ubicacion: parsed.data.ubicacion,
+      orden: parsed.data.orden,
+      distanciaKm: parsed.data.distanciaKm ?? 0,
+    })
     .returning();
   res.status(201).json(waypoint);
 });

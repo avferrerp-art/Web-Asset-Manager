@@ -112,6 +112,7 @@ export default function PreDespacho() {
     costoPeajes: number;
     total: number;
     litrosEstimados: number;
+    tramos?: { label: string; distanciaKm: number }[];
   } | null>(null);
 
   useEffect(() => {
@@ -198,7 +199,7 @@ export default function PreDespacho() {
       fechaEstimadaSalida: today.toISOString().slice(0, 16),
       fechaEstimadaLlegada: tomorrow.toISOString().slice(0, 16),
       ruta: sale.destino,
-      distanciaKm: matchingRoute?.distanciaKm ?? 100,
+      distanciaKm: matchingRoute?.distanciaTotalKm ?? 100,
       routeId: matchingRoute?.id ?? undefined,
     });
   };
@@ -293,8 +294,8 @@ export default function PreDespacho() {
                       field.onChange(id);
                       if (id && !form.getValues("distanciaManual")) {
                         const route = routes?.find(r => r.id === id);
-                        if (route?.distanciaKm) {
-                          form.setValue("distanciaKm", route.distanciaKm);
+                        if (route?.distanciaTotalKm) {
+                          form.setValue("distanciaKm", route.distanciaTotalKm);
                         }
                       }
                     }}
@@ -356,8 +357,8 @@ export default function PreDespacho() {
                             checked={manualField.value ?? false}
                             onCheckedChange={(checked) => {
                               manualField.onChange(checked === true);
-                              if (checked !== true && selectedRoute.distanciaKm != null) {
-                                form.setValue("distanciaKm", selectedRoute.distanciaKm);
+                              if (checked !== true && selectedRoute.distanciaTotalKm != null) {
+                                form.setValue("distanciaKm", selectedRoute.distanciaTotalKm);
                               }
                             }}
                           />
@@ -502,8 +503,22 @@ export default function PreDespacho() {
                   <span className="text-muted-foreground">Peajes calculados:</span>
                   <span className="font-semibold" data-testid="toll-cost-display">${costoPeajes.toFixed(2)}</span>
                   <span className="text-xs text-muted-foreground">
-                    (suma de {selectedRoute.tolls?.length ?? 0} caseta{(selectedRoute.tolls?.length ?? 0) !== 1 ? "s" : ""} de la ruta)
+                    (suma de {selectedRoute.tolls?.length ?? 0} caseta{(selectedRoute.tolls?.length ?? 0) !== 1 ? "s" : ""} de la ruta
+                    {selectedRoute.tipo === "redondo" ? ", ida y vuelta" : ""})
                   </span>
+                </div>
+              )}
+
+              {/* Desglose por tramo en rutas multidestino/redondo */}
+              {selectedRoute && selectedRoute.tipo !== "sencillo" && costPreview?.tramos && costPreview.tramos.length > 0 && (
+                <div className="text-xs bg-muted/30 rounded-md px-3 py-2 border border-border/40 space-y-1">
+                  <p className="text-muted-foreground font-medium">Desglose por tramo</p>
+                  {costPreview.tramos.map((t, i) => (
+                    <div key={i} className="flex items-center justify-between text-muted-foreground">
+                      <span className="truncate">{t.label}</span>
+                      <span className="shrink-0 ml-2">{t.distanciaKm} km</span>
+                    </div>
+                  ))}
                 </div>
               )}
 
