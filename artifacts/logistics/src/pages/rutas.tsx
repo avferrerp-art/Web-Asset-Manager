@@ -5,6 +5,7 @@ import {
   useUpdateRoute,
   useDeleteRoute,
   useAddRouteToll,
+  useUpdateRouteToll,
   useDeleteRouteToll,
   useAddRouteWaypoint,
   useDeleteRouteWaypoint,
@@ -46,7 +47,7 @@ type RouteItem = {
   destino: string;
   distanciaKm: number | null;
   favorita: boolean;
-  tolls: { id: number; routeId: number; nombre: string; orden: number }[];
+  tolls: { id: number; routeId: number; nombre: string; orden: number; tarifa: number }[];
   waypoints: { id: number; routeId: number; ubicacion: string; orden: number }[];
   linkedDispatchCount?: number;
   createdAt?: string;
@@ -177,14 +178,16 @@ function RouteDialog({
   const createMutation = useCreateRoute();
   const updateMutation = useUpdateRoute();
   const addTollMutation = useAddRouteToll();
+  const updateTollMutation = useUpdateRouteToll();
   const deleteTollMutation = useDeleteRouteToll();
   const addWaypointMutation = useAddRouteWaypoint();
   const deleteWaypointMutation = useDeleteRouteWaypoint();
   const updateWaypointMutation = useUpdateRouteWaypoint();
 
   const [tollInput, setTollInput] = useState("");
+  const [tollTarifaInput, setTollTarifaInput] = useState("");
   const [waypointInput, setWaypointInput] = useState("");
-  const [localTolls, setLocalTolls] = useState<{ id: number; nombre: string; orden: number }[]>([]);
+  const [localTolls, setLocalTolls] = useState<{ id: number; nombre: string; orden: number; tarifa: number }[]>([]);
   const [localWaypoints, setLocalWaypoints] = useState<{ id: number; ubicacion: string; orden: number }[]>([]);
   const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
 
@@ -214,6 +217,7 @@ function RouteDialog({
       setLocalWaypoints(route?.waypoints ?? []);
       setSavedRouteId(route?.id ?? null);
       setTollInput("");
+      setTollTarifaInput("");
       setWaypointInput("");
     }
   }, [open, route]);
@@ -268,15 +272,26 @@ function RouteDialog({
       toast({ title: "Guarda la ruta primero para agregar casetas", variant: "destructive" });
       return;
     }
+    const tarifa = parseFloat(tollTarifaInput);
     addTollMutation.mutate(
-      { id: routeId, data: { nombre: name } },
+      { id: routeId, data: { nombre: name, ...(Number.isFinite(tarifa) ? { tarifa } : {}) } },
       {
         onSuccess: (newToll) => {
           setLocalTolls((prev) => [...prev, newToll]);
           setTollInput("");
+          setTollTarifaInput("");
           invalidate();
         },
       }
+    );
+  };
+
+  const handleUpdateTollTarifa = (routeId: number, tollId: number, tarifa: number) => {
+    if (!Number.isFinite(tarifa) || tarifa < 0) return;
+    setLocalTolls((prev) => prev.map((t) => (t.id === tollId ? { ...t, tarifa } : t)));
+    updateTollMutation.mutate(
+      { routeId, tollId, data: { tarifa } },
+      { onSuccess: () => invalidate() }
     );
   };
 
@@ -513,6 +528,19 @@ function RouteDialog({
                   <div key={t.id} className="flex items-center gap-2 text-sm bg-muted/40 rounded px-2.5 py-1.5">
                     <span className="text-muted-foreground text-xs w-5">{t.orden}.</span>
                     <span className="flex-1">{t.nombre}</span>
+                    <span className="text-xs text-muted-foreground">$</span>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      defaultValue={t.tarifa}
+                      key={`${t.id}-${t.tarifa}`}
+                      onBlur={(e) => {
+                        const val = parseFloat(e.target.value);
+                        if (val !== t.tarifa) handleUpdateTollTarifa(activeRouteId, t.id, val);
+                      }}
+                      className="w-20 h-7 text-xs"
+                    />
                     <Button
                       size="icon"
                       variant="ghost"
@@ -534,6 +562,16 @@ function RouteDialog({
                   onChange={(e) => setTollInput(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddToll(); } }}
                   className="flex-1 h-8 text-sm"
+                />
+                <Input
+                  placeholder="Tarifa"
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={tollTarifaInput}
+                  onChange={(e) => setTollTarifaInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddToll(); } }}
+                  className="w-24 h-8 text-sm"
                 />
                 <Button size="sm" variant="outline" onClick={handleAddToll} disabled={addTollMutation.isPending}>
                   <Plus className="w-3.5 h-3.5 mr-1" /> Agregar

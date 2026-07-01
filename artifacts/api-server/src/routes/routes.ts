@@ -9,6 +9,8 @@ import {
   DeleteRouteParams,
   AddRouteTollParams,
   AddRouteTollBody,
+  UpdateRouteTollParams,
+  UpdateRouteTollBody,
   DeleteRouteTollParams,
   AddRouteWaypointParams,
   AddRouteWaypointBody,
@@ -127,9 +129,32 @@ router.post("/routes/:id/tolls", async (req, res): Promise<void> => {
   const orden = parsed.data.orden ?? existing.length + 1;
   const [toll] = await db
     .insert(routeTollsTable)
-    .values({ routeId: params.data.id, nombre: parsed.data.nombre, orden })
+    .values({ routeId: params.data.id, nombre: parsed.data.nombre, orden, tarifa: parsed.data.tarifa ?? 0 })
     .returning();
   res.status(201).json(toll);
+});
+
+router.patch("/routes/:routeId/tolls/:tollId", async (req, res): Promise<void> => {
+  const params = UpdateRouteTollParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const parsed = UpdateRouteTollBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+  const [updated] = await db
+    .update(routeTollsTable)
+    .set(parsed.data)
+    .where(and(eq(routeTollsTable.id, params.data.tollId), eq(routeTollsTable.routeId, params.data.routeId)))
+    .returning();
+  if (!updated) {
+    res.status(404).json({ error: "Toll not found" });
+    return;
+  }
+  res.json(updated);
 });
 
 router.delete("/routes/:routeId/tolls/:tollId", async (req, res): Promise<void> => {

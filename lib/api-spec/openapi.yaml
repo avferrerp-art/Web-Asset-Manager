@@ -22,6 +22,8 @@ tags:
     description: Toll routes management (legacy)
   - name: routes
     description: Routes management with toll stations and waypoints
+  - name: fuel-prices
+    description: Configurable fuel prices used in cost estimation
   - name: dashboard
     description: Dashboard and summary data
 
@@ -39,6 +41,49 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # --- FUEL PRICES ---
+  /fuel-prices:
+    get:
+      operationId: listFuelPrices
+      tags: [fuel-prices]
+      summary: List configured fuel prices by fuel type
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/FuelPrice"
+
+  /fuel-prices/{tipoCombustible}:
+    patch:
+      operationId: updateFuelPrice
+      tags: [fuel-prices]
+      summary: Update (or create) the price per liter for a fuel type
+      parameters:
+        - name: tipoCombustible
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FuelPriceUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FuelPrice"
+        "400":
+          description: Invalid input
 
   # --- VEHICLES ---
   /vehicles:
@@ -908,6 +953,36 @@ paths:
                 $ref: "#/components/schemas/RouteToll"
 
   /routes/{routeId}/tolls/{tollId}:
+    patch:
+      operationId: updateRouteToll
+      tags: [routes]
+      summary: Update a toll station's name, order, or tarifa
+      parameters:
+        - name: routeId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: tollId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouteTollUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouteToll"
+        "404":
+          description: Not found
     delete:
       operationId: deleteRouteToll
       tags: [routes]
@@ -1355,6 +1430,8 @@ components:
           description: "pre-despacho | aprobado | en-ruta | entregado | cancelado"
         distanciaKm:
           type: ["number", "null"]
+        distanciaManual:
+          type: boolean
         routeId:
           type: ["integer", "null"]
         totalPeajes:
@@ -1397,6 +1474,8 @@ components:
           type: string
         distanciaKm:
           type: ["number", "null"]
+        distanciaManual:
+          type: boolean
         routeId:
           type: ["integer", "null"]
         totalPeajes:
@@ -1440,6 +1519,8 @@ components:
           type: string
         distanciaKm:
           type: number
+        distanciaManual:
+          type: boolean
         routeId:
           type: integer
         totalPeajes:
@@ -1487,6 +1568,8 @@ components:
           type: string
         distanciaKm:
           type: number
+        distanciaManual:
+          type: boolean
         routeId:
           type: integer
         totalPeajes:
@@ -1574,6 +1657,28 @@ components:
         distanciaKm:
           type: number
         costoPorLitro:
+          type: number
+
+    # --- FUEL PRICES ---
+    FuelPrice:
+      type: object
+      required: [id, tipoCombustible, precioPorLitro, updatedAt]
+      properties:
+        id:
+          type: integer
+        tipoCombustible:
+          type: string
+          description: "gasolina | diesel | gas"
+        precioPorLitro:
+          type: number
+        updatedAt:
+          type: string
+
+    FuelPriceUpdate:
+      type: object
+      required: [precioPorLitro]
+      properties:
+        precioPorLitro:
           type: number
 
     # --- TOLL ROUTES (legacy) ---
@@ -1697,7 +1802,7 @@ components:
 
     RouteToll:
       type: object
-      required: [id, routeId, nombre, orden]
+      required: [id, routeId, nombre, orden, tarifa]
       properties:
         id:
           type: integer
@@ -1707,6 +1812,9 @@ components:
           type: string
         orden:
           type: integer
+        tarifa:
+          type: number
+          description: Tarifa de esta caseta en moneda local
 
     RouteTollInput:
       type: object
@@ -1716,6 +1824,18 @@ components:
           type: string
         orden:
           type: integer
+        tarifa:
+          type: number
+
+    RouteTollUpdate:
+      type: object
+      properties:
+        nombre:
+          type: string
+        orden:
+          type: integer
+        tarifa:
+          type: number
 
     RouteWaypoint:
       type: object

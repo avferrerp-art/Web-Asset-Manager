@@ -6,8 +6,6 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface RouteTollInput {
-  nombre: string;
-  orden?: number;
-  tarifa?: number;
+export interface FuelPriceUpdate {
+  precioPorLitro: number;
 }

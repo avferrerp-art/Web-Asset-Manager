@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { tollRoutesTable } from "./toll_routes";
@@ -8,6 +8,7 @@ export const routeTollsTable = pgTable("route_tolls", {
   routeId: integer("route_id").notNull().references(() => tollRoutesTable.id, { onDelete: "cascade" }),
   nombre: text("nombre").notNull(),
   orden: integer("orden").notNull().default(1),
+  tarifa: real("tarifa").notNull().default(0),
 });
 
 export const insertRouteTollSchema = createInsertSchema(routeTollsTable).omit({ id: true });

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -40,6 +41,7 @@ interface WizardState {
   ayudanteId: number;
   routeId: number;
   distanciaKm: number;
+  distanciaManual: boolean;
   fechaEstimadaSalida: string;
   fechaEstimadaLlegada: string;
 }
@@ -78,6 +80,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     ayudanteId: 0,
     routeId: 0,
     distanciaKm: 0,
+    distanciaManual: false,
     fechaEstimadaSalida: defaultToday(),
     fechaEstimadaLlegada: defaultTomorrow(),
   });
@@ -215,7 +218,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     setAssignment((prev) => ({
       ...prev,
       routeId: id,
-      distanciaKm: route?.distanciaKm ?? prev.distanciaKm,
+      distanciaKm: prev.distanciaManual ? prev.distanciaKm : route?.distanciaKm ?? prev.distanciaKm,
     }));
   }
 
@@ -241,6 +244,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
       fechaEstimadaLlegada: assignment.fechaEstimadaLlegada,
       ruta: selectedSale.destino,
       distanciaKm: assignment.distanciaKm,
+      distanciaManual: assignment.distanciaManual,
       routeId: assignment.routeId,
       totalPeajes: costoPeajes,
       ...(assignment.ayudanteId > 0 ? { ayudanteId: assignment.ayudanteId } : {}),
@@ -292,6 +296,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
         ayudanteId: 0,
         routeId: 0,
         distanciaKm: 0,
+        distanciaManual: false,
         fechaEstimadaSalida: defaultToday(),
         fechaEstimadaLlegada: defaultTomorrow(),
       });
@@ -455,10 +460,9 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                   ))}
                 </SelectContent>
               </Select>
-              {selectedRoute && selectedVehicle?.tarifaPeaje != null && (
+              {selectedRoute && (selectedRoute.tolls?.length ?? 0) > 0 && (
                 <p className="text-xs text-muted-foreground pl-1">
-                  {selectedRoute.tolls?.length ?? 0} caseta(s) ×{" "}
-                  ${selectedVehicle.tarifaPeaje.toFixed(2)} ={" "}
+                  {selectedRoute.tolls?.length ?? 0} caseta(s) ={" "}
                   <span className="font-semibold text-foreground">
                     ${costoPeajes.toFixed(2)}
                   </span>{" "}
@@ -498,6 +502,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                   data-testid="wizard-input-distancia"
                   type="number"
                   min={1}
+                  disabled={assignment.routeId > 0 && !assignment.distanciaManual}
                   value={assignment.distanciaKm || ""}
                   onChange={(e) =>
                     setAssignment((p) => ({
@@ -506,6 +511,21 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                     }))
                   }
                 />
+                {assignment.routeId > 0 && (
+                  <label className="flex items-center gap-1.5 text-xs text-muted-foreground pt-0.5">
+                    <Checkbox
+                      checked={assignment.distanciaManual}
+                      onCheckedChange={(checked) =>
+                        setAssignment((p) => ({
+                          ...p,
+                          distanciaManual: checked === true,
+                          distanciaKm: checked === true ? p.distanciaKm : selectedRoute?.distanciaKm ?? p.distanciaKm,
+                        }))
+                      }
+                    />
+                    Ajustar distancia manualmente
+                  </label>
+                )}
               </div>
             </div>
 

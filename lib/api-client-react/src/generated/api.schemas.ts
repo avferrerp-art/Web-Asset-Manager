@@ -179,6 +179,7 @@ export interface Dispatch {
   estado: string;
   /** @nullable */
   distanciaKm?: number | null;
+  distanciaManual?: boolean;
   /** @nullable */
   routeId?: number | null;
   /** @nullable */
@@ -232,6 +233,7 @@ export interface DispatchDetail {
   estado: string;
   /** @nullable */
   distanciaKm?: number | null;
+  distanciaManual?: boolean;
   /** @nullable */
   routeId?: number | null;
   /** @nullable */
@@ -267,6 +269,7 @@ export interface DispatchInput {
   fechaEstimadaLlegada: string;
   ruta?: string;
   distanciaKm?: number;
+  distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
   routePoints?: RoutePointInput[];
@@ -291,6 +294,7 @@ export interface DispatchUpdate {
   ruta?: string;
   estado?: string;
   distanciaKm?: number;
+  distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
 }
@@ -311,6 +315,18 @@ export interface CostEstimate {
   litrosEstimados: number;
   distanciaKm: number;
   costoPorLitro?: number;
+}
+
+export interface FuelPrice {
+  id: number;
+  /** gasolina | diesel | gas */
+  tipoCombustible: string;
+  precioPorLitro: number;
+  updatedAt: string;
+}
+
+export interface FuelPriceUpdate {
+  precioPorLitro: number;
 }
 
 export interface TollRoute {
@@ -349,6 +365,8 @@ export interface RouteToll {
   routeId: number;
   nombre: string;
   orden: number;
+  /** Tarifa de esta caseta en moneda local */
+  tarifa: number;
 }
 
 export interface RouteWaypoint {
@@ -394,6 +412,13 @@ export interface RouteUpdate {
 export interface RouteTollInput {
   nombre: string;
   orden?: number;
+  tarifa?: number;
+}
+
+export interface RouteTollUpdate {
+  nombre?: string;
+  orden?: number;
+  tarifa?: number;
 }
 
 export interface RouteWaypointInput {

@@ -15,6 +15,7 @@ export interface DispatchUpdate {
   ruta?: string;
   estado?: string;
   distanciaKm?: number;
+  distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
 }

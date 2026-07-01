@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useForm } from "react-hook-form";
@@ -38,6 +39,7 @@ const editSchema = z.object({
   fechaEstimadaLlegada: z.string().min(1, "Requerido"),
   ruta: z.string().optional(),
   distanciaKm: z.coerce.number().min(0).optional(),
+  distanciaManual: z.boolean().optional(),
   estado: z.string().min(1, "Requerido"),
   routeId: z.coerce.number().optional(),
 });
@@ -91,11 +93,13 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
   const watchedVehicleId = form.watch("vehiculoId");
   const watchedRouteId = form.watch("routeId");
 
+  const watchedDistanciaManual = form.watch("distanciaManual");
+
   const selectedVehicle = vehicles?.find(v => v.id === watchedVehicleId);
   const selectedRoute = routes?.find(r => r.id === watchedRouteId);
   const calculatedTotalPeajes =
-    selectedVehicle?.tarifaPeaje != null && selectedRoute != null
-      ? selectedRoute.tolls.length * selectedVehicle.tarifaPeaje
+    selectedRoute != null
+      ? selectedRoute.tolls.reduce((sum, t) => sum + (t.tarifa ?? 0), 0)
       : null;
 
   const startEditing = () => {
@@ -108,16 +112,25 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
       fechaEstimadaLlegada: toDatetimeLocal(dispatch.fechaEstimadaLlegada),
       ruta: dispatch.ruta ?? "",
       distanciaKm: dispatch.distanciaKm ?? 0,
+      distanciaManual: dispatch.distanciaManual ?? false,
       estado: dispatch.estado,
       routeId: dispatch.routeId ?? undefined,
     });
     setIsEditing(true);
   };
 
+  React.useEffect(() => {
+    if (!isEditing || watchedDistanciaManual) return;
+    if (selectedRoute?.distanciaKm != null) {
+      form.setValue("distanciaKm", selectedRoute.distanciaKm, { shouldDirty: true });
+    }
+  }, [selectedRoute, isEditing, watchedDistanciaManual]);
+
   const onSubmit = (values: z.infer<typeof editSchema>) => {
     const payload: Record<string, unknown> = { ...values };
     if (!payload.ayudanteId || payload.ayudanteId === 0) delete payload.ayudanteId;
     if (!payload.routeId || payload.routeId === 0) delete payload.routeId;
+    if (payload.distanciaManual === undefined) delete payload.distanciaManual;
     if (calculatedTotalPeajes != null) payload.totalPeajes = calculatedTotalPeajes;
     updateMutation.mutate(
       { id: dispatchId, data: payload as Parameters<typeof updateMutation.mutate>[0]["data"] },
@@ -259,8 +272,20 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
             <FormField control={form.control} name="distanciaKm" render={({ field }) => (
               <FormItem>
                 <FormLabel>Distancia (km)</FormLabel>
-                <FormControl><Input type="number" {...field} /></FormControl>
+                <FormControl><Input type="number" {...field} disabled={!!selectedRoute && !watchedDistanciaManual} /></FormControl>
+                {selectedRoute && !watchedDistanciaManual && (
+                  <p className="text-xs text-muted-foreground">Calculada automáticamente desde la ruta seleccionada.</p>
+                )}
                 <FormMessage />
+              </FormItem>
+            )} />
+
+            <FormField control={form.control} name="distanciaManual" render={({ field }) => (
+              <FormItem className="flex items-center gap-2 space-y-0">
+                <FormControl>
+                  <Checkbox checked={field.value ?? false} onCheckedChange={field.onChange} />
+                </FormControl>
+                <FormLabel className="!mt-0 font-normal">Ajustar distancia manualmente</FormLabel>
               </FormItem>
             )} />
 
@@ -294,7 +319,7 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
                   ${calculatedTotalPeajes.toFixed(2)}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  ({selectedRoute?.tolls.length} caseta{selectedRoute?.tolls.length !== 1 ? "s" : ""} × ${selectedVehicle?.tarifaPeaje?.toFixed(2)})
+                  (suma de {selectedRoute?.tolls.length} caseta{selectedRoute?.tolls.length !== 1 ? "s" : ""} de la ruta)
                 </span>
               </div>
             )}
@@ -318,7 +343,10 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
           <DetailRow label="Cliente" value={dispatch.clienteNombre} />
           <DetailRow label="Destino" value={dispatch.destino} />
           <DetailRow label="Ruta" value={dispatch.ruta} />
-          <DetailRow label="Distancia" value={dispatch.distanciaKm ? `${dispatch.distanciaKm} km` : null} />
+          <DetailRow
+            label="Distancia"
+            value={dispatch.distanciaKm ? `${dispatch.distanciaKm} km${dispatch.distanciaManual ? " (manual)" : ""}` : null}
+          />
           {dispatch.routeId && (
             <DetailRow
               label="Ruta predefinida"

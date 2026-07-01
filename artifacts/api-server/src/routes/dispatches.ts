@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable } from "@workspace/db";
+import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, fuelPricesTable } from "@workspace/db";
 import {
   ListDispatchesQueryParams,
   CreateDispatchBody,
@@ -44,7 +44,18 @@ async function computeCostEstimate(inputs: CostEstimateInputs) {
 
   const distanciaKm = inputs.distanciaKm ?? 100;
   const rendimiento = vehicle?.rendimientoKmLitro ?? 10;
-  const costoPorLitro = 1.5;
+
+  let costoPorLitro = 1.5;
+  if (vehicle?.tipoCombustible) {
+    const [fuelPrice] = await db
+      .select()
+      .from(fuelPricesTable)
+      .where(eq(fuelPricesTable.tipoCombustible, vehicle.tipoCombustible));
+    if (fuelPrice) {
+      costoPorLitro = fuelPrice.precioPorLitro;
+    }
+  }
+
   const litrosEstimados = distanciaKm / rendimiento;
   const costoCombustible = litrosEstimados * costoPorLitro;
 
@@ -57,12 +68,26 @@ async function computeCostEstimate(inputs: CostEstimateInputs) {
   let costoPeajes = 0;
   if (inputs.routeId) {
     const routeTolls = await db.select().from(routeTollsTable).where(eq(routeTollsTable.routeId, inputs.routeId));
-    costoPeajes = routeTolls.length * (vehicle?.tarifaPeaje ?? 0);
+    costoPeajes = routeTolls.reduce((sum, toll) => sum + (toll.tarifa ?? 0), 0);
   }
 
   const total = costoCombustible + costoViaticos + costoPeajes;
 
   return { costoCombustible, costoViaticos, costoPeajes, total, dias, litrosEstimados, distanciaKm, costoPorLitro };
+}
+
+async function resolveDistancia(dispatchData: {
+  routeId?: number | null;
+  distanciaKm?: number | null;
+  distanciaManual?: boolean;
+}) {
+  if (dispatchData.routeId && !dispatchData.distanciaManual) {
+    const [route] = await db.select().from(tollRoutesTable).where(eq(tollRoutesTable.id, dispatchData.routeId));
+    if (route?.distanciaKm != null) {
+      return route.distanciaKm;
+    }
+  }
+  return dispatchData.distanciaKm ?? null;
 }
 
 async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
@@ -120,7 +145,11 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     return;
   }
 
-  const [dispatch] = await db.insert(dispatchesTable).values(dispatchData).returning();
+  const resolvedDistanciaKm = await resolveDistancia(dispatchData);
+  const [dispatch] = await db
+    .insert(dispatchesTable)
+    .values({ ...dispatchData, distanciaKm: resolvedDistanciaKm })
+    .returning();
 
   const initialPeajes = dispatch.totalPeajes ?? 0;
   await db.insert(travelCostsTable).values({
@@ -171,7 +200,23 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const [dispatch] = await db.update(dispatchesTable).set(parsed.data).where(eq(dispatchesTable.id, params.data.id)).returning();
+
+  let updateData: typeof parsed.data = parsed.data;
+  if ("routeId" in parsed.data || "distanciaKm" in parsed.data || "distanciaManual" in parsed.data) {
+    const [existing] = await db.select().from(dispatchesTable).where(eq(dispatchesTable.id, params.data.id));
+    if (!existing) {
+      res.status(404).json({ error: "Dispatch not found" });
+      return;
+    }
+    const resolvedDistanciaKm = await resolveDistancia({
+      routeId: parsed.data.routeId ?? existing.routeId,
+      distanciaKm: parsed.data.distanciaKm ?? existing.distanciaKm,
+      distanciaManual: parsed.data.distanciaManual ?? existing.distanciaManual,
+    });
+    updateData = { ...parsed.data, distanciaKm: resolvedDistanciaKm ?? undefined };
+  }
+
+  const [dispatch] = await db.update(dispatchesTable).set(updateData).where(eq(dispatchesTable.id, params.data.id)).returning();
   if (!dispatch) {
     res.status(404).json({ error: "Dispatch not found" });
     return;

@@ -1,11 +1,12 @@
 import React, { useState } from "react";
 import {
   useListVehicles, getListVehiclesQueryKey,
-  useCreateVehicle, useUpdateVehicle, useDeleteVehicle
+  useCreateVehicle, useUpdateVehicle, useDeleteVehicle,
+  useListFuelPrices, getListFuelPricesQueryKey, useUpdateFuelPrice,
 } from "@workspace/api-client-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2 } from "lucide-react";
+import { Plus, Edit2, Trash2, Fuel, Save, Loader2 } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -40,6 +41,90 @@ const EMPTY_DEFAULTS = {
   tarifaPeaje: 0,
   tanqueLitros: 0,
 };
+
+const FUEL_LABEL: Record<string, string> = {
+  gasolina: "Gasolina",
+  diesel: "Diésel",
+  gas: "Gas",
+};
+
+function FuelPricesCard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const { data: fuelPrices, isLoading } = useListFuelPrices({
+    query: { queryKey: getListFuelPricesQueryKey() },
+  });
+  const updateFuelPriceMutation = useUpdateFuelPrice();
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  const handleSave = (tipoCombustible: string) => {
+    const raw = drafts[tipoCombustible];
+    const precioPorLitro = parseFloat(raw);
+    if (!Number.isFinite(precioPorLitro) || precioPorLitro < 0) {
+      toast({ title: "Precio inválido", variant: "destructive" });
+      return;
+    }
+    updateFuelPriceMutation.mutate(
+      { tipoCombustible, data: { precioPorLitro } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: getListFuelPricesQueryKey() });
+          setDrafts((prev) => { const next = { ...prev }; delete next[tipoCombustible]; return next; });
+          toast({ title: "Precio de combustible actualizado" });
+        },
+        onError: (err: any) => {
+          toast({ title: "Error al actualizar el precio", description: err?.message ?? "Intenta de nuevo", variant: "destructive" });
+        },
+      }
+    );
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2 text-lg">
+          <Fuel className="w-4 h-4" /> Precios de combustible
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {isLoading ? (
+          <p className="text-sm text-muted-foreground">Cargando...</p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {fuelPrices?.map((fp) => {
+              const draft = drafts[fp.tipoCombustible];
+              const isDirty = draft !== undefined && parseFloat(draft) !== fp.precioPorLitro;
+              return (
+                <div key={fp.id} className="space-y-1.5">
+                  <label className="text-sm font-medium">{FUEL_LABEL[fp.tipoCombustible] ?? fp.tipoCombustible}</label>
+                  <div className="flex gap-2">
+                    <Input
+                      data-testid={`input-fuel-price-${fp.tipoCombustible}`}
+                      type="number"
+                      step="0.01"
+                      min={0}
+                      value={draft ?? fp.precioPorLitro}
+                      onChange={(e) => setDrafts((prev) => ({ ...prev, [fp.tipoCombustible]: e.target.value }))}
+                    />
+                    <Button
+                      size="icon"
+                      variant="outline"
+                      disabled={!isDirty || updateFuelPriceMutation.isPending}
+                      onClick={() => handleSave(fp.tipoCombustible)}
+                    >
+                      {updateFuelPriceMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                    </Button>
+                  </div>
+                  <p className="text-xs text-muted-foreground">$/litro</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
 
 export default function Vehiculos() {
   const queryClient = useQueryClient();
@@ -128,6 +213,12 @@ export default function Vehiculos() {
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Vehículos</h1>
           <p className="text-muted-foreground">Gestión de flota y capacidades.</p>
         </div>
+      </div>
+
+      <FuelPricesCard />
+
+      <div className="flex justify-between items-center">
+        <div />
         <Dialog open={isDialogOpen} onOpenChange={(open) => {
           setIsDialogOpen(open);
           if (!open) { setEditingVehicle(null); form.reset(EMPTY_DEFAULTS); }

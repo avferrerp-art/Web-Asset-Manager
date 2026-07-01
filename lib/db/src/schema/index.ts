@@ -10,3 +10,4 @@ export * from "./route_waypoints";
 export * from "./conversations";
 export * from "./messages";
 export * from "./sale_items";
+export * from "./fuel_prices";

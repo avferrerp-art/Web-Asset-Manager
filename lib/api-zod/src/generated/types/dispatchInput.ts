@@ -16,6 +16,7 @@ export interface DispatchInput {
   fechaEstimadaLlegada: string;
   ruta?: string;
   distanciaKm?: number;
+  distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
   routePoints?: RoutePointInput[];

@@ -6,8 +6,8 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface RouteTollInput {
-  nombre: string;
+export interface RouteTollUpdate {
+  nombre?: string;
   orden?: number;
   tarifa?: number;
 }

@@ -6,11 +6,10 @@
  * OpenAPI spec version: 0.1.0
  */
 
-export interface RouteToll {
+export interface FuelPrice {
   id: number;
-  routeId: number;
-  nombre: string;
-  orden: number;
-  /** Tarifa de esta caseta en moneda local */
-  tarifa: number;
+  /** gasolina | diesel | gas */
+  tipoCombustible: string;
+  precioPorLitro: number;
+  updatedAt: string;
 }

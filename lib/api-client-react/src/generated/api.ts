@@ -28,6 +28,8 @@ import type {
   DispatchDetail,
   DispatchInput,
   DispatchUpdate,
+  FuelPrice,
+  FuelPriceUpdate,
   GetVehicleScheduleParams,
   HealthStatus,
   ListDispatchesParams,
@@ -42,6 +44,7 @@ import type {
   RoutePointInput,
   RouteToll,
   RouteTollInput,
+  RouteTollUpdate,
   RouteUpdate,
   RouteWaypoint,
   RouteWaypointInput,
@@ -166,6 +169,154 @@ export function useHealthCheck<TData = Awaited<ReturnType<typeof healthCheck>>, 
 
 
 
+
+export const getListFuelPricesUrl = () => {
+
+
+
+
+  return `/api/fuel-prices`
+}
+
+/**
+ * @summary List configured fuel prices by fuel type
+ */
+export const listFuelPrices = async ( options?: RequestInit): Promise<FuelPrice[]> => {
+
+  return customFetch<FuelPrice[]>(getListFuelPricesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListFuelPricesQueryKey = () => {
+    return [
+    `/api/fuel-prices`
+    ] as const;
+    }
+
+
+export const getListFuelPricesQueryOptions = <TData = Awaited<ReturnType<typeof listFuelPrices>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFuelPrices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListFuelPricesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listFuelPrices>>> = ({ signal }) => listFuelPrices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listFuelPrices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListFuelPricesQueryResult = NonNullable<Awaited<ReturnType<typeof listFuelPrices>>>
+export type ListFuelPricesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List configured fuel prices by fuel type
+ */
+
+export function useListFuelPrices<TData = Awaited<ReturnType<typeof listFuelPrices>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFuelPrices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListFuelPricesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateFuelPriceUrl = (tipoCombustible: string,) => {
+
+
+
+
+  return `/api/fuel-prices/${tipoCombustible}`
+}
+
+/**
+ * @summary Update (or create) the price per liter for a fuel type
+ */
+export const updateFuelPrice = async (tipoCombustible: string,
+    fuelPriceUpdate: FuelPriceUpdate, options?: RequestInit): Promise<FuelPrice> => {
+
+  return customFetch<FuelPrice>(getUpdateFuelPriceUrl(tipoCombustible),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(fuelPriceUpdate)
+  }
+);}
+
+
+
+
+export const getUpdateFuelPriceMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateFuelPrice>>, TError,{tipoCombustible: string;data: BodyType<FuelPriceUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateFuelPrice>>, TError,{tipoCombustible: string;data: BodyType<FuelPriceUpdate>}, TContext> => {
+
+const mutationKey = ['updateFuelPrice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateFuelPrice>>, {tipoCombustible: string;data: BodyType<FuelPriceUpdate>}> = (props) => {
+          const {tipoCombustible,data} = props ?? {};
+
+          return  updateFuelPrice(tipoCombustible,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateFuelPriceMutationResult = NonNullable<Awaited<ReturnType<typeof updateFuelPrice>>>
+    export type UpdateFuelPriceMutationBody = BodyType<FuelPriceUpdate>
+    export type UpdateFuelPriceMutationError = ErrorType<void>
+
+    /**
+ * @summary Update (or create) the price per liter for a fuel type
+ */
+export const useUpdateFuelPrice = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateFuelPrice>>, TError,{tipoCombustible: string;data: BodyType<FuelPriceUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateFuelPrice>>,
+        TError,
+        {tipoCombustible: string;data: BodyType<FuelPriceUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateFuelPriceMutationOptions(options));
+    }
 
 export const getListVehiclesUrl = () => {
 
@@ -3307,6 +3458,79 @@ export const useAddRouteToll = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAddRouteTollMutationOptions(options));
+    }
+
+export const getUpdateRouteTollUrl = (routeId: number,
+    tollId: number,) => {
+
+
+
+
+  return `/api/routes/${routeId}/tolls/${tollId}`
+}
+
+/**
+ * @summary Update a toll station's name, order, or tarifa
+ */
+export const updateRouteToll = async (routeId: number,
+    tollId: number,
+    routeTollUpdate: RouteTollUpdate, options?: RequestInit): Promise<RouteToll> => {
+
+  return customFetch<RouteToll>(getUpdateRouteTollUrl(routeId,tollId),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(routeTollUpdate)
+  }
+);}
+
+
+
+
+export const getUpdateRouteTollMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRouteToll>>, TError,{routeId: number;tollId: number;data: BodyType<RouteTollUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateRouteToll>>, TError,{routeId: number;tollId: number;data: BodyType<RouteTollUpdate>}, TContext> => {
+
+const mutationKey = ['updateRouteToll'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateRouteToll>>, {routeId: number;tollId: number;data: BodyType<RouteTollUpdate>}> = (props) => {
+          const {routeId,tollId,data} = props ?? {};
+
+          return  updateRouteToll(routeId,tollId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateRouteTollMutationResult = NonNullable<Awaited<ReturnType<typeof updateRouteToll>>>
+    export type UpdateRouteTollMutationBody = BodyType<RouteTollUpdate>
+    export type UpdateRouteTollMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a toll station's name, order, or tarifa
+ */
+export const useUpdateRouteToll = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateRouteToll>>, TError,{routeId: number;tollId: number;data: BodyType<RouteTollUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateRouteToll>>,
+        TError,
+        {routeId: number;tollId: number;data: BodyType<RouteTollUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateRouteTollMutationOptions(options));
     }
 
 export const getDeleteRouteTollUrl = (routeId: number,

@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, real, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, real, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { salesTable } from "./sales";
@@ -17,6 +17,7 @@ export const dispatchesTable = pgTable("dispatches", {
   ruta: text("ruta"),
   estado: text("estado").notNull().default("pre-despacho"),
   distanciaKm: real("distancia_km"),
+  distanciaManual: boolean("distancia_manual").notNull().default(false),
   routeId: integer("route_id").references(() => tollRoutesTable.id),
   totalPeajes: real("total_peajes"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

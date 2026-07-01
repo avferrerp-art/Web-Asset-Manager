@@ -22,6 +22,7 @@ export interface DispatchDetail {
   estado: string;
   /** @nullable */
   distanciaKm?: number | null;
+  distanciaManual?: boolean;
   /** @nullable */
   routeId?: number | null;
   /** @nullable */

@@ -9,6 +9,7 @@ import routesRouter from "./routes";
 import dashboardRouter from "./dashboard";
 import ordersExtractRouter from "./orders/extract";
 import saleItemsRouter from "./sale-items";
+import fuelPricesRouter from "./fuel-prices";
 
 const router: IRouter = Router();
 
@@ -20,6 +21,7 @@ router.use(saleItemsRouter);
 router.use(dispatchesRouter);
 router.use(tollsRouter);
 router.use(routesRouter);
+router.use(fuelPricesRouter);
 router.use(dashboardRouter);
 router.use(ordersExtractRouter);
 

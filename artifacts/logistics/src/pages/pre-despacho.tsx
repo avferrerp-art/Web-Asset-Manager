@@ -18,6 +18,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Truck, Route as RouteIcon, Plus, AlertTriangle, MapPin, RefreshCw, ExternalLink } from "lucide-react";
@@ -32,6 +33,7 @@ const dispatchSchema = z.object({
   fechaEstimadaLlegada: z.string().min(1, "Requerido"),
   ruta: z.string().optional(),
   distanciaKm: z.coerce.number().min(1, "Requerido"),
+  distanciaManual: z.boolean().optional(),
   routeId: z.coerce.number().optional(),
 });
 
@@ -80,6 +82,7 @@ export default function PreDespacho() {
       fechaEstimadaLlegada: "",
       ruta: "",
       distanciaKm: 0,
+      distanciaManual: false,
       routeId: undefined,
     }
   });
@@ -88,6 +91,7 @@ export default function PreDespacho() {
   const watchedChoferId = form.watch("choferId");
   const watchedAyudanteId = form.watch("ayudanteId");
   const watchedDistancia = form.watch("distanciaKm");
+  const watchedDistanciaManual = form.watch("distanciaManual");
   const watchedSalida = form.watch("fechaEstimadaSalida");
   const watchedLlegada = form.watch("fechaEstimadaLlegada");
   const watchedRouteId = form.watch("routeId");
@@ -135,7 +139,7 @@ export default function PreDespacho() {
       );
     }, 250);
     return () => clearTimeout(handle);
-  }, [watchedVehicleId, watchedChoferId, watchedAyudanteId, watchedDistancia, watchedRouteId, watchedSalida, watchedLlegada]);
+  }, [watchedVehicleId, watchedChoferId, watchedAyudanteId, watchedDistancia, watchedDistanciaManual, watchedRouteId, watchedSalida, watchedLlegada]);
 
   const litros = costPreview?.litrosEstimados ?? 0;
   const costoCombustible = costPreview?.costoCombustible ?? 0;
@@ -165,6 +169,7 @@ export default function PreDespacho() {
     } else if (costoPeajes != null) {
       payload.totalPeajes = costoPeajes;
     }
+    if (payload.distanciaManual === undefined) delete payload.distanciaManual;
     createDispatchMutation.mutate({ data: payload as unknown as Parameters<typeof createDispatchMutation.mutate>[0]["data"] }, {
       onSuccess: () => {
         queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
@@ -286,7 +291,7 @@ export default function PreDespacho() {
                     onValueChange={(v) => {
                       const id = v === "0" ? undefined : parseInt(v);
                       field.onChange(id);
-                      if (id) {
+                      if (id && !form.getValues("distanciaManual")) {
                         const route = routes?.find(r => r.id === id);
                         if (route?.distanciaKm) {
                           form.setValue("distanciaKm", route.distanciaKm);
@@ -336,7 +341,30 @@ export default function PreDespacho() {
                 <FormField control={form.control} name="distanciaKm" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Distancia Estimada (km)</FormLabel>
-                    <FormControl><Input data-testid="input-distancia" type="number" {...field} /></FormControl>
+                    <FormControl>
+                      <Input
+                        data-testid="input-distancia"
+                        type="number"
+                        {...field}
+                        disabled={!!selectedRoute && !watchedDistanciaManual}
+                      />
+                    </FormControl>
+                    {selectedRoute && (
+                      <FormField control={form.control} name="distanciaManual" render={({ field: manualField }) => (
+                        <label className="flex items-center gap-1.5 text-xs text-muted-foreground pt-0.5">
+                          <Checkbox
+                            checked={manualField.value ?? false}
+                            onCheckedChange={(checked) => {
+                              manualField.onChange(checked === true);
+                              if (checked !== true && selectedRoute.distanciaKm != null) {
+                                form.setValue("distanciaKm", selectedRoute.distanciaKm);
+                              }
+                            }}
+                          />
+                          Ajustar manualmente
+                        </label>
+                      )} />
+                    )}
                     <FormMessage />
                   </FormItem>
                 )} />
@@ -474,7 +502,7 @@ export default function PreDespacho() {
                   <span className="text-muted-foreground">Peajes calculados:</span>
                   <span className="font-semibold" data-testid="toll-cost-display">${costoPeajes.toFixed(2)}</span>
                   <span className="text-xs text-muted-foreground">
-                    ({selectedRoute.tolls?.length ?? 0} caseta{(selectedRoute.tolls?.length ?? 0) !== 1 ? "s" : ""} × ${selectedVehicle?.tarifaPeaje?.toFixed(2) ?? "0.00"}/caseta)
+                    (suma de {selectedRoute.tolls?.length ?? 0} caseta{(selectedRoute.tolls?.length ?? 0) !== 1 ? "s" : ""} de la ruta)
                   </span>
                 </div>
               )}
