@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import {
   useListSales, getListSalesQueryKey,
@@ -8,6 +8,7 @@ import {
   useListDispatches, getListDispatchesQueryKey,
   useCreateDispatch,
   useUpdateDispatch,
+  useEstimateDispatchCostsPreview,
 } from "@workspace/api-client-react";
 import type { DispatchInput } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -135,20 +136,58 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
         )
       : 1;
 
-  const litros =
-    selectedVehicle && assignment.distanciaKm
-      ? assignment.distanciaKm / selectedVehicle.rendimientoKmLitro
-      : 0;
-  const costoCombustible = litros * 1.5;
-  const costoViaticos =
-    dias *
-    ((selectedChofer?.tarifaViaticos ?? 0) +
-      (selectedAyudante?.tarifaViaticos ?? 0));
-  const costoPeajes =
-    selectedRoute && selectedVehicle?.tarifaPeaje != null
-      ? (selectedRoute.tolls?.length ?? 0) * selectedVehicle.tarifaPeaje
-      : 0;
-  const totalEstimado = costoCombustible + costoViaticos + costoPeajes;
+  const estimateCosts = useEstimateDispatchCostsPreview();
+  const [costPreview, setCostPreview] = useState<{
+    costoCombustible: number;
+    costoViaticos: number;
+    costoPeajes: number;
+    total: number;
+    litrosEstimados: number;
+  } | null>(null);
+
+  useEffect(() => {
+    if (
+      !assignment.vehiculoId ||
+      !assignment.choferId ||
+      !assignment.distanciaKm ||
+      !assignment.fechaEstimadaSalida ||
+      !assignment.fechaEstimadaLlegada
+    ) {
+      setCostPreview(null);
+      return;
+    }
+    const handle = setTimeout(() => {
+      estimateCosts.mutate(
+        {
+          data: {
+            vehiculoId: assignment.vehiculoId,
+            choferId: assignment.choferId,
+            ayudanteId: assignment.ayudanteId > 0 ? assignment.ayudanteId : undefined,
+            fechaEstimadaSalida: assignment.fechaEstimadaSalida,
+            fechaEstimadaLlegada: assignment.fechaEstimadaLlegada,
+            distanciaKm: assignment.distanciaKm,
+            routeId: assignment.routeId > 0 ? assignment.routeId : undefined,
+          },
+        },
+        { onSuccess: (data) => setCostPreview(data) }
+      );
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [
+    assignment.vehiculoId,
+    assignment.choferId,
+    assignment.ayudanteId,
+    assignment.distanciaKm,
+    assignment.routeId,
+    assignment.fechaEstimadaSalida,
+    assignment.fechaEstimadaLlegada,
+  ]);
+
+  const litros = costPreview?.litrosEstimados ?? 0;
+  const costoCombustible = costPreview?.costoCombustible ?? 0;
+  const costoViaticos = costPreview?.costoViaticos ?? 0;
+  const costoPeajes = costPreview?.costoPeajes ?? 0;
+  const totalEstimado = costPreview?.total ?? 0;
 
   function handleSelectSale(sale: any) {
     setSelectedSale(sale);
@@ -666,12 +705,23 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                 <div><span className="text-muted-foreground">Vehículo:</span> {selectedVehicle?.modelo ?? "—"}</div>
                 <div><span className="text-muted-foreground">Chofer:</span> {selectedChofer?.nombre ?? "—"}</div>
                 <div><span className="text-muted-foreground">Ayudante:</span> {selectedAyudante?.nombre ?? "Ninguno"}</div>
-                <div>
+                <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-muted-foreground">Ruta:</span>{" "}
                   {selectedRoute
                     ? `${selectedRoute.nombre ?? ""} ${selectedRoute.origen} → ${selectedRoute.destino}`
                     : `${assignment.distanciaKm} km`}
+                  {selectedRoute?.tipo && selectedRoute.tipo !== "sencillo" && (
+                    <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                      {selectedRoute.tipo === "redondo" ? "Redondo" : "Multidestino"}
+                    </Badge>
+                  )}
                 </div>
+                {selectedRoute?.tipo && selectedRoute.tipo !== "sencillo" && (
+                  <p className="text-[11px] text-amber-500 flex items-start gap-1 mt-1">
+                    <AlertTriangle className="w-3 h-3 shrink-0 mt-0.5" />
+                    Verifica que los {assignment.distanciaKm} km incluyan el recorrido completo de esta ruta {selectedRoute.tipo === "redondo" ? "redonda" : "multidestino"}.
+                  </p>
+                )}
               </div>
             </div>
 

@@ -772,6 +772,31 @@ export const EstimateDispatchCostsResponse = zod.object({
 
 
 /**
+ * @summary Estimate costs for a dispatch before it is created, using the same formula as estimateDispatchCosts
+ */
+export const EstimateDispatchCostsPreviewBody = zod.object({
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().optional(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "distanciaKm": zod.number().optional(),
+  "routeId": zod.number().optional()
+})
+
+export const EstimateDispatchCostsPreviewResponse = zod.object({
+  "costoCombustible": zod.number(),
+  "costoViaticos": zod.number(),
+  "costoPeajes": zod.number(),
+  "total": zod.number(),
+  "dias": zod.number(),
+  "litrosEstimados": zod.number(),
+  "distanciaKm": zod.number(),
+  "costoPorLitro": zod.number().optional()
+})
+
+
+/**
  * @summary List all toll routes
  */
 export const ListTollsResponseItem = zod.object({

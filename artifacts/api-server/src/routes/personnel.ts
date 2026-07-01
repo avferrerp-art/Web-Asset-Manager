@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, personnelTable } from "@workspace/db";
+import { eq, or, count } from "drizzle-orm";
+import { db, personnelTable, dispatchesTable } from "@workspace/db";
 import {
   CreatePersonnelBody,
   GetPersonnelParams,
@@ -63,6 +63,18 @@ router.delete("/personnel/:id", async (req, res): Promise<void> => {
   const params = DeletePersonnelParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [{ value: dispatchCount }] = await db
+    .select({ value: count() })
+    .from(dispatchesTable)
+    .where(or(eq(dispatchesTable.choferId, params.data.id), eq(dispatchesTable.ayudanteId, params.data.id)));
+  if (dispatchCount > 0) {
+    res.status(409).json({
+      error: "personnel_has_dispatches",
+      dispatchCount,
+      message: `Esta persona está vinculada a ${dispatchCount} despacho${dispatchCount === 1 ? "" : "s"} y no puede eliminarse.`,
+    });
     return;
   }
   const [person] = await db.delete(personnelTable).where(eq(personnelTable.id, params.data.id)).returning();

@@ -376,6 +376,17 @@ function RouteDialog({
                     <TabsTrigger value="multidestino" className="flex-1">Multidestino</TabsTrigger>
                   </TabsList>
                 </Tabs>
+                {(field.value === "redondo" || field.value === "multidestino") && (
+                  <p className="text-xs text-amber-500 flex items-start gap-1.5 mt-1.5">
+                    <span>⚠</span>
+                    <span>
+                      La distancia (km) ingresada abajo se usa tal cual para el cálculo de combustible.
+                      En rutas {field.value === "redondo" ? "redondas" : "con múltiples destinos"}, verifica
+                      que incluya el recorrido {field.value === "redondo" ? "de ida y vuelta" : "por todas las paradas"};
+                      el sistema no lo ajusta automáticamente.
+                    </span>
+                  </p>
+                )}
                 <FormMessage />
               </FormItem>
             )} />

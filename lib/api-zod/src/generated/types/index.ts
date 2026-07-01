@@ -10,6 +10,7 @@ export * from './activeDispatch';
 export * from './costEstimate';
 export * from './dashboardSummary';
 export * from './dispatch';
+export * from './dispatchCostEstimateInput';
 export * from './dispatchDetail';
 export * from './dispatchInput';
 export * from './dispatchUpdate';

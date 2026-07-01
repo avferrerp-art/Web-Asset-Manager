@@ -17,9 +17,53 @@ import {
   AddRoutePointBody,
   DeleteRoutePointParams,
   EstimateDispatchCostsParams,
+  EstimateDispatchCostsPreviewBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+interface CostEstimateInputs {
+  vehiculoId: number;
+  choferId: number;
+  ayudanteId?: number | null;
+  fechaEstimadaSalida: string;
+  fechaEstimadaLlegada: string;
+  distanciaKm?: number | null;
+  routeId?: number | null;
+}
+
+async function computeCostEstimate(inputs: CostEstimateInputs) {
+  const [vehicle] = await db.select().from(vehiclesTable).where(eq(vehiclesTable.id, inputs.vehiculoId));
+  const [driver] = await db.select().from(personnelTable).where(eq(personnelTable.id, inputs.choferId));
+
+  let assistantRate = 0;
+  if (inputs.ayudanteId) {
+    const [assistant] = await db.select().from(personnelTable).where(eq(personnelTable.id, inputs.ayudanteId));
+    assistantRate = assistant?.tarifaViaticos ?? 0;
+  }
+
+  const distanciaKm = inputs.distanciaKm ?? 100;
+  const rendimiento = vehicle?.rendimientoKmLitro ?? 10;
+  const costoPorLitro = 1.5;
+  const litrosEstimados = distanciaKm / rendimiento;
+  const costoCombustible = litrosEstimados * costoPorLitro;
+
+  const salida = new Date(inputs.fechaEstimadaSalida);
+  const llegada = new Date(inputs.fechaEstimadaLlegada);
+  const dias = Math.max(1, Math.ceil((llegada.getTime() - salida.getTime()) / (1000 * 60 * 60 * 24)));
+
+  const costoViaticos = dias * ((driver?.tarifaViaticos ?? 0) + assistantRate);
+
+  let costoPeajes = 0;
+  if (inputs.routeId) {
+    const routeTolls = await db.select().from(routeTollsTable).where(eq(routeTollsTable.routeId, inputs.routeId));
+    costoPeajes = routeTolls.length * (vehicle?.tarifaPeaje ?? 0);
+  }
+
+  const total = costoCombustible + costoViaticos + costoPeajes;
+
+  return { costoCombustible, costoViaticos, costoPeajes, total, dias, litrosEstimados, distanciaKm, costoPorLitro };
+}
 
 async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
   const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, d.ventaId));
@@ -57,6 +101,25 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     return;
   }
   const { routePoints, ...dispatchData } = parsed.data;
+
+  const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, dispatchData.ventaId));
+  if (!sale) {
+    res.status(400).json({ error: "La venta indicada no existe" });
+    return;
+  }
+  const [vehicle] = await db.select().from(vehiclesTable).where(eq(vehiclesTable.id, dispatchData.vehiculoId));
+  if (!vehicle) {
+    res.status(400).json({ error: "El vehículo indicado no existe" });
+    return;
+  }
+  if (vehicle.capacidadPeso < sale.pesoTotal || vehicle.capacidadVolumen < sale.volumenTotal) {
+    res.status(400).json({
+      error: "vehicle_capacity_exceeded",
+      message: `El vehículo ${vehicle.modelo} (capacidad ${vehicle.capacidadPeso}kg / ${vehicle.capacidadVolumen}m³) no alcanza para la carga de esta venta (${sale.pesoTotal}kg / ${sale.volumenTotal}m³).`,
+    });
+    return;
+  }
+
   const [dispatch] = await db.insert(dispatchesTable).values(dispatchData).returning();
 
   const initialPeajes = dispatch.totalPeajes ?? 0;
@@ -250,36 +313,27 @@ router.get("/dispatches/:id/estimate-costs", async (req, res): Promise<void> => 
     return;
   }
 
-  const [vehicle] = await db.select().from(vehiclesTable).where(eq(vehiclesTable.id, dispatch.vehiculoId));
-  const [driver] = await db.select().from(personnelTable).where(eq(personnelTable.id, dispatch.choferId));
+  const estimate = await computeCostEstimate({
+    vehiculoId: dispatch.vehiculoId,
+    choferId: dispatch.choferId,
+    ayudanteId: dispatch.ayudanteId,
+    fechaEstimadaSalida: dispatch.fechaEstimadaSalida,
+    fechaEstimadaLlegada: dispatch.fechaEstimadaLlegada,
+    distanciaKm: dispatch.distanciaKm,
+    routeId: dispatch.routeId,
+  });
 
-  let assistantRate = 0;
-  if (dispatch.ayudanteId) {
-    const [assistant] = await db.select().from(personnelTable).where(eq(personnelTable.id, dispatch.ayudanteId));
-    assistantRate = assistant?.tarifaViaticos ?? 0;
+  res.json(estimate);
+});
+
+router.post("/dispatches/estimate-costs-preview", async (req, res): Promise<void> => {
+  const parsed = EstimateDispatchCostsPreviewBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
   }
-
-  const distanciaKm = dispatch.distanciaKm ?? 100;
-  const rendimiento = vehicle?.rendimientoKmLitro ?? 10;
-  const costoPorLitro = 1.5;
-  const litrosEstimados = distanciaKm / rendimiento;
-  const costoCombustible = litrosEstimados * costoPorLitro;
-
-  const salida = new Date(dispatch.fechaEstimadaSalida);
-  const llegada = new Date(dispatch.fechaEstimadaLlegada);
-  const dias = Math.max(1, Math.ceil((llegada.getTime() - salida.getTime()) / (1000 * 60 * 60 * 24)));
-
-  const costoViaticos = dias * ((driver?.tarifaViaticos ?? 0) + assistantRate);
-
-  let costoPeajes = 0;
-  if (dispatch.routeId) {
-    const routeTolls = await db.select().from(routeTollsTable).where(eq(routeTollsTable.routeId, dispatch.routeId));
-    costoPeajes = routeTolls.length * (vehicle?.tarifaPeaje ?? 0);
-  }
-
-  const total = costoCombustible + costoViaticos + costoPeajes;
-
-  res.json({ costoCombustible, costoViaticos, costoPeajes, total, dias, litrosEstimados, distanciaKm, costoPorLitro });
+  const estimate = await computeCostEstimate(parsed.data);
+  res.json(estimate);
 });
 
 export default router;

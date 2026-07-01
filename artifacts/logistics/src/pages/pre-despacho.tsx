@@ -1,11 +1,12 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   useListSales, getListSalesQueryKey,
   useListVehicles, getListVehiclesQueryKey,
   useListPersonnel, getListPersonnelQueryKey,
   useListRoutes, getListRoutesQueryKey,
   useListDispatches,
-  useCreateDispatch, getListDispatchesQueryKey
+  useCreateDispatch, getListDispatchesQueryKey,
+  useEstimateDispatchCostsPreview,
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -100,18 +101,47 @@ export default function PreDespacho() {
     ? Math.max(1, Math.ceil((new Date(watchedLlegada).getTime() - new Date(watchedSalida).getTime()) / (1000 * 60 * 60 * 24)))
     : 1;
 
-  const litros = selectedVehicle && watchedDistancia
-    ? Number(watchedDistancia) / selectedVehicle.rendimientoKmLitro
-    : 0;
-  const costoCombustible = litros * 1.5;
-  const costoViaticos = dias * ((selectedChofer?.tarifaViaticos ?? 0) + (selectedAyudante?.tarifaViaticos ?? 0));
+  const estimateCosts = useEstimateDispatchCostsPreview();
+  const [costPreview, setCostPreview] = useState<{
+    costoCombustible: number;
+    costoViaticos: number;
+    costoPeajes: number;
+    total: number;
+    litrosEstimados: number;
+  } | null>(null);
 
-  const costoPeajes =
-    selectedRoute != null && selectedVehicle?.tarifaPeaje != null
-      ? (selectedRoute.tolls?.length ?? 0) * selectedVehicle.tarifaPeaje
-      : null;
+  useEffect(() => {
+    const vehiculoId = Number(watchedVehicleId);
+    const choferId = Number(watchedChoferId);
+    const distanciaKm = Number(watchedDistancia);
+    if (!vehiculoId || !choferId || !distanciaKm || !watchedSalida || !watchedLlegada) {
+      setCostPreview(null);
+      return;
+    }
+    const handle = setTimeout(() => {
+      estimateCosts.mutate(
+        {
+          data: {
+            vehiculoId,
+            choferId,
+            ayudanteId: watchedAyudanteId ? Number(watchedAyudanteId) : undefined,
+            fechaEstimadaSalida: watchedSalida,
+            fechaEstimadaLlegada: watchedLlegada,
+            distanciaKm,
+            routeId: watchedRouteId ? Number(watchedRouteId) : undefined,
+          },
+        },
+        { onSuccess: (data) => setCostPreview(data) }
+      );
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [watchedVehicleId, watchedChoferId, watchedAyudanteId, watchedDistancia, watchedRouteId, watchedSalida, watchedLlegada]);
 
-  const totalEstimado = costoCombustible + costoViaticos + (costoPeajes ?? 0);
+  const litros = costPreview?.litrosEstimados ?? 0;
+  const costoCombustible = costPreview?.costoCombustible ?? 0;
+  const costoViaticos = costPreview?.costoViaticos ?? 0;
+  const costoPeajes = costPreview ? costPreview.costoPeajes : null;
+  const totalEstimado = costPreview?.total ?? 0;
 
   const BUSY_STATES = ["pre-despacho", "aprobado", "en-ruta"];
   const vehicleConflict = (() => {

@@ -692,6 +692,27 @@ paths:
         "404":
           description: Not found
 
+  /dispatches/estimate-costs-preview:
+    post:
+      operationId: estimateDispatchCostsPreview
+      tags: [dispatches]
+      summary: Estimate costs for a dispatch before it is created, using the same formula as estimateDispatchCosts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchCostEstimateInput"
+      responses:
+        "200":
+          description: Estimated costs breakdown
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CostEstimate"
+        "400":
+          description: Invalid input
+
   # --- TOLLS ---
   /tolls:
     get:
@@ -1427,6 +1448,25 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RoutePointInput"
+
+    DispatchCostEstimateInput:
+      type: object
+      required: [vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada]
+      properties:
+        vehiculoId:
+          type: integer
+        choferId:
+          type: integer
+        ayudanteId:
+          type: integer
+        fechaEstimadaSalida:
+          type: string
+        fechaEstimadaLlegada:
+          type: string
+        distanciaKm:
+          type: number
+        routeId:
+          type: integer
 
     DispatchUpdate:
       type: object

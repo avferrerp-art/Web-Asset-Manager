@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
-import { db, vehiclesTable } from "@workspace/db";
+import { eq, count } from "drizzle-orm";
+import { db, vehiclesTable, dispatchesTable } from "@workspace/db";
 import {
   CreateVehicleBody,
   GetVehicleParams,
@@ -83,6 +83,18 @@ router.delete("/vehicles/:id", async (req, res): Promise<void> => {
   const params = DeleteVehicleParams.safeParse(req.params);
   if (!params.success) {
     res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const [{ value: dispatchCount }] = await db
+    .select({ value: count() })
+    .from(dispatchesTable)
+    .where(eq(dispatchesTable.vehiculoId, params.data.id));
+  if (dispatchCount > 0) {
+    res.status(409).json({
+      error: "vehicle_has_dispatches",
+      dispatchCount,
+      message: `Este vehículo está vinculado a ${dispatchCount} despacho${dispatchCount === 1 ? "" : "s"} y no puede eliminarse.`,
+    });
     return;
   }
   const [vehicle] = await db.delete(vehiclesTable).where(eq(vehiclesTable.id, params.data.id)).returning();

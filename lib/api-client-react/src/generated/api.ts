@@ -24,6 +24,7 @@ import type {
   CostEstimate,
   DashboardSummary,
   Dispatch,
+  DispatchCostEstimateInput,
   DispatchDetail,
   DispatchInput,
   DispatchUpdate,
@@ -2513,6 +2514,76 @@ export function useEstimateDispatchCosts<TData = Awaited<ReturnType<typeof estim
 
 
 
+
+export const getEstimateDispatchCostsPreviewUrl = () => {
+
+
+
+
+  return `/api/dispatches/estimate-costs-preview`
+}
+
+/**
+ * @summary Estimate costs for a dispatch before it is created, using the same formula as estimateDispatchCosts
+ */
+export const estimateDispatchCostsPreview = async (dispatchCostEstimateInput: DispatchCostEstimateInput, options?: RequestInit): Promise<CostEstimate> => {
+
+  return customFetch<CostEstimate>(getEstimateDispatchCostsPreviewUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dispatchCostEstimateInput)
+  }
+);}
+
+
+
+
+export const getEstimateDispatchCostsPreviewMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof estimateDispatchCostsPreview>>, TError,{data: BodyType<DispatchCostEstimateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof estimateDispatchCostsPreview>>, TError,{data: BodyType<DispatchCostEstimateInput>}, TContext> => {
+
+const mutationKey = ['estimateDispatchCostsPreview'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof estimateDispatchCostsPreview>>, {data: BodyType<DispatchCostEstimateInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  estimateDispatchCostsPreview(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type EstimateDispatchCostsPreviewMutationResult = NonNullable<Awaited<ReturnType<typeof estimateDispatchCostsPreview>>>
+    export type EstimateDispatchCostsPreviewMutationBody = BodyType<DispatchCostEstimateInput>
+    export type EstimateDispatchCostsPreviewMutationError = ErrorType<void>
+
+    /**
+ * @summary Estimate costs for a dispatch before it is created, using the same formula as estimateDispatchCosts
+ */
+export const useEstimateDispatchCostsPreview = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof estimateDispatchCostsPreview>>, TError,{data: BodyType<DispatchCostEstimateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof estimateDispatchCostsPreview>>,
+        TError,
+        {data: BodyType<DispatchCostEstimateInput>},
+        TContext
+      > => {
+      return useMutation(getEstimateDispatchCostsPreviewMutationOptions(options));
+    }
 
 export const getListTollsUrl = () => {
 

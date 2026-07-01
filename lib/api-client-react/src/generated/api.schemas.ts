@@ -272,6 +272,16 @@ export interface DispatchInput {
   routePoints?: RoutePointInput[];
 }
 
+export interface DispatchCostEstimateInput {
+  vehiculoId: number;
+  choferId: number;
+  ayudanteId?: number;
+  fechaEstimadaSalida: string;
+  fechaEstimadaLlegada: string;
+  distanciaKm?: number;
+  routeId?: number;
+}
+
 export interface DispatchUpdate {
   vehiculoId?: number;
   choferId?: number;
