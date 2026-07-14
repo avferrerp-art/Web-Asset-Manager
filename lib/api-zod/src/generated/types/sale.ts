@@ -24,5 +24,12 @@ export interface Sale {
   estado: string;
   /** @nullable */
   notas?: string | null;
+  /**
+     * Odoo sale order reference (e.g. S00042) when imported from Odoo
+     * @nullable
+     */
+  odooRef?: string | null;
+  /** @nullable */
+  odooId?: number | null;
   createdAt: string;
 }

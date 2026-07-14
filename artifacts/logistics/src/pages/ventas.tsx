@@ -18,6 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { OdooBadge } from "@/components/odoo-sync-card";
 
 const saleSchema = z.object({
   cliente: z.string().min(1, "Requerido"),
@@ -459,7 +460,10 @@ export default function Ventas() {
                 </TableCell></TableRow>
               ) : filteredSales.map((sale) => (
                 <TableRow key={sale.id} data-testid={`row-sale-${sale.id}`}>
-                  <TableCell className="font-medium">#{sale.id}</TableCell>
+                  <TableCell className="font-medium">
+                    #{sale.id}
+                    <OdooBadge odooRef={sale.odooRef} />
+                  </TableCell>
                   <TableCell>
                     <div className="font-medium">{sale.cliente}</div>
                     {sale.personaContacto && (

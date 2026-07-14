@@ -24,6 +24,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Truck, Route as RouteIcon, Plus, AlertTriangle, MapPin, RefreshCw, ExternalLink } from "lucide-react";
 import { useLocation } from "wouter";
 import { NuevoDespachoWizard } from "@/components/nuevo-despacho-wizard";
+import { OdooSyncCard, OdooBadge } from "@/components/odoo-sync-card";
 
 const dispatchSchema = z.object({
   vehiculoId: z.coerce.number().min(1, "Requerido"),
@@ -223,6 +224,8 @@ export default function PreDespacho() {
       </div>
       <NuevoDespachoWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
 
+      <OdooSyncCard />
+
       <Card>
         <CardHeader>
           <CardTitle>Órdenes de Venta Pendientes</CardTitle>
@@ -246,7 +249,10 @@ export default function PreDespacho() {
                 <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Sin ventas pendientes.</TableCell></TableRow>
               ) : pendingSales.map((sale) => (
                 <TableRow key={sale.id} data-testid={`row-pending-sale-${sale.id}`}>
-                  <TableCell className="font-medium">#{sale.id}</TableCell>
+                  <TableCell className="font-medium">
+                    #{sale.id}
+                    <OdooBadge odooRef={sale.odooRef} />
+                  </TableCell>
                   <TableCell>{sale.cliente}</TableCell>
                   <TableCell>{sale.destino}</TableCell>
                   <TableCell>{sale.pesoTotal} kg</TableCell>

@@ -96,6 +96,42 @@ export interface PersonnelUpdate {
   telefono?: string;
 }
 
+export interface OdooStatus {
+  configured: boolean;
+  /** @nullable */
+  serverUrl: string | null;
+  /** @nullable */
+  lastSyncAt: string | null;
+  /**
+     * ok | error
+     * @nullable
+     */
+  lastResult: string | null;
+  /** @nullable */
+  lastError: string | null;
+  importedCount: number;
+  skippedCount: number;
+}
+
+export interface OdooTestResult {
+  ok: boolean;
+  /** @nullable */
+  uid: number | null;
+  /** @nullable */
+  url: string | null;
+  /** @nullable */
+  error: string | null;
+}
+
+export interface OdooSyncResult {
+  ok: boolean;
+  imported: number;
+  skipped: number;
+  orders: string[];
+  /** @nullable */
+  error: string | null;
+}
+
 export interface Sale {
   id: number;
   cliente: string;
@@ -114,6 +150,13 @@ export interface Sale {
   estado: string;
   /** @nullable */
   notas?: string | null;
+  /**
+     * Odoo sale order reference (e.g. S00042) when imported from Odoo
+     * @nullable
+     */
+  odooRef?: string | null;
+  /** @nullable */
+  odooId?: number | null;
   createdAt: string;
 }
 

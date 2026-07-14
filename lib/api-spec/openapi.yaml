@@ -26,6 +26,8 @@ tags:
     description: Configurable fuel prices used in cost estimation
   - name: dashboard
     description: Dashboard and summary data
+  - name: odoo
+    description: Odoo sales order synchronization
 
 paths:
   /healthz:
@@ -459,6 +461,58 @@ paths:
           description: Deleted
         "404":
           description: Not found
+
+  # --- ODOO SYNC ---
+  /odoo/status:
+    get:
+      operationId: getOdooStatus
+      tags: [odoo]
+      summary: Get Odoo connection configuration and last sync status
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OdooStatus"
+
+  /odoo/test-connection:
+    post:
+      operationId: testOdooConnection
+      tags: [odoo]
+      summary: Test the Odoo connection with the configured credentials
+      responses:
+        "200":
+          description: Connection successful
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OdooTestResult"
+        "400":
+          description: Connection failed (missing config or invalid credentials)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OdooTestResult"
+
+  /odoo/sync:
+    post:
+      operationId: syncOdooNow
+      tags: [odoo]
+      summary: Trigger an immediate import of confirmed Odoo sale orders
+      responses:
+        "200":
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OdooSyncResult"
+        "400":
+          description: Sync failed (missing config or connection error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OdooSyncResult"
 
   # --- DISPATCHES ---
   /dispatches:
@@ -1284,6 +1338,56 @@ components:
           type: string
 
     # --- SALES ---
+    OdooStatus:
+      type: object
+      required: [configured, serverUrl, lastSyncAt, lastResult, lastError, importedCount, skippedCount]
+      properties:
+        configured:
+          type: boolean
+        serverUrl:
+          type: ["string", "null"]
+        lastSyncAt:
+          type: ["string", "null"]
+        lastResult:
+          type: ["string", "null"]
+          description: "ok | error"
+        lastError:
+          type: ["string", "null"]
+        importedCount:
+          type: integer
+        skippedCount:
+          type: integer
+
+    OdooTestResult:
+      type: object
+      required: [ok, uid, url, error]
+      properties:
+        ok:
+          type: boolean
+        uid:
+          type: ["integer", "null"]
+        url:
+          type: ["string", "null"]
+        error:
+          type: ["string", "null"]
+
+    OdooSyncResult:
+      type: object
+      required: [ok, imported, skipped, orders, error]
+      properties:
+        ok:
+          type: boolean
+        imported:
+          type: integer
+        skipped:
+          type: integer
+        orders:
+          type: array
+          items:
+            type: string
+        error:
+          type: ["string", "null"]
+
     Sale:
       type: object
       required: [id, cliente, volumenTotal, pesoTotal, destino, estado, createdAt]
@@ -1311,6 +1415,11 @@ components:
           description: "pendiente | despachado | entregado | cancelado"
         notas:
           type: ["string", "null"]
+        odooRef:
+          type: ["string", "null"]
+          description: "Odoo sale order reference (e.g. S00042) when imported from Odoo"
+        odooId:
+          type: ["integer", "null"]
         createdAt:
           type: string
 

@@ -267,6 +267,8 @@ export const ListSalesResponseItem = zod.object({
   "destino": zod.string(),
   "estado": zod.string().describe('pendiente | despachado | entregado | cancelado'),
   "notas": zod.string().nullish(),
+  "odooRef": zod.string().nullish().describe('Odoo sale order reference (e.g. S00042) when imported from Odoo'),
+  "odooId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 export const ListSalesResponse = zod.array(ListSalesResponseItem)
@@ -300,6 +302,8 @@ export const CreateSaleResponse = zod.object({
   "destino": zod.string(),
   "estado": zod.string().describe('pendiente | despachado | entregado | cancelado'),
   "notas": zod.string().nullish(),
+  "odooRef": zod.string().nullish().describe('Odoo sale order reference (e.g. S00042) when imported from Odoo'),
+  "odooId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 
@@ -323,6 +327,8 @@ export const GetSaleResponse = zod.object({
   "destino": zod.string(),
   "estado": zod.string().describe('pendiente | despachado | entregado | cancelado'),
   "notas": zod.string().nullish(),
+  "odooRef": zod.string().nullish().describe('Odoo sale order reference (e.g. S00042) when imported from Odoo'),
+  "odooId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 
@@ -359,6 +365,8 @@ export const UpdateSaleResponse = zod.object({
   "destino": zod.string(),
   "estado": zod.string().describe('pendiente | despachado | entregado | cancelado'),
   "notas": zod.string().nullish(),
+  "odooRef": zod.string().nullish().describe('Odoo sale order reference (e.g. S00042) when imported from Odoo'),
+  "odooId": zod.number().nullish(),
   "createdAt": zod.string()
 })
 
@@ -460,6 +468,43 @@ export const DeleteSaleItemParams = zod.object({
 })
 
 export const DeleteSaleItemResponse = zod.void()
+
+
+/**
+ * @summary Get Odoo connection configuration and last sync status
+ */
+export const GetOdooStatusResponse = zod.object({
+  "configured": zod.boolean(),
+  "serverUrl": zod.string().nullable(),
+  "lastSyncAt": zod.string().nullable(),
+  "lastResult": zod.string().nullable().describe('ok | error'),
+  "lastError": zod.string().nullable(),
+  "importedCount": zod.number(),
+  "skippedCount": zod.number()
+})
+
+
+/**
+ * @summary Test the Odoo connection with the configured credentials
+ */
+export const TestOdooConnectionResponse = zod.object({
+  "ok": zod.boolean(),
+  "uid": zod.number().nullable(),
+  "url": zod.string().nullable(),
+  "error": zod.string().nullable()
+})
+
+
+/**
+ * @summary Trigger an immediate import of confirmed Odoo sale orders
+ */
+export const SyncOdooNowResponse = zod.object({
+  "ok": zod.boolean(),
+  "imported": zod.number(),
+  "skipped": zod.number(),
+  "orders": zod.array(zod.string()),
+  "error": zod.string().nullable()
+})
 
 
 /**

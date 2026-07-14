@@ -35,6 +35,9 @@ import type {
   ListDispatchesParams,
   ListSalesParams,
   LoadRequirement,
+  OdooStatus,
+  OdooSyncResult,
+  OdooTestResult,
   Personnel,
   PersonnelInput,
   PersonnelUpdate,
@@ -1707,6 +1710,223 @@ export const useDeleteSaleItem = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteSaleItemMutationOptions(options));
+    }
+
+export const getGetOdooStatusUrl = () => {
+
+
+
+
+  return `/api/odoo/status`
+}
+
+/**
+ * @summary Get Odoo connection configuration and last sync status
+ */
+export const getOdooStatus = async ( options?: RequestInit): Promise<OdooStatus> => {
+
+  return customFetch<OdooStatus>(getGetOdooStatusUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetOdooStatusQueryKey = () => {
+    return [
+    `/api/odoo/status`
+    ] as const;
+    }
+
+
+export const getGetOdooStatusQueryOptions = <TData = Awaited<ReturnType<typeof getOdooStatus>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOdooStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetOdooStatusQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getOdooStatus>>> = ({ signal }) => getOdooStatus({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getOdooStatus>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetOdooStatusQueryResult = NonNullable<Awaited<ReturnType<typeof getOdooStatus>>>
+export type GetOdooStatusQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get Odoo connection configuration and last sync status
+ */
+
+export function useGetOdooStatus<TData = Awaited<ReturnType<typeof getOdooStatus>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getOdooStatus>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetOdooStatusQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getTestOdooConnectionUrl = () => {
+
+
+
+
+  return `/api/odoo/test-connection`
+}
+
+/**
+ * @summary Test the Odoo connection with the configured credentials
+ */
+export const testOdooConnection = async ( options?: RequestInit): Promise<OdooTestResult> => {
+
+  return customFetch<OdooTestResult>(getTestOdooConnectionUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getTestOdooConnectionMutationOptions = <TError = ErrorType<OdooTestResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testOdooConnection>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof testOdooConnection>>, TError,void, TContext> => {
+
+const mutationKey = ['testOdooConnection'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof testOdooConnection>>, void> = () => {
+
+
+          return  testOdooConnection(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type TestOdooConnectionMutationResult = NonNullable<Awaited<ReturnType<typeof testOdooConnection>>>
+
+    export type TestOdooConnectionMutationError = ErrorType<OdooTestResult>
+
+    /**
+ * @summary Test the Odoo connection with the configured credentials
+ */
+export const useTestOdooConnection = <TError = ErrorType<OdooTestResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof testOdooConnection>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof testOdooConnection>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getTestOdooConnectionMutationOptions(options));
+    }
+
+export const getSyncOdooNowUrl = () => {
+
+
+
+
+  return `/api/odoo/sync`
+}
+
+/**
+ * @summary Trigger an immediate import of confirmed Odoo sale orders
+ */
+export const syncOdooNow = async ( options?: RequestInit): Promise<OdooSyncResult> => {
+
+  return customFetch<OdooSyncResult>(getSyncOdooNowUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getSyncOdooNowMutationOptions = <TError = ErrorType<OdooSyncResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,void, TContext> => {
+
+const mutationKey = ['syncOdooNow'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncOdooNow>>, void> = () => {
+
+
+          return  syncOdooNow(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncOdooNowMutationResult = NonNullable<Awaited<ReturnType<typeof syncOdooNow>>>
+
+    export type SyncOdooNowMutationError = ErrorType<OdooSyncResult>
+
+    /**
+ * @summary Trigger an immediate import of confirmed Odoo sale orders
+ */
+export const useSyncOdooNow = <TError = ErrorType<OdooSyncResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof syncOdooNow>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getSyncOdooNowMutationOptions(options));
     }
 
 export const getListDispatchesUrl = (params?: ListDispatchesParams,) => {
