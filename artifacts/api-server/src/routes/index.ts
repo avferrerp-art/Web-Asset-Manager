@@ -10,10 +10,12 @@ import dashboardRouter from "./dashboard";
 import ordersExtractRouter from "./orders/extract";
 import saleItemsRouter from "./sale-items";
 import fuelPricesRouter from "./fuel-prices";
+import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(requireAuth);
 router.use(vehiclesRouter);
 router.use(personnelRouter);
 router.use(salesRouter);

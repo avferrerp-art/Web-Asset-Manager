@@ -8,8 +8,10 @@ import {
   MapPin, 
   Navigation,
   FileText,
-  Weight
+  Weight,
+  LogOut
 } from "lucide-react";
+import { useUser, useClerk } from "@clerk/react";
 import {
   Sidebar,
   SidebarContent,
@@ -20,6 +22,51 @@ import {
   SidebarMenuButton,
   SidebarProvider,
 } from "@/components/ui/sidebar";
+
+const basePath = import.meta.env.BASE_URL.replace(/\/$/, "");
+
+function UserFooter() {
+  const { user, isLoaded } = useUser();
+  const { signOut } = useClerk();
+
+  if (!isLoaded || !user) return null;
+
+  const displayName =
+    user.fullName || user.primaryEmailAddress?.emailAddress || "Usuario";
+
+  return (
+    <SidebarFooter className="p-3 border-t border-border/50">
+      <div className="flex items-center gap-3 px-2">
+        {user.imageUrl ? (
+          <img
+            src={user.imageUrl}
+            alt={displayName}
+            className="h-8 w-8 rounded-full object-cover"
+            data-testid="img-user-avatar"
+          />
+        ) : (
+          <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center text-sm font-semibold text-primary">
+            {displayName.charAt(0).toUpperCase()}
+          </div>
+        )}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate" data-testid="text-user-name">
+            {displayName}
+          </p>
+        </div>
+        <button
+          type="button"
+          title="Cerrar sesión"
+          onClick={() => signOut({ redirectUrl: basePath || "/" })}
+          className="p-2 rounded-md hover:bg-accent text-muted-foreground hover:text-foreground"
+          data-testid="button-logout"
+        >
+          <LogOut className="h-4 w-4" />
+        </button>
+      </div>
+    </SidebarFooter>
+  );
+}
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
@@ -62,6 +109,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
               })}
             </SidebarMenu>
           </SidebarContent>
+          <UserFooter />
         </Sidebar>
         <main className="flex-1 flex flex-col overflow-hidden">
           <div className="flex-1 overflow-auto p-8">

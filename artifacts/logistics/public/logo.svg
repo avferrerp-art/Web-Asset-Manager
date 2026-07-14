@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="48" viewBox="0 0 220 48" fill="none">
+  <g transform="translate(4,8)">
+    <polygon points="16,0 32,32 16,25 0,32" fill="#f59e0b"/>
+  </g>
+  <text x="46" y="32" font-family="Inter, sans-serif" font-size="22" font-weight="700" fill="#f8fafc" letter-spacing="-0.5">LogiFleet</text>
+</svg>

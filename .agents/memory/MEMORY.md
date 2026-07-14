@@ -3,3 +3,4 @@
 - [Hook call convention](hook-call-convention.md) — all generated hooks use single arg object: useHook({ query: {...} })
 - [Cache bust pattern](cache-bust-pattern.md) — after mutations call removeQueries + invalidateQueries together to bust 304 HTTP cache
 - [Route cost breakdown model](route-cost-breakdown.md) — redondo/multidestino distance & toll math lives in one shared helper; frontend must read distanciaTotalKm/costoPeajesTotal/tramos, never raw route.distanciaKm.
+- [Clerk auth setup](clerk-auth-setup.md) — API auth is ordering-based (health before requireAuth); new routers after it are auto-protected; keep canonical Clerk wiring verbatim.
