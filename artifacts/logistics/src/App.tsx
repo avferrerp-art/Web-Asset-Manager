@@ -16,7 +16,6 @@ import Vehiculos from "@/pages/vehiculos";
 import Personal from "@/pages/personal";
 import Rutas from "@/pages/rutas";
 import Carga from "@/pages/carga";
-import Landing from "@/pages/landing";
 
 const queryClient = new QueryClient();
 
@@ -109,21 +108,6 @@ function SignUpPage() {
   );
 }
 
-function HomeRedirect() {
-  return (
-    <>
-      <Show when="signed-in">
-        <Layout>
-          <Dashboard />
-        </Layout>
-      </Show>
-      <Show when="signed-out">
-        <Landing />
-      </Show>
-    </>
-  );
-}
-
 function ProtectedPage({ component: Component }: { component: React.ComponentType }) {
   return (
     <>
@@ -133,7 +117,20 @@ function ProtectedPage({ component: Component }: { component: React.ComponentTyp
         </Layout>
       </Show>
       <Show when="signed-out">
-        <Redirect to="/" />
+        <Redirect to="/sign-in" />
+      </Show>
+    </>
+  );
+}
+
+function ProtectedNotFound() {
+  return (
+    <>
+      <Show when="signed-in">
+        <NotFound />
+      </Show>
+      <Show when="signed-out">
+        <Redirect to="/sign-in" />
       </Show>
     </>
   );
@@ -163,7 +160,9 @@ function ClerkQueryClientCacheInvalidator() {
 function Router() {
   return (
     <Switch>
-      <Route path="/" component={HomeRedirect} />
+      <Route path="/">
+        <ProtectedPage component={Dashboard} />
+      </Route>
       <Route path="/sign-in/*?" component={SignInPage} />
       <Route path="/sign-up/*?" component={SignUpPage} />
       <Route path="/pre-despacho">
@@ -187,7 +186,7 @@ function Router() {
       <Route path="/carga">
         <ProtectedPage component={Carga} />
       </Route>
-      <Route component={NotFound} />
+      <Route component={ProtectedNotFound} />
     </Switch>
   );
 }
