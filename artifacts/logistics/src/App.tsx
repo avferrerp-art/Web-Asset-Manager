@@ -16,6 +16,7 @@ import Vehiculos from "@/pages/vehiculos";
 import Personal from "@/pages/personal";
 import Rutas from "@/pages/rutas";
 import Carga from "@/pages/carga";
+import Configuracion from "@/pages/configuracion";
 
 const queryClient = new QueryClient();
 
@@ -185,6 +186,9 @@ function Router() {
       </Route>
       <Route path="/carga">
         <ProtectedPage component={Carga} />
+      </Route>
+      <Route path="/configuracion">
+        <ProtectedPage component={Configuracion} />
       </Route>
       <Route component={ProtectedNotFound} />
     </Switch>

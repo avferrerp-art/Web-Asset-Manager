@@ -13,6 +13,17 @@ export interface HealthStatus {
   status: string;
 }
 
+export interface FuelPrice {
+  /** gasolina | diesel | gas */
+  tipoCombustible: string;
+  precioPorLitro: number;
+  updatedAt: string;
+}
+
+export interface FuelPriceInput {
+  precioPorLitro: number;
+}
+
 export interface Vehicle {
   id: number;
   /** propio | tercero */

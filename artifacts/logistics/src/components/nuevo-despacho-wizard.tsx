@@ -771,7 +771,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                 <div className="text-center p-2 bg-background rounded border border-border">
                   <div className="text-xs text-muted-foreground">Combustible</div>
                   <div className="font-bold text-sm">${costoCombustible.toFixed(2)}</div>
-                  <div className="text-[10px] text-muted-foreground">{litros.toFixed(1)} L</div>
+                  <div className="text-[10px] text-muted-foreground">{litros.toFixed(1)} L · ${precioPorLitro.toFixed(2)}/L</div>
                 </div>
                 <div className="text-center p-2 bg-background rounded border border-border">
                   <div className="text-xs text-muted-foreground">Viáticos</div>

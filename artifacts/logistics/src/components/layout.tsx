@@ -9,7 +9,8 @@ import {
   Navigation,
   FileText,
   Weight,
-  LogOut
+  LogOut,
+  Settings
 } from "lucide-react";
 import { useUser, useClerk } from "@clerk/react";
 import {
@@ -80,6 +81,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/personal", label: "Personal", icon: Users },
     { href: "/rutas", label: "Rutas", icon: MapPin },
     { href: "/carga", label: "Calc. de Carga", icon: Weight },
+    { href: "/configuracion", label: "Configuración", icon: Settings },
   ];
 
   return (

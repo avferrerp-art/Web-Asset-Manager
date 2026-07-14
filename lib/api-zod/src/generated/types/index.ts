@@ -18,6 +18,7 @@ export * from './errorResponse';
 export * from './extractedOrderData';
 export * from './fuelPrice';
 export * from './fuelPriceUpdate';
+export * from './fuelPriceInput';
 export * from './getVehicleScheduleParams';
 export * from './healthStatus';
 export * from './listDispatchesParams';

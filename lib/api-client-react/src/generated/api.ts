@@ -4279,3 +4279,151 @@ export function useGetActiveDispatches<TData = Awaited<ReturnType<typeof getActi
 
 
 
+export const getListFuelPricesUrl = () => {
+
+
+
+
+  return `/api/settings/fuel-prices`
+}
+
+/**
+ * @summary List all fuel price settings
+ */
+export const listFuelPrices = async ( options?: RequestInit): Promise<FuelPrice[]> => {
+
+  return customFetch<FuelPrice[]>(getListFuelPricesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListFuelPricesQueryKey = () => {
+    return [
+    `/api/settings/fuel-prices`
+    ] as const;
+    }
+
+
+export const getListFuelPricesQueryOptions = <TData = Awaited<ReturnType<typeof listFuelPrices>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFuelPrices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListFuelPricesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listFuelPrices>>> = ({ signal }) => listFuelPrices({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listFuelPrices>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListFuelPricesQueryResult = NonNullable<Awaited<ReturnType<typeof listFuelPrices>>>
+export type ListFuelPricesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List all fuel price settings
+ */
+
+export function useListFuelPrices<TData = Awaited<ReturnType<typeof listFuelPrices>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listFuelPrices>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListFuelPricesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateFuelPriceUrl = (type: string,) => {
+
+
+
+
+  return `/api/settings/fuel-prices/${type}`
+}
+
+/**
+ * @summary Update price per liter for a fuel type
+ */
+export const updateFuelPrice = async (type: string,
+    fuelPriceInput: FuelPriceInput, options?: RequestInit): Promise<FuelPrice> => {
+
+  return customFetch<FuelPrice>(getUpdateFuelPriceUrl(type),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(fuelPriceInput)
+  }
+);}
+
+
+
+
+export const getUpdateFuelPriceMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateFuelPrice>>, TError,{type: string;data: BodyType<FuelPriceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateFuelPrice>>, TError,{type: string;data: BodyType<FuelPriceInput>}, TContext> => {
+
+const mutationKey = ['updateFuelPrice'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateFuelPrice>>, {type: string;data: BodyType<FuelPriceInput>}> = (props) => {
+          const {type,data} = props ?? {};
+
+          return  updateFuelPrice(type,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateFuelPriceMutationResult = NonNullable<Awaited<ReturnType<typeof updateFuelPrice>>>
+    export type UpdateFuelPriceMutationBody = BodyType<FuelPriceInput>
+    export type UpdateFuelPriceMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Update price per liter for a fuel type
+ */
+export const useUpdateFuelPrice = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateFuelPrice>>, TError,{type: string;data: BodyType<FuelPriceInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateFuelPrice>>,
+        TError,
+        {type: string;data: BodyType<FuelPriceInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateFuelPriceMutationOptions(options));
+    }
+
