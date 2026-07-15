@@ -50,7 +50,7 @@ export default function Configuracion() {
       return;
     }
     updateFuelPrice.mutate(
-      { type: tipo, data: { precioPorLitro: val } },
+      { tipoCombustible: tipo, data: { precioPorLitro: val } },
       {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListFuelPricesQueryKey() });

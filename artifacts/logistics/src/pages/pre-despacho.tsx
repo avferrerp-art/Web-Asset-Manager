@@ -145,6 +145,7 @@ export default function PreDespacho() {
 
   const litros = costPreview?.litrosEstimados ?? 0;
   const costoCombustible = costPreview?.costoCombustible ?? 0;
+  const precioPorLitro = litros > 0 ? costoCombustible / litros : 0;
   const costoViaticos = costPreview?.costoViaticos ?? 0;
   const costoPeajes = costPreview ? costPreview.costoPeajes : null;
   const totalEstimado = costPreview?.total ?? 0;

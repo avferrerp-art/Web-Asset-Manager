@@ -189,6 +189,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
 
   const litros = costPreview?.litrosEstimados ?? 0;
   const costoCombustible = costPreview?.costoCombustible ?? 0;
+  const precioPorLitro = litros > 0 ? costoCombustible / litros : 0;
   const costoViaticos = costPreview?.costoViaticos ?? 0;
   const costoPeajes = costPreview?.costoPeajes ?? 0;
   const totalEstimado = costPreview?.total ?? 0;

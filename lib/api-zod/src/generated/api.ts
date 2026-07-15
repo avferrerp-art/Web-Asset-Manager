@@ -1310,32 +1310,3 @@ export const GetActiveDispatchesResponseItem = zod.object({
 export const GetActiveDispatchesResponse = zod.array(GetActiveDispatchesResponseItem)
 
 
-/**
- * @summary List all fuel price settings
- */
-export const ListFuelPricesResponseItem = zod.object({
-  "tipoCombustible": zod.string().describe('gasolina | diesel | gas'),
-  "precioPorLitro": zod.number(),
-  "updatedAt": zod.string()
-})
-export const ListFuelPricesResponse = zod.array(ListFuelPricesResponseItem)
-
-
-/**
- * @summary Update price per liter for a fuel type
- */
-export const UpdateFuelPriceParams = zod.object({
-  "type": zod.coerce.string()
-})
-
-export const UpdateFuelPriceBody = zod.object({
-  "precioPorLitro": zod.number()
-})
-
-export const UpdateFuelPriceResponse = zod.object({
-  "tipoCombustible": zod.string().describe('gasolina | diesel | gas'),
-  "precioPorLitro": zod.number(),
-  "updatedAt": zod.string()
-})
-
-
