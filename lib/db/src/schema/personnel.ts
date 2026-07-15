@@ -8,6 +8,7 @@ export const personnelTable = pgTable("personnel", {
   rol: text("rol").notNull(),
   tarifaViaticos: real("tarifa_viaticos").notNull(),
   telefono: text("telefono"),
+  email: text("email").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

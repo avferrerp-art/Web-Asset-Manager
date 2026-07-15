@@ -28,6 +28,8 @@ tags:
     description: Dashboard and summary data
   - name: odoo
     description: Odoo sales order synchronization
+  - name: driver
+    description: Driver mobile app endpoints (authenticated driver scope)
 
 paths:
   /healthz:
@@ -812,6 +814,89 @@ paths:
         "400":
           description: Invalid input
 
+  # --- DRIVER (mobile app) ---
+  /driver/me:
+    get:
+      operationId: getDriverMe
+      tags: [driver]
+      summary: Get the personnel record linked to the authenticated user's email
+      responses:
+        "200":
+          description: Driver profile
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Personnel"
+        "404":
+          description: No personnel record linked to this account
+
+  /driver/dispatches:
+    get:
+      operationId: listDriverDispatches
+      tags: [driver]
+      summary: List dispatches assigned to the authenticated driver
+      responses:
+        "200":
+          description: Dispatches assigned to this driver
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Dispatch"
+        "404":
+          description: No personnel record linked to this account
+
+  /driver/dispatches/{id}:
+    get:
+      operationId: getDriverDispatch
+      tags: [driver]
+      summary: Get one of the authenticated driver's dispatches with detail
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Dispatch detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DispatchDetail"
+        "404":
+          description: Not found or not assigned to this driver
+
+  /driver/dispatches/{id}/status:
+    post:
+      operationId: updateDriverDispatchStatus
+      tags: [driver]
+      summary: Update the status of a dispatch assigned to the authenticated driver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DriverStatusUpdateInput"
+      responses:
+        "200":
+          description: Updated dispatch
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dispatch"
+        "400":
+          description: Invalid status transition
+        "404":
+          description: Not found or not assigned to this driver
+
   # --- TOLLS ---
   /tolls:
     get:
@@ -1309,6 +1394,9 @@ components:
           description: Daily per-diem rate
         telefono:
           type: ["string", "null"]
+        email:
+          type: ["string", "null"]
+          description: Email used to link a Clerk account to this driver
         createdAt:
           type: string
 
@@ -1324,6 +1412,8 @@ components:
           type: number
         telefono:
           type: string
+        email:
+          type: string
 
     PersonnelUpdate:
       type: object
@@ -1336,6 +1426,17 @@ components:
           type: number
         telefono:
           type: string
+        email:
+          type: string
+
+    DriverStatusUpdateInput:
+      type: object
+      required: [estado]
+      properties:
+        estado:
+          type: string
+          enum: [en-ruta, entregado]
+          description: New status the driver sets for the dispatch
 
     # --- SALES ---
     OdooStatus:

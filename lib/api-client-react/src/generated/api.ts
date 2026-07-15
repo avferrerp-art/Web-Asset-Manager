@@ -28,6 +28,7 @@ import type {
   DispatchDetail,
   DispatchInput,
   DispatchUpdate,
+  DriverStatusUpdateInput,
   FuelPrice,
   FuelPriceUpdate,
   GetVehicleScheduleParams,
@@ -2954,6 +2955,308 @@ export const useEstimateDispatchCostsPreview = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getEstimateDispatchCostsPreviewMutationOptions(options));
+    }
+
+export const getGetDriverMeUrl = () => {
+
+
+
+
+  return `/api/driver/me`
+}
+
+/**
+ * @summary Get the personnel record linked to the authenticated user's email
+ */
+export const getDriverMe = async ( options?: RequestInit): Promise<Personnel> => {
+
+  return customFetch<Personnel>(getGetDriverMeUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDriverMeQueryKey = () => {
+    return [
+    `/api/driver/me`
+    ] as const;
+    }
+
+
+export const getGetDriverMeQueryOptions = <TData = Awaited<ReturnType<typeof getDriverMe>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDriverMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDriverMeQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDriverMe>>> = ({ signal }) => getDriverMe({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDriverMe>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDriverMeQueryResult = NonNullable<Awaited<ReturnType<typeof getDriverMe>>>
+export type GetDriverMeQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the personnel record linked to the authenticated user's email
+ */
+
+export function useGetDriverMe<TData = Awaited<ReturnType<typeof getDriverMe>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDriverMe>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDriverMeQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListDriverDispatchesUrl = () => {
+
+
+
+
+  return `/api/driver/dispatches`
+}
+
+/**
+ * @summary List dispatches assigned to the authenticated driver
+ */
+export const listDriverDispatches = async ( options?: RequestInit): Promise<Dispatch[]> => {
+
+  return customFetch<Dispatch[]>(getListDriverDispatchesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListDriverDispatchesQueryKey = () => {
+    return [
+    `/api/driver/dispatches`
+    ] as const;
+    }
+
+
+export const getListDriverDispatchesQueryOptions = <TData = Awaited<ReturnType<typeof listDriverDispatches>>, TError = ErrorType<void>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDriverDispatches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListDriverDispatchesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listDriverDispatches>>> = ({ signal }) => listDriverDispatches({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listDriverDispatches>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListDriverDispatchesQueryResult = NonNullable<Awaited<ReturnType<typeof listDriverDispatches>>>
+export type ListDriverDispatchesQueryError = ErrorType<void>
+
+
+/**
+ * @summary List dispatches assigned to the authenticated driver
+ */
+
+export function useListDriverDispatches<TData = Awaited<ReturnType<typeof listDriverDispatches>>, TError = ErrorType<void>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listDriverDispatches>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListDriverDispatchesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetDriverDispatchUrl = (id: number,) => {
+
+
+
+
+  return `/api/driver/dispatches/${id}`
+}
+
+/**
+ * @summary Get one of the authenticated driver's dispatches with detail
+ */
+export const getDriverDispatch = async (id: number, options?: RequestInit): Promise<DispatchDetail> => {
+
+  return customFetch<DispatchDetail>(getGetDriverDispatchUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDriverDispatchQueryKey = (id: number,) => {
+    return [
+    `/api/driver/dispatches/${id}`
+    ] as const;
+    }
+
+
+export const getGetDriverDispatchQueryOptions = <TData = Awaited<ReturnType<typeof getDriverDispatch>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDriverDispatch>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDriverDispatchQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDriverDispatch>>> = ({ signal }) => getDriverDispatch(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDriverDispatch>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDriverDispatchQueryResult = NonNullable<Awaited<ReturnType<typeof getDriverDispatch>>>
+export type GetDriverDispatchQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get one of the authenticated driver's dispatches with detail
+ */
+
+export function useGetDriverDispatch<TData = Awaited<ReturnType<typeof getDriverDispatch>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDriverDispatch>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDriverDispatchQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateDriverDispatchStatusUrl = (id: number,) => {
+
+
+
+
+  return `/api/driver/dispatches/${id}/status`
+}
+
+/**
+ * @summary Update the status of a dispatch assigned to the authenticated driver
+ */
+export const updateDriverDispatchStatus = async (id: number,
+    driverStatusUpdateInput: DriverStatusUpdateInput, options?: RequestInit): Promise<Dispatch> => {
+
+  return customFetch<Dispatch>(getUpdateDriverDispatchStatusUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(driverStatusUpdateInput)
+  }
+);}
+
+
+
+
+export const getUpdateDriverDispatchStatusMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDriverDispatchStatus>>, TError,{id: number;data: BodyType<DriverStatusUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateDriverDispatchStatus>>, TError,{id: number;data: BodyType<DriverStatusUpdateInput>}, TContext> => {
+
+const mutationKey = ['updateDriverDispatchStatus'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateDriverDispatchStatus>>, {id: number;data: BodyType<DriverStatusUpdateInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateDriverDispatchStatus(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateDriverDispatchStatusMutationResult = NonNullable<Awaited<ReturnType<typeof updateDriverDispatchStatus>>>
+    export type UpdateDriverDispatchStatusMutationBody = BodyType<DriverStatusUpdateInput>
+    export type UpdateDriverDispatchStatusMutationError = ErrorType<void>
+
+    /**
+ * @summary Update the status of a dispatch assigned to the authenticated driver
+ */
+export const useUpdateDriverDispatchStatus = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateDriverDispatchStatus>>, TError,{id: number;data: BodyType<DriverStatusUpdateInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateDriverDispatchStatus>>,
+        TError,
+        {id: number;data: BodyType<DriverStatusUpdateInput>},
+        TContext
+      > => {
+      return useMutation(getUpdateDriverDispatchStatusMutationOptions(options));
     }
 
 export const getListTollsUrl = () => {

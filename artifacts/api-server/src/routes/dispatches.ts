@@ -110,7 +110,7 @@ async function resolveDistancia(dispatchData: {
   return dispatchData.distanciaKm ?? null;
 }
 
-async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
+export async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
   const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, d.ventaId));
   const [vehicle] = await db.select().from(vehiclesTable).where(eq(vehiclesTable.id, d.vehiculoId));
   const [driver] = await db.select().from(personnelTable).where(eq(personnelTable.id, d.choferId));
@@ -127,6 +127,13 @@ async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
     clienteNombre: sale?.cliente ?? null,
     destino: sale?.destino ?? null,
   };
+}
+
+export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect) {
+  const row = await buildDispatchRow(d);
+  const points = await db.select().from(routePointsTable).where(eq(routePointsTable.despachoId, d.id)).orderBy(routePointsTable.orden);
+  const [costs] = await db.select().from(travelCostsTable).where(eq(travelCostsTable.despachoId, d.id));
+  return { ...row, routePoints: points, costs: costs ?? null };
 }
 
 router.get("/dispatches", async (req, res): Promise<void> => {
@@ -203,10 +210,8 @@ router.get("/dispatches/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Dispatch not found" });
     return;
   }
-  const row = await buildDispatchRow(dispatch);
-  const points = await db.select().from(routePointsTable).where(eq(routePointsTable.despachoId, params.data.id)).orderBy(routePointsTable.orden);
-  const [costs] = await db.select().from(travelCostsTable).where(eq(travelCostsTable.despachoId, params.data.id));
-  res.json({ ...row, routePoints: points, costs: costs ?? null });
+  const detail = await buildDispatchDetail(dispatch);
+  res.json(detail);
 });
 
 router.patch("/dispatches/:id", async (req, res): Promise<void> => {

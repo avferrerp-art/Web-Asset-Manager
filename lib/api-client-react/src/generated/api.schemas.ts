@@ -79,6 +79,11 @@ export interface Personnel {
   tarifaViaticos: number;
   /** @nullable */
   telefono?: string | null;
+  /**
+     * Email used to link a Clerk account to this driver
+     * @nullable
+     */
+  email?: string | null;
   createdAt: string;
 }
 
@@ -87,6 +92,7 @@ export interface PersonnelInput {
   rol: string;
   tarifaViaticos: number;
   telefono?: string;
+  email?: string;
 }
 
 export interface PersonnelUpdate {
@@ -94,6 +100,23 @@ export interface PersonnelUpdate {
   rol?: string;
   tarifaViaticos?: number;
   telefono?: string;
+  email?: string;
+}
+
+/**
+ * New status the driver sets for the dispatch
+ */
+export type DriverStatusUpdateInputEstado = typeof DriverStatusUpdateInputEstado[keyof typeof DriverStatusUpdateInputEstado];
+
+
+export const DriverStatusUpdateInputEstado = {
+  'en-ruta': 'en-ruta',
+  entregado: 'entregado',
+} as const;
+
+export interface DriverStatusUpdateInput {
+  /** New status the driver sets for the dispatch */
+  estado: DriverStatusUpdateInputEstado;
 }
 
 export interface OdooStatus {

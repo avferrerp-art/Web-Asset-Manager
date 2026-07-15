@@ -11,6 +11,7 @@ import ordersExtractRouter from "./orders/extract";
 import saleItemsRouter from "./sale-items";
 import fuelPricesRouter from "./fuel-prices";
 import odooRouter from "./odoo";
+import driverRouter from "./driver";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -28,5 +29,6 @@ router.use(fuelPricesRouter);
 router.use(dashboardRouter);
 router.use(ordersExtractRouter);
 router.use(odooRouter);
+router.use(driverRouter);
 
 export default router;

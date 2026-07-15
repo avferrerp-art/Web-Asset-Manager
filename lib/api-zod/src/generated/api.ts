@@ -172,6 +172,7 @@ export const ListPersonnelResponseItem = zod.object({
   "rol": zod.string().describe('chofer | ayudante'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
+  "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
 })
 export const ListPersonnelResponse = zod.array(ListPersonnelResponseItem)
@@ -184,7 +185,8 @@ export const CreatePersonnelBody = zod.object({
   "nombre": zod.string(),
   "rol": zod.string(),
   "tarifaViaticos": zod.number(),
-  "telefono": zod.string().optional()
+  "telefono": zod.string().optional(),
+  "email": zod.string().optional()
 })
 
 export const CreatePersonnelResponse = zod.object({
@@ -193,6 +195,7 @@ export const CreatePersonnelResponse = zod.object({
   "rol": zod.string().describe('chofer | ayudante'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
+  "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
 })
 
@@ -210,6 +213,7 @@ export const GetPersonnelResponse = zod.object({
   "rol": zod.string().describe('chofer | ayudante'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
+  "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
 })
 
@@ -225,7 +229,8 @@ export const UpdatePersonnelBody = zod.object({
   "nombre": zod.string().optional(),
   "rol": zod.string().optional(),
   "tarifaViaticos": zod.number().optional(),
-  "telefono": zod.string().optional()
+  "telefono": zod.string().optional(),
+  "email": zod.string().optional()
 })
 
 export const UpdatePersonnelResponse = zod.object({
@@ -234,6 +239,7 @@ export const UpdatePersonnelResponse = zod.object({
   "rol": zod.string().describe('chofer | ayudante'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
+  "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
 })
 
@@ -884,6 +890,128 @@ export const EstimateDispatchCostsPreviewResponse = zod.object({
   "label": zod.string(),
   "distanciaKm": zod.number()
 })).optional().describe('Desglose por tramo cuando la ruta es redondo o multidestino')
+})
+
+
+/**
+ * @summary Get the personnel record linked to the authenticated user's email
+ */
+export const GetDriverMeResponse = zod.object({
+  "id": zod.number(),
+  "nombre": zod.string(),
+  "rol": zod.string().describe('chofer | ayudante'),
+  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "telefono": zod.string().nullish(),
+  "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary List dispatches assigned to the authenticated driver
+ */
+export const ListDriverDispatchesResponseItem = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullish(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().nullish(),
+  "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
+  "distanciaKm": zod.number().nullish(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullish(),
+  "choferNombre": zod.string().nullish(),
+  "ayudanteNombre": zod.string().nullish(),
+  "clienteNombre": zod.string().nullish(),
+  "destino": zod.string().nullish()
+})
+export const ListDriverDispatchesResponse = zod.array(ListDriverDispatchesResponseItem)
+
+
+/**
+ * @summary Get one of the authenticated driver's dispatches with detail
+ */
+export const GetDriverDispatchParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetDriverDispatchResponse = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullish(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().nullish(),
+  "estado": zod.string(),
+  "distanciaKm": zod.number().nullish(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullish(),
+  "choferNombre": zod.string().nullish(),
+  "ayudanteNombre": zod.string().nullish(),
+  "clienteNombre": zod.string().nullish(),
+  "destino": zod.string().nullish(),
+  "routePoints": zod.array(zod.object({
+  "id": zod.number(),
+  "despachoId": zod.number(),
+  "ubicacion": zod.string(),
+  "orden": zod.number(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish()
+})).optional(),
+  "costs": zod.object({
+  "id": zod.number(),
+  "despachoId": zod.number(),
+  "costoPeajes": zod.number(),
+  "costoCombustible": zod.number(),
+  "costoViaticos": zod.number(),
+  "total": zod.number(),
+  "costoCombustiblePorLitro": zod.number().nullish()
+}).optional()
+})
+
+
+/**
+ * @summary Update the status of a dispatch assigned to the authenticated driver
+ */
+export const UpdateDriverDispatchStatusParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateDriverDispatchStatusBody = zod.object({
+  "estado": zod.enum(['en-ruta', 'entregado']).describe('New status the driver sets for the dispatch')
+})
+
+export const UpdateDriverDispatchStatusResponse = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullish(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().nullish(),
+  "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
+  "distanciaKm": zod.number().nullish(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullish(),
+  "choferNombre": zod.string().nullish(),
+  "ayudanteNombre": zod.string().nullish(),
+  "clienteNombre": zod.string().nullish(),
+  "destino": zod.string().nullish()
 })
 
 

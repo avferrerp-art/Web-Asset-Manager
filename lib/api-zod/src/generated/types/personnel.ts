@@ -15,5 +15,10 @@ export interface Personnel {
   tarifaViaticos: number;
   /** @nullable */
   telefono?: string | null;
+  /**
+     * Email used to link a Clerk account to this driver
+     * @nullable
+     */
+  email?: string | null;
   createdAt: string;
 }

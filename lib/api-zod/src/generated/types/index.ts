@@ -14,6 +14,8 @@ export * from './dispatchCostEstimateInput';
 export * from './dispatchDetail';
 export * from './dispatchInput';
 export * from './dispatchUpdate';
+export * from './driverStatusUpdateInput';
+export * from './driverStatusUpdateInputEstado';
 export * from './errorResponse';
 export * from './extractedOrderData';
 export * from './fuelPrice';

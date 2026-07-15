@@ -11,4 +11,5 @@ export interface PersonnelUpdate {
   rol?: string;
   tarifaViaticos?: number;
   telefono?: string;
+  email?: string;
 }

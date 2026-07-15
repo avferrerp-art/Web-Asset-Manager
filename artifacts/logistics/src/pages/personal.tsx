@@ -21,7 +21,8 @@ const personnelSchema = z.object({
   nombre: z.string().min(1, "Requerido"),
   rol: z.string().min(1, "Requerido"),
   tarifaViaticos: z.coerce.number().min(0),
-  telefono: z.string().optional()
+  telefono: z.string().optional(),
+  email: z.string().email("Email inválido").optional().or(z.literal(""))
 });
 
 export default function Personal() {
@@ -40,7 +41,7 @@ export default function Personal() {
 
   const form = useForm<z.infer<typeof personnelSchema>>({
     resolver: zodResolver(personnelSchema),
-    defaultValues: { nombre: "", rol: "chofer", tarifaViaticos: 0, telefono: "" }
+    defaultValues: { nombre: "", rol: "chofer", tarifaViaticos: 0, telefono: "", email: "" }
   });
 
   const onSubmit = (values: z.infer<typeof personnelSchema>) => {
@@ -65,7 +66,7 @@ export default function Personal() {
 
   const handleEdit = (person: any) => {
     setEditingPersonnel(person);
-    form.reset({ nombre: person.nombre, rol: person.rol, tarifaViaticos: person.tarifaViaticos, telefono: person.telefono || "" });
+    form.reset({ nombre: person.nombre, rol: person.rol, tarifaViaticos: person.tarifaViaticos, telefono: person.telefono || "", email: person.email || "" });
     setIsDialogOpen(true);
   };
 
@@ -131,6 +132,13 @@ export default function Personal() {
                     <FormMessage />
                   </FormItem>
                 )} />
+                <FormField control={form.control} name="email" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Email (para la app de chofer)</FormLabel>
+                    <FormControl><Input data-testid="input-email" type="email" placeholder="chofer@empresa.com" {...field} /></FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
                 <FormField control={form.control} name="tarifaViaticos" render={({ field }) => (
                   <FormItem>
                     <FormLabel>Tarifa de Viáticos ($/día)</FormLabel>
@@ -157,6 +165,7 @@ export default function Personal() {
                 <TableHead>Nombre</TableHead>
                 <TableHead>Rol</TableHead>
                 <TableHead>Teléfono</TableHead>
+                <TableHead>Email</TableHead>
                 <TableHead>Tarifa Diaria</TableHead>
                 <TableHead className="w-[100px]"></TableHead>
               </TableRow>
@@ -171,6 +180,7 @@ export default function Personal() {
                   <TableCell className="font-medium">{person.nombre}</TableCell>
                   <TableCell className="capitalize">{person.rol}</TableCell>
                   <TableCell>{person.telefono || "S/N"}</TableCell>
+                  <TableCell>{person.email || "—"}</TableCell>
                   <TableCell>${person.tarifaViaticos}/día</TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">
