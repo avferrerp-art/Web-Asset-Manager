@@ -58,29 +58,39 @@ export async function testOdooConnection(): Promise<{ uid: number; url: string }
   return { uid, url: config.url };
 }
 
+const FETCH_BATCH_SIZE = 200;
+
 async function fetchConfirmedOrders(
   config: OdooConfig,
   uid: number,
 ): Promise<OdooSaleOrder[]> {
-  return (await executeKw(
-    config,
-    uid,
-    "sale.order",
-    "search_read",
-    [[["state", "in", ["sale", "done"]]]],
-    {
-      fields: [
-        "name",
-        "partner_id",
-        "partner_shipping_id",
-        "user_id",
-        "note",
-        "order_line",
-      ],
-      limit: 200,
-      order: "id desc",
-    },
-  )) as OdooSaleOrder[];
+  const all: OdooSaleOrder[] = [];
+  let lastId = 0;
+  for (;;) {
+    const batch = (await executeKw(
+      config,
+      uid,
+      "sale.order",
+      "search_read",
+      [[["state", "in", ["sale", "done"]], ["id", ">", lastId]]],
+      {
+        fields: [
+          "name",
+          "partner_id",
+          "partner_shipping_id",
+          "user_id",
+          "note",
+          "order_line",
+        ],
+        limit: FETCH_BATCH_SIZE,
+        order: "id asc",
+      },
+    )) as OdooSaleOrder[];
+    all.push(...batch);
+    if (batch.length < FETCH_BATCH_SIZE) break;
+    lastId = batch[batch.length - 1]!.id;
+  }
+  return all;
 }
 
 function stripHtml(value: string): string {
@@ -188,7 +198,7 @@ export async function syncOdooOrders(): Promise<SyncResult> {
 
     const notas = order.note ? stripHtml(String(order.note)) : null;
 
-    await db
+    const inserted = await db
       .insert(salesTable)
       .values({
         cliente: order.partner_id ? order.partner_id[1] : "Cliente Odoo",
@@ -207,8 +217,11 @@ export async function syncOdooOrders(): Promise<SyncResult> {
         odooRef: order.name,
         odooId: order.id,
       })
-      .onConflictDoNothing({ target: salesTable.odooId });
-    importedRefs.push(order.name);
+      .onConflictDoNothing({ target: salesTable.odooId })
+      .returning({ id: salesTable.id });
+    if (inserted.length > 0) {
+      importedRefs.push(order.name);
+    }
   }
 
   const result: SyncResult = {
