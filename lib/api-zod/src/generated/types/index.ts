@@ -34,6 +34,7 @@ export * from './personnelUpdate';
 export * from './route';
 export * from './routeInput';
 export * from './routePoint';
+export * from './routePointCompleteInput';
 export * from './routePointInput';
 export * from './routeToll';
 export * from './routeTollInput';

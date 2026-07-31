@@ -45,6 +45,7 @@ import type {
   Route,
   RouteInput,
   RoutePoint,
+  RoutePointCompleteInput,
   RoutePointInput,
   RouteToll,
   RouteTollInput,
@@ -3187,6 +3188,79 @@ export function useGetDriverDispatch<TData = Awaited<ReturnType<typeof getDriver
 
 
 
+
+export const getCompleteDriverRoutePointUrl = (id: number,
+    pointId: number,) => {
+
+
+
+
+  return `/api/driver/dispatches/${id}/route-points/${pointId}/complete`
+}
+
+/**
+ * @summary Toggle a route point as completed by the authenticated driver
+ */
+export const completeDriverRoutePoint = async (id: number,
+    pointId: number,
+    routePointCompleteInput: RoutePointCompleteInput, options?: RequestInit): Promise<RoutePoint> => {
+
+  return customFetch<RoutePoint>(getCompleteDriverRoutePointUrl(id,pointId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(routePointCompleteInput)
+  }
+);}
+
+
+
+
+export const getCompleteDriverRoutePointMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeDriverRoutePoint>>, TError,{id: number;pointId: number;data: BodyType<RoutePointCompleteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeDriverRoutePoint>>, TError,{id: number;pointId: number;data: BodyType<RoutePointCompleteInput>}, TContext> => {
+
+const mutationKey = ['completeDriverRoutePoint'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeDriverRoutePoint>>, {id: number;pointId: number;data: BodyType<RoutePointCompleteInput>}> = (props) => {
+          const {id,pointId,data} = props ?? {};
+
+          return  completeDriverRoutePoint(id,pointId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteDriverRoutePointMutationResult = NonNullable<Awaited<ReturnType<typeof completeDriverRoutePoint>>>
+    export type CompleteDriverRoutePointMutationBody = BodyType<RoutePointCompleteInput>
+    export type CompleteDriverRoutePointMutationError = ErrorType<void>
+
+    /**
+ * @summary Toggle a route point as completed by the authenticated driver
+ */
+export const useCompleteDriverRoutePoint = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeDriverRoutePoint>>, TError,{id: number;pointId: number;data: BodyType<RoutePointCompleteInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeDriverRoutePoint>>,
+        TError,
+        {id: number;pointId: number;data: BodyType<RoutePointCompleteInput>},
+        TContext
+      > => {
+      return useMutation(getCompleteDriverRoutePointMutationOptions(options));
+    }
 
 export const getUpdateDriverDispatchStatusUrl = (id: number,) => {
 

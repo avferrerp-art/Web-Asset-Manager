@@ -617,13 +617,27 @@ export const GetDispatchResponse = zod.object({
   "ayudanteNombre": zod.string().nullish(),
   "clienteNombre": zod.string().nullish(),
   "destino": zod.string().nullish(),
+  "pesoTotal": zod.number().nullish().describe('Total cargo weight in kg from the linked sale'),
+  "volumenTotal": zod.number().nullish().describe('Total cargo volume in m³ from the linked sale'),
+  "saleItems": zod.array(zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "descripcion": zod.string(),
+  "cantidad": zod.number(),
+  "pesoUnitario": zod.number(),
+  "largo": zod.number(),
+  "ancho": zod.number(),
+  "alto": zod.number(),
+  "createdAt": zod.string()
+})).optional().describe('Line items of the linked sale order'),
   "routePoints": zod.array(zod.object({
   "id": zod.number(),
   "despachoId": zod.number(),
   "ubicacion": zod.string(),
   "orden": zod.number(),
   "latitud": zod.number().nullish(),
-  "longitud": zod.number().nullish()
+  "longitud": zod.number().nullish(),
+  "completado": zod.boolean().describe('Whether this stop has been marked as done by the driver')
 })).optional(),
   "costs": zod.object({
   "id": zod.number(),
@@ -777,7 +791,8 @@ export const ListRoutePointsResponseItem = zod.object({
   "ubicacion": zod.string(),
   "orden": zod.number(),
   "latitud": zod.number().nullish(),
-  "longitud": zod.number().nullish()
+  "longitud": zod.number().nullish(),
+  "completado": zod.boolean().describe('Whether this stop has been marked as done by the driver')
 })
 export const ListRoutePointsResponse = zod.array(ListRoutePointsResponseItem)
 
@@ -802,7 +817,8 @@ export const AddRoutePointResponse = zod.object({
   "ubicacion": zod.string(),
   "orden": zod.number(),
   "latitud": zod.number().nullish(),
-  "longitud": zod.number().nullish()
+  "longitud": zod.number().nullish(),
+  "completado": zod.boolean().describe('Whether this stop has been marked as done by the driver')
 })
 
 
@@ -961,13 +977,27 @@ export const GetDriverDispatchResponse = zod.object({
   "ayudanteNombre": zod.string().nullish(),
   "clienteNombre": zod.string().nullish(),
   "destino": zod.string().nullish(),
+  "pesoTotal": zod.number().nullish().describe('Total cargo weight in kg from the linked sale'),
+  "volumenTotal": zod.number().nullish().describe('Total cargo volume in m³ from the linked sale'),
+  "saleItems": zod.array(zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "descripcion": zod.string(),
+  "cantidad": zod.number(),
+  "pesoUnitario": zod.number(),
+  "largo": zod.number(),
+  "ancho": zod.number(),
+  "alto": zod.number(),
+  "createdAt": zod.string()
+})).optional().describe('Line items of the linked sale order'),
   "routePoints": zod.array(zod.object({
   "id": zod.number(),
   "despachoId": zod.number(),
   "ubicacion": zod.string(),
   "orden": zod.number(),
   "latitud": zod.number().nullish(),
-  "longitud": zod.number().nullish()
+  "longitud": zod.number().nullish(),
+  "completado": zod.boolean().describe('Whether this stop has been marked as done by the driver')
 })).optional(),
   "costs": zod.object({
   "id": zod.number(),
@@ -978,6 +1008,29 @@ export const GetDriverDispatchResponse = zod.object({
   "total": zod.number(),
   "costoCombustiblePorLitro": zod.number().nullish()
 }).optional()
+})
+
+
+/**
+ * @summary Toggle a route point as completed by the authenticated driver
+ */
+export const CompleteDriverRoutePointParams = zod.object({
+  "id": zod.coerce.number(),
+  "pointId": zod.coerce.number()
+})
+
+export const CompleteDriverRoutePointBody = zod.object({
+  "completado": zod.boolean().describe('Set to true to mark the stop as done, false to unmark it')
+})
+
+export const CompleteDriverRoutePointResponse = zod.object({
+  "id": zod.number(),
+  "despachoId": zod.number(),
+  "ubicacion": zod.string(),
+  "orden": zod.number(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish(),
+  "completado": zod.boolean().describe('Whether this stop has been marked as done by the driver')
 })
 
 

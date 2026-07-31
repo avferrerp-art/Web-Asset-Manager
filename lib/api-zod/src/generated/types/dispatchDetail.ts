@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { RoutePoint } from './routePoint';
+import type { SaleItem } from './saleItem';
 import type { TravelCost } from './travelCost';
 
 export interface DispatchDetail {
@@ -38,6 +39,18 @@ export interface DispatchDetail {
   clienteNombre?: string | null;
   /** @nullable */
   destino?: string | null;
+  /**
+     * Total cargo weight in kg from the linked sale
+     * @nullable
+     */
+  pesoTotal?: number | null;
+  /**
+     * Total cargo volume in m³ from the linked sale
+     * @nullable
+     */
+  volumenTotal?: number | null;
+  /** Line items of the linked sale order */
+  saleItems?: SaleItem[];
   routePoints?: RoutePoint[];
   costs?: TravelCost;
 }

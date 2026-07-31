@@ -868,6 +868,38 @@ paths:
         "404":
           description: Not found or not assigned to this driver
 
+  /driver/dispatches/{id}/route-points/{pointId}/complete:
+    post:
+      operationId: completeDriverRoutePoint
+      tags: [driver]
+      summary: Toggle a route point as completed by the authenticated driver
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: pointId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RoutePointCompleteInput"
+      responses:
+        "200":
+          description: Updated route point
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RoutePoint"
+        "404":
+          description: Not found or not assigned to this driver
+
   /driver/dispatches/{id}/status:
     post:
       operationId: updateDriverDispatchStatus
@@ -1702,6 +1734,17 @@ components:
           type: ["string", "null"]
         destino:
           type: ["string", "null"]
+        pesoTotal:
+          type: ["number", "null"]
+          description: Total cargo weight in kg from the linked sale
+        volumenTotal:
+          type: ["number", "null"]
+          description: Total cargo volume in m³ from the linked sale
+        saleItems:
+          type: array
+          description: Line items of the linked sale order
+          items:
+            $ref: "#/components/schemas/SaleItem"
         routePoints:
           type: array
           items:
@@ -1788,7 +1831,7 @@ components:
     # --- ROUTE POINTS ---
     RoutePoint:
       type: object
-      required: [id, despachoId, ubicacion, orden]
+      required: [id, despachoId, ubicacion, orden, completado]
       properties:
         id:
           type: integer
@@ -1802,6 +1845,9 @@ components:
           type: ["number", "null"]
         longitud:
           type: ["number", "null"]
+        completado:
+          type: boolean
+          description: Whether this stop has been marked as done by the driver
 
     RoutePointInput:
       type: object
@@ -1815,6 +1861,14 @@ components:
           type: number
         longitud:
           type: number
+
+    RoutePointCompleteInput:
+      type: object
+      required: [completado]
+      properties:
+        completado:
+          type: boolean
+          description: Set to true to mark the stop as done, false to unmark it
 
     # --- TRAVEL COSTS ---
     TravelCost:

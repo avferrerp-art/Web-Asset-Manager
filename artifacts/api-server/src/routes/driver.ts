@@ -1,12 +1,14 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql } from "drizzle-orm";
+import { eq, desc, sql, and } from "drizzle-orm";
 import { getAuth, clerkClient } from "@clerk/express";
 import type { Request, Response } from "express";
-import { db, personnelTable, dispatchesTable } from "@workspace/db";
+import { db, personnelTable, dispatchesTable, routePointsTable } from "@workspace/db";
 import {
   GetDriverDispatchParams,
   UpdateDriverDispatchStatusParams,
   UpdateDriverDispatchStatusBody,
+  CompleteDriverRoutePointParams,
+  CompleteDriverRoutePointBody,
 } from "@workspace/api-zod";
 import { buildDispatchRow, buildDispatchDetail } from "./dispatches";
 
@@ -81,6 +83,47 @@ router.get("/driver/dispatches/:id", async (req, res): Promise<void> => {
   const detail = await buildDispatchDetail(dispatch);
   res.json(detail);
 });
+
+router.post(
+  "/driver/dispatches/:id/route-points/:pointId/complete",
+  async (req, res): Promise<void> => {
+    const person = await resolveDriver(req, res);
+    if (!person) return;
+    const params = CompleteDriverRoutePointParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    const body = CompleteDriverRoutePointBody.safeParse(req.body);
+    if (!body.success) {
+      res.status(400).json({ error: body.error.message });
+      return;
+    }
+    const [dispatch] = await db
+      .select()
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.id, params.data.id));
+    if (!dispatch || dispatch.choferId !== person.id) {
+      res.status(404).json({ error: "Dispatch not found" });
+      return;
+    }
+    const [point] = await db
+      .update(routePointsTable)
+      .set({ completado: body.data.completado })
+      .where(
+        and(
+          eq(routePointsTable.id, params.data.pointId),
+          eq(routePointsTable.despachoId, params.data.id),
+        ),
+      )
+      .returning();
+    if (!point) {
+      res.status(404).json({ error: "Route point not found" });
+      return;
+    }
+    res.json(point);
+  },
+);
 
 const allowedTransitions: Record<string, string[]> = {
   "en-ruta": ["aprobado", "en-ruta"],

@@ -272,6 +272,8 @@ export interface RoutePoint {
   latitud?: number | null;
   /** @nullable */
   longitud?: number | null;
+  /** Whether this stop has been marked as done by the driver */
+  completado: boolean;
 }
 
 export interface TravelCost {
@@ -315,6 +317,18 @@ export interface DispatchDetail {
   clienteNombre?: string | null;
   /** @nullable */
   destino?: string | null;
+  /**
+     * Total cargo weight in kg from the linked sale
+     * @nullable
+     */
+  pesoTotal?: number | null;
+  /**
+     * Total cargo volume in m³ from the linked sale
+     * @nullable
+     */
+  volumenTotal?: number | null;
+  /** Line items of the linked sale order */
+  saleItems?: SaleItem[];
   routePoints?: RoutePoint[];
   costs?: TravelCost;
 }
@@ -363,6 +377,11 @@ export interface DispatchUpdate {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+}
+
+export interface RoutePointCompleteInput {
+  /** Set to true to mark the stop as done, false to unmark it */
+  completado: boolean;
 }
 
 export interface TravelCostInput {

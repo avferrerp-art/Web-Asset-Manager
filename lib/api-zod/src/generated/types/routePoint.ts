@@ -15,4 +15,6 @@ export interface RoutePoint {
   latitud?: number | null;
   /** @nullable */
   longitud?: number | null;
+  /** Whether this stop has been marked as done by the driver */
+  completado: boolean;
 }

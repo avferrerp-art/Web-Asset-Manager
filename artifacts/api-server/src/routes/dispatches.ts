@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, asc } from "drizzle-orm";
-import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable } from "@workspace/db";
+import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable, saleItemsTable } from "@workspace/db";
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
 import {
   ListDispatchesQueryParams,
@@ -130,10 +130,22 @@ export async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
 }
 
 export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect) {
-  const row = await buildDispatchRow(d);
-  const points = await db.select().from(routePointsTable).where(eq(routePointsTable.despachoId, d.id)).orderBy(routePointsTable.orden);
-  const [costs] = await db.select().from(travelCostsTable).where(eq(travelCostsTable.despachoId, d.id));
-  return { ...row, routePoints: points, costs: costs ?? null };
+  const [row, points, costsResult, saleResult, saleItemsResult] = await Promise.all([
+    buildDispatchRow(d),
+    db.select().from(routePointsTable).where(eq(routePointsTable.despachoId, d.id)).orderBy(routePointsTable.orden),
+    db.select().from(travelCostsTable).where(eq(travelCostsTable.despachoId, d.id)),
+    db.select().from(salesTable).where(eq(salesTable.id, d.ventaId)),
+    db.select().from(saleItemsTable).where(eq(saleItemsTable.ventaId, d.ventaId)),
+  ]);
+  const sale = saleResult[0] ?? null;
+  return {
+    ...row,
+    pesoTotal: sale?.pesoTotal ?? null,
+    volumenTotal: sale?.volumenTotal ?? null,
+    saleItems: saleItemsResult,
+    routePoints: points,
+    costs: costsResult[0] ?? null,
+  };
 }
 
 router.get("/dispatches", async (req, res): Promise<void> => {

@@ -14,6 +14,7 @@ import {
 import {
   useGetDriverDispatch,
   useUpdateDriverDispatchStatus,
+  useCompleteDriverRoutePoint,
   getGetDriverDispatchQueryKey,
   getListDriverDispatchesQueryKey,
   type DriverStatusUpdateInputEstado,
@@ -66,6 +67,23 @@ export default function DespachoDetailScreen() {
     },
   });
 
+  const completePoint = useCompleteDriverRoutePoint({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({
+          queryKey: getGetDriverDispatchQueryKey(dispatchId),
+        });
+      },
+      onError: (error) => {
+        const apiError = error as ApiErrorLike;
+        Alert.alert(
+          "No se pudo actualizar la parada",
+          apiError?.data?.message ?? "Intenta de nuevo.",
+        );
+      },
+    },
+  });
+
   const setEstado = (estado: DriverStatusUpdateInputEstado, label: string) => {
     Alert.alert("Confirmar", `¿Marcar este despacho como "${label}"?`, [
       { text: "Cancelar", style: "cancel" },
@@ -75,6 +93,14 @@ export default function DespachoDetailScreen() {
           updateStatus.mutate({ id: dispatchId, data: { estado } }),
       },
     ]);
+  };
+
+  const togglePoint = (pointId: number, completado: boolean) => {
+    completePoint.mutate({
+      id: dispatchId,
+      pointId,
+      data: { completado: !completado },
+    });
   };
 
   const d = detail.data;
@@ -167,6 +193,65 @@ export default function DespachoDetailScreen() {
               )}
             </View>
 
+            {(d.pesoTotal != null || d.volumenTotal != null) && (
+              <View
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    borderRadius: colors.radius,
+                  },
+                ]}
+              >
+                <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+                  Carga
+                </Text>
+                <View style={styles.loadGrid}>
+                  {d.pesoTotal != null && (
+                    <View style={[styles.loadItem, { backgroundColor: colors.background, borderRadius: colors.radius }]}>
+                      <Feather name="package" size={20} color={colors.primary} />
+                      <Text style={[styles.loadValue, { color: colors.foreground }]}>
+                        {d.pesoTotal.toLocaleString("es-DO")} kg
+                      </Text>
+                      <Text style={[styles.loadLabel, { color: colors.mutedForeground }]}>Peso total</Text>
+                    </View>
+                  )}
+                  {d.volumenTotal != null && (
+                    <View style={[styles.loadItem, { backgroundColor: colors.background, borderRadius: colors.radius }]}>
+                      <Feather name="box" size={20} color={colors.primary} />
+                      <Text style={[styles.loadValue, { color: colors.foreground }]}>
+                        {d.volumenTotal.toLocaleString("es-DO")} m³
+                      </Text>
+                      <Text style={[styles.loadLabel, { color: colors.mutedForeground }]}>Volumen total</Text>
+                    </View>
+                  )}
+                </View>
+                {d.saleItems && d.saleItems.length > 0 && (
+                  <>
+                    <Text style={[styles.subSectionTitle, { color: colors.mutedForeground }]}>
+                      Órdenes incluidas
+                    </Text>
+                    {d.saleItems.map((item) => (
+                      <View key={item.id} style={[styles.saleItemRow, { borderColor: colors.border }]}>
+                        <View style={styles.saleItemMain}>
+                          <Text style={[styles.saleItemDesc, { color: colors.foreground }]}>
+                            {item.descripcion}
+                          </Text>
+                          <Text style={[styles.saleItemMeta, { color: colors.mutedForeground }]}>
+                            Cant: {item.cantidad} · {item.pesoUnitario} kg/u
+                          </Text>
+                        </View>
+                        <Text style={[styles.saleItemDims, { color: colors.mutedForeground }]}>
+                          {item.largo}×{item.ancho}×{item.alto} m
+                        </Text>
+                      </View>
+                    ))}
+                  </>
+                )}
+              </View>
+            )}
+
             {d.routePoints && d.routePoints.length > 0 && (
               <View
                 style={[
@@ -183,31 +268,67 @@ export default function DespachoDetailScreen() {
                 </Text>
                 {[...d.routePoints]
                   .sort((a, b) => a.orden - b.orden)
-                  .map((p, i) => (
-                    <View key={p.id} style={styles.routeRow}>
-                      <View
-                        style={[
-                          styles.routeDot,
-                          { backgroundColor: colors.primary },
+                  .map((p, i) => {
+                    const isCompleted = p.completado;
+                    const canToggle = d.estado === "en-ruta";
+                    return (
+                      <Pressable
+                        key={p.id}
+                        style={({ pressed }) => [
+                          styles.routeRow,
+                          canToggle && pressed && { opacity: 0.7 },
                         ]}
+                        onPress={canToggle ? () => togglePoint(p.id, isCompleted) : undefined}
+                        disabled={!canToggle || completePoint.isPending}
                       >
-                        <Text
-                          style={{
-                            color: colors.primaryForeground,
-                            fontSize: 11,
-                            fontFamily: "Inter_600SemiBold",
-                          }}
+                        <View
+                          style={[
+                            styles.routeDot,
+                            {
+                              backgroundColor: isCompleted ? "#16a34a" : colors.primary,
+                            },
+                          ]}
                         >
-                          {i + 1}
+                          {isCompleted ? (
+                            <Feather name="check" size={13} color="#ffffff" />
+                          ) : (
+                            <Text
+                              style={{
+                                color: colors.primaryForeground,
+                                fontSize: 11,
+                                fontFamily: "Inter_600SemiBold",
+                              }}
+                            >
+                              {i + 1}
+                            </Text>
+                          )}
+                        </View>
+                        <Text
+                          style={[
+                            styles.routeText,
+                            {
+                              color: isCompleted ? colors.mutedForeground : colors.foreground,
+                              textDecorationLine: isCompleted ? "line-through" : "none",
+                            },
+                          ]}
+                        >
+                          {p.ubicacion}
                         </Text>
-                      </View>
-                      <Text
-                        style={[styles.routeText, { color: colors.foreground }]}
-                      >
-                        {p.ubicacion}
-                      </Text>
-                    </View>
-                  ))}
+                        {canToggle && (
+                          <Feather
+                            name={isCompleted ? "check-square" : "square"}
+                            size={18}
+                            color={isCompleted ? "#16a34a" : colors.mutedForeground}
+                          />
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                {d.estado === "en-ruta" && (
+                  <Text style={[styles.routeHint, { color: colors.mutedForeground }]}>
+                    Toca una parada para marcarla como completada.
+                  </Text>
+                )}
               </View>
             )}
 
@@ -331,6 +452,14 @@ const styles = StyleSheet.create({
     fontFamily: "Inter_600SemiBold",
     marginBottom: 10,
   },
+  subSectionTitle: {
+    fontSize: 12,
+    fontFamily: "Inter_500Medium",
+    marginTop: 12,
+    marginBottom: 6,
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
   infoRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -339,11 +468,36 @@ const styles = StyleSheet.create({
   },
   infoLabel: { fontSize: 13, fontFamily: "Inter_400Regular", width: 120 },
   infoValue: { fontSize: 14, fontFamily: "Inter_500Medium", flex: 1 },
+  loadGrid: {
+    flexDirection: "row",
+    gap: 10,
+  },
+  loadItem: {
+    flex: 1,
+    padding: 12,
+    alignItems: "center",
+    gap: 4,
+  },
+  loadValue: { fontSize: 17, fontFamily: "Inter_700Bold", marginTop: 4 },
+  loadLabel: { fontSize: 12, fontFamily: "Inter_400Regular" },
+  saleItemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderTopWidth: 1,
+    paddingTop: 8,
+    marginTop: 8,
+    gap: 8,
+  },
+  saleItemMain: { flex: 1 },
+  saleItemDesc: { fontSize: 14, fontFamily: "Inter_500Medium" },
+  saleItemMeta: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
+  saleItemDims: { fontSize: 11, fontFamily: "Inter_400Regular" },
   routeRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
     marginTop: 8,
+    minHeight: 34,
   },
   routeDot: {
     width: 22,
@@ -353,6 +507,12 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   routeText: { fontSize: 14, fontFamily: "Inter_400Regular", flex: 1 },
+  routeHint: {
+    fontSize: 12,
+    fontFamily: "Inter_400Regular",
+    marginTop: 10,
+    textAlign: "center",
+  },
   actions: { gap: 10, marginTop: 4 },
   actionButton: {
     flexDirection: "row",

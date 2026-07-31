@@ -1,4 +1,4 @@
-import { pgTable, serial, integer, text, real } from "drizzle-orm/pg-core";
+import { pgTable, serial, integer, text, real, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { dispatchesTable } from "./dispatches";
@@ -10,6 +10,7 @@ export const routePointsTable = pgTable("route_points", {
   orden: integer("orden").notNull(),
   latitud: real("latitud"),
   longitud: real("longitud"),
+  completado: boolean("completado").notNull().default(false),
 });
 
 export const insertRoutePointSchema = createInsertSchema(routePointsTable).omit({ id: true });
