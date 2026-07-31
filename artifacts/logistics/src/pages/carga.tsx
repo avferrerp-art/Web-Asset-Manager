@@ -1,11 +1,13 @@
 import React, { useState } from "react";
+import { Link } from "wouter";
 import {
   useListSales, getListSalesQueryKey,
   useListVehicles, getListVehiclesQueryKey,
   useListSaleItems, getListSaleItemsQueryKey,
   useCreateSaleItem, useUpdateSaleItem, useDeleteSaleItem,
+  useListProducts, getListProductsQueryKey,
 } from "@workspace/api-client-react";
-import type { SaleItem } from "@workspace/api-client-react";
+import type { SaleItem, Product } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +17,7 @@ import { useToast } from "@/hooks/use-toast";
 import {
   CheckCircle2, ChevronRight, PackageOpen, Truck, Weight,
   Plus, Trash2, Edit2, BarChart3, ArrowLeft, Check,
+  Search, AlertTriangle, X, ExternalLink,
 } from "lucide-react";
 
 const STEPS = [
@@ -36,6 +39,7 @@ function utilizationBg(pct: number) {
 
 interface ItemDraft {
   id?: number;
+  productId?: number | null;
   descripcion: string;
   cantidad: number;
   pesoUnitario: number;
@@ -45,7 +49,7 @@ interface ItemDraft {
 }
 
 const emptyDraft = (): ItemDraft => ({
-  descripcion: "", cantidad: 1, pesoUnitario: 0, largo: 0, ancho: 0, alto: 0,
+  productId: null, descripcion: "", cantidad: 1, pesoUnitario: 0, largo: 0, ancho: 0, alto: 0,
 });
 
 function itemVolume(item: ItemDraft | SaleItem): number {
@@ -61,6 +65,8 @@ export default function Carga() {
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [newDraft, setNewDraft] = useState<ItemDraft>(emptyDraft());
   const [showUnfit, setShowUnfit] = useState(false);
+  const [productSearch, setProductSearch] = useState("");
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(undefined, {
     query: { queryKey: getListSalesQueryKey() }
@@ -71,6 +77,17 @@ export default function Carga() {
   const { data: items, isLoading: isLoadingItems } = useListSaleItems(
     selectedSaleId ?? 0,
     { query: { queryKey: getListSaleItemsQueryKey(selectedSaleId ?? 0), enabled: !!selectedSaleId } }
+  );
+
+  const trimmedSearch = productSearch.trim();
+  const { data: productResults, isLoading: isSearchingProducts } = useListProducts(
+    { search: trimmedSearch },
+    {
+      query: {
+        queryKey: getListProductsQueryKey({ search: trimmedSearch }),
+        enabled: isAddingNew && trimmedSearch.length > 0,
+      },
+    }
   );
 
   const createItem = useCreateSaleItem();
@@ -103,6 +120,8 @@ export default function Carga() {
           invalidateItems();
           setNewDraft(emptyDraft());
           setIsAddingNew(false);
+          setProductSearch("");
+          setSelectedProduct(null);
           toast({ title: "Bulto añadido" });
         },
       }
@@ -170,6 +189,27 @@ export default function Carga() {
     setEditingItem(null);
     setIsAddingNew(false);
     setNewDraft(emptyDraft());
+    setProductSearch("");
+    setSelectedProduct(null);
+  }
+
+  function handleSelectProduct(product: Product) {
+    setSelectedProduct(product);
+    setProductSearch("");
+    setNewDraft(draft => ({
+      ...draft,
+      productId: product.id,
+      descripcion: product.nombre,
+      pesoUnitario: product.pesoKg ?? 0,
+      largo: product.largoCm ?? 0,
+      ancho: product.anchoCm ?? 0,
+      alto: product.altoCm ?? 0,
+    }));
+  }
+
+  function handleClearProduct() {
+    setSelectedProduct(null);
+    setNewDraft(draft => ({ ...draft, productId: null }));
   }
 
   // Classify fleet: fit vehicles (weight & volume utilization ≤ 100%, capacities > 0)
@@ -317,12 +357,85 @@ export default function Carga() {
                     Importar totales actuales
                   </Button>
                 )}
-                <Button size="sm" onClick={() => { setIsAddingNew(true); setNewDraft(emptyDraft()); }} className="gap-1">
+                <Button size="sm" onClick={() => { setIsAddingNew(true); setNewDraft(emptyDraft()); setProductSearch(""); setSelectedProduct(null); }} className="gap-1">
                   <Plus className="w-3.5 h-3.5" /> Añadir bulto
                 </Button>
               </div>
             </CardHeader>
             <CardContent className="p-0">
+              {isAddingNew && (
+                <div className="px-4 py-3 border-b border-border bg-muted/20 space-y-2" data-testid="panel-product-picker">
+                  {!selectedProduct ? (
+                    <div className="relative">
+                      <div className="flex items-center gap-2">
+                        <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+                        <Input
+                          placeholder="Buscar artículo del catálogo (opcional) — o rellena el bulto manualmente abajo"
+                          value={productSearch}
+                          onChange={e => setProductSearch(e.target.value)}
+                          className="h-8 text-sm"
+                          data-testid="input-product-search"
+                        />
+                      </div>
+                      {trimmedSearch.length > 0 && (
+                        <div className="absolute z-20 mt-1 left-6 right-0 bg-popover border border-border rounded-md shadow-lg max-h-56 overflow-y-auto">
+                          {isSearchingProducts ? (
+                            <p className="px-3 py-2 text-sm text-muted-foreground">Buscando...</p>
+                          ) : (productResults?.length ?? 0) === 0 ? (
+                            <p className="px-3 py-2 text-sm text-muted-foreground">Sin artículos que coincidan.</p>
+                          ) : (
+                            productResults?.map(p => (
+                              <button
+                                key={p.id}
+                                type="button"
+                                onClick={() => handleSelectProduct(p)}
+                                className="w-full text-left px-3 py-2 text-sm hover:bg-muted/50 flex items-center justify-between gap-2"
+                                data-testid={`option-product-${p.id}`}
+                              >
+                                <span className="truncate">
+                                  {p.nombre}
+                                  {p.odooRef && <span className="text-muted-foreground ml-1 text-xs">[{p.odooRef}]</span>}
+                                </span>
+                                {p.dimensionesConfirmadas ? (
+                                  <Badge variant="outline" className="text-green-500 border-green-500/50 text-[10px] shrink-0">
+                                    {p.pesoKg ?? 0} kg · {p.largoCm ?? 0}×{p.anchoCm ?? 0}×{p.altoCm ?? 0} cm
+                                  </Badge>
+                                ) : (
+                                  <Badge variant="outline" className="text-yellow-500 border-yellow-500/50 text-[10px] shrink-0">
+                                    Sin dimensiones
+                                  </Badge>
+                                )}
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <CheckCircle2 className="w-4 h-4 text-primary shrink-0" />
+                        <span className="truncate font-medium">{selectedProduct.nombre}</span>
+                        <span className="text-xs text-muted-foreground shrink-0">artículo del catálogo</span>
+                      </div>
+                      <Button variant="ghost" size="icon" className="h-6 w-6 shrink-0" onClick={handleClearProduct} data-testid="button-clear-product">
+                        <X className="w-3.5 h-3.5" />
+                      </Button>
+                    </div>
+                  )}
+                  {selectedProduct && !selectedProduct.dimensionesConfirmadas && (
+                    <div className="flex items-start gap-2 text-xs bg-yellow-500/10 border border-yellow-500/40 rounded-md px-3 py-2" data-testid="warning-unconfirmed-dimensions">
+                      <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                      <div className="text-yellow-600 dark:text-yellow-400">
+                        Este artículo no tiene dimensiones confirmadas: se autocompletó con los datos disponibles (pueden ser 0).{" "}
+                        <Link href="/articulos" className="underline font-medium inline-flex items-center gap-0.5">
+                          Confirmar dimensiones en Artículos <ExternalLink className="w-3 h-3" />
+                        </Link>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               {isLoadingItems ? (
                 <p className="text-center text-muted-foreground py-6">Cargando...</p>
               ) : (
@@ -432,7 +545,7 @@ export default function Carga() {
                             <Button size="icon" className="h-6 w-6" onClick={handleAddItem} disabled={createItem.isPending || !newDraft.descripcion.trim()}>
                               <Check className="w-3 h-3" />
                             </Button>
-                            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setIsAddingNew(false)}>
+                            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => { setIsAddingNew(false); setProductSearch(""); setSelectedProduct(null); }}>
                               <ArrowLeft className="w-3 h-3" />
                             </Button>
                           </div>

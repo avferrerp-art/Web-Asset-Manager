@@ -1,5 +1,5 @@
 import { eq, inArray } from "drizzle-orm";
-import { db, salesTable, odooSyncStateTable } from "@workspace/db";
+import { db, salesTable, saleItemsTable, productsTable, odooSyncStateTable } from "@workspace/db";
 import {
   authenticate,
   executeKw,
@@ -152,6 +152,13 @@ export async function syncOdooOrders(): Promise<SyncResult> {
       : [];
   const productById = new Map(products.map((p) => [p.id, p]));
 
+  // Resolve LogiFleet catalog products by Odoo id (source of truth for peso/dimensiones)
+  const catalogProducts =
+    productIds.length > 0
+      ? await db.select().from(productsTable).where(inArray(productsTable.odooId, productIds))
+      : [];
+  const catalogByOdooId = new Map(catalogProducts.map((p) => [p.odooId, p]));
+
   // Fetch shipping partners for destination info
   const partnerIds = [
     ...new Set(
@@ -160,12 +167,19 @@ export async function syncOdooOrders(): Promise<SyncResult> {
         .map((o) => (o.partner_shipping_id as [number, string])[0]),
     ),
   ];
-  const partners =
-    partnerIds.length > 0
-      ? ((await executeKw(config, uid, "res.partner", "read", [partnerIds], {
-          fields: ["name", "city", "contact_address", "phone", "mobile"],
-        })) as OdooPartner[])
-      : [];
+  let partners: OdooPartner[] = [];
+  if (partnerIds.length > 0) {
+    try {
+      partners = (await executeKw(config, uid, "res.partner", "read", [partnerIds], {
+        fields: ["name", "city", "contact_address", "phone", "mobile"],
+      })) as OdooPartner[];
+    } catch {
+      // Algunas instancias de Odoo no exponen todos los campos (p.ej. 'mobile'); reintentar con campos básicos
+      partners = (await executeKw(config, uid, "res.partner", "read", [partnerIds], {
+        fields: ["name", "phone"],
+      })) as OdooPartner[];
+    }
+  }
   const partnerById = new Map(partners.map((p) => [p.id, p]));
 
   const importedRefs: string[] = [];
@@ -198,6 +212,55 @@ export async function syncOdooOrders(): Promise<SyncResult> {
 
     const notas = order.note ? stripHtml(String(order.note)) : null;
 
+    // Build sale items from order lines using LogiFleet catalog dimensions
+    let dimensionesIncompletas = false;
+    const itemsToCreate: {
+      productId: number | null;
+      descripcion: string;
+      cantidad: number;
+      pesoUnitario: number;
+      largo: number;
+      ancho: number;
+      alto: number;
+    }[] = [];
+    for (const line of orderLines) {
+      if (!line.product_id) continue;
+      const catalog = catalogByOdooId.get(line.product_id[0]);
+      const qty = Math.max(1, Math.round(line.product_uom_qty ?? 1));
+      if (catalog && catalog.dimensionesConfirmadas) {
+        itemsToCreate.push({
+          productId: catalog.id,
+          descripcion: catalog.nombre,
+          cantidad: qty,
+          pesoUnitario: catalog.pesoKg ?? 0,
+          largo: catalog.largoCm ?? 0,
+          ancho: catalog.anchoCm ?? 0,
+          alto: catalog.altoCm ?? 0,
+        });
+      } else {
+        // Producto sin dimensiones confirmadas o ausente del catálogo → partida pendiente
+        dimensionesIncompletas = true;
+        itemsToCreate.push({
+          productId: catalog?.id ?? null,
+          descripcion: catalog?.nombre ?? line.product_id[1],
+          cantidad: qty,
+          pesoUnitario: catalog?.pesoKg ?? 0,
+          largo: catalog?.largoCm ?? 0,
+          ancho: catalog?.anchoCm ?? 0,
+          alto: catalog?.altoCm ?? 0,
+        });
+      }
+    }
+
+    const pesoTotalOdoo = Math.round(peso * 100) / 100;
+    const volumenTotalOdoo = Math.round(volumen * 10000) / 10000;
+    const pesoLocal = itemsToCreate.reduce((s, it) => s + it.cantidad * it.pesoUnitario, 0);
+    const volumenLocal = itemsToCreate.reduce(
+      (s, it) => s + (it.cantidad * it.largo * it.ancho * it.alto) / 1_000_000,
+      0,
+    );
+    const hasLocalData = itemsToCreate.length > 0 && (pesoLocal > 0 || volumenLocal > 0);
+
     const inserted = await db
       .insert(salesTable)
       .values({
@@ -209,8 +272,11 @@ export async function syncOdooOrders(): Promise<SyncResult> {
           (shippingPartner?.phone && String(shippingPartner.phone)) ||
           null,
         tipoMaterial: materials.size > 0 ? [...materials].slice(0, 3).join(", ") : null,
-        pesoTotal: Math.round(peso * 100) / 100,
-        volumenTotal: Math.round(volumen * 10000) / 10000,
+        pesoTotal: hasLocalData ? Math.round(pesoLocal * 100) / 100 : pesoTotalOdoo,
+        volumenTotal: hasLocalData ? Math.round(volumenLocal * 10000) / 10000 : volumenTotalOdoo,
+        pesoTotalOdoo,
+        volumenTotalOdoo,
+        dimensionesIncompletas,
         destino,
         estado: "pendiente",
         notas,
@@ -220,6 +286,12 @@ export async function syncOdooOrders(): Promise<SyncResult> {
       .onConflictDoNothing({ target: salesTable.odooId })
       .returning({ id: salesTable.id });
     if (inserted.length > 0) {
+      const ventaId = inserted[0]!.id;
+      if (itemsToCreate.length > 0) {
+        await db
+          .insert(saleItemsTable)
+          .values(itemsToCreate.map((it) => ({ ...it, ventaId })));
+      }
       importedRefs.push(order.name);
     }
   }

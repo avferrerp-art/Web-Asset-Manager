@@ -6,7 +6,7 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2, Upload, Loader2, FileText, X, PackageSearch } from "lucide-react";
+import { Plus, Edit2, Trash2, Upload, Loader2, FileText, X, PackageSearch, AlertTriangle } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -500,6 +500,15 @@ export default function Ventas() {
                   <TableCell>
                     <div className="text-sm">{sale.pesoTotal} kg</div>
                     <div className="text-sm text-muted-foreground">{sale.volumenTotal} m³</div>
+                    {sale.dimensionesIncompletas && (
+                      <Badge
+                        variant="outline"
+                        className="mt-1 text-yellow-500 border-yellow-500/50 text-[10px] gap-1"
+                        data-testid={`badge-dimensiones-incompletas-${sale.id}`}
+                      >
+                        <AlertTriangle className="w-3 h-3" /> Dimensiones incompletas
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>{ESTADO_BADGE[sale.estado] ?? <Badge>{sale.estado}</Badge>}</TableCell>
                   <TableCell>

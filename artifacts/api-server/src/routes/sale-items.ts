@@ -12,8 +12,24 @@ import {
 
 const router: IRouter = Router();
 
-async function syncSaleTotals(ventaId: number) {
+export async function syncSaleTotals(ventaId: number) {
   const items = await db.select().from(saleItemsTable).where(eq(saleItemsTable.ventaId, ventaId));
+  if (items.length === 0) {
+    // Sin partidas: no pisar con 0 los totales originales de Odoo (si existen)
+    const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, ventaId));
+    if (sale && (sale.pesoTotalOdoo != null || sale.volumenTotalOdoo != null)) {
+      await db
+        .update(salesTable)
+        .set({
+          pesoTotal: sale.pesoTotalOdoo ?? 0,
+          volumenTotal: sale.volumenTotalOdoo ?? 0,
+        })
+        .where(eq(salesTable.id, ventaId));
+      return;
+    }
+    await db.update(salesTable).set({ pesoTotal: 0, volumenTotal: 0 }).where(eq(salesTable.id, ventaId));
+    return;
+  }
   const pesoTotal = items.reduce((sum, it) => sum + it.cantidad * it.pesoUnitario, 0);
   const volumenTotal = items.reduce((sum, it) => {
     const vol = (it.largo * it.ancho * it.alto) / 1_000_000;

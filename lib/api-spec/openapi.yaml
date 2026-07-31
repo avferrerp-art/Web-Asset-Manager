@@ -1754,6 +1754,15 @@ components:
           description: "Odoo sale order reference (e.g. S00042) when imported from Odoo"
         odooId:
           type: ["integer", "null"]
+        pesoTotalOdoo:
+          type: ["number", "null"]
+          description: "Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)"
+        volumenTotalOdoo:
+          type: ["number", "null"]
+          description: "Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)"
+        dimensionesIncompletas:
+          type: boolean
+          description: "true si alguna partida proviene de un producto sin dimensiones confirmadas"
         createdAt:
           type: string
 
@@ -1815,6 +1824,9 @@ components:
           type: integer
         ventaId:
           type: integer
+        productId:
+          type: ["integer", "null"]
+          description: "Producto del catálogo LogiFleet vinculado (null para bultos manuales)"
         descripcion:
           type: string
         cantidad:
@@ -1834,6 +1846,9 @@ components:
       type: object
       required: [descripcion]
       properties:
+        productId:
+          type: ["integer", "null"]
+          description: "Producto del catálogo LogiFleet vinculado (opcional)"
         descripcion:
           type: string
         cantidad:

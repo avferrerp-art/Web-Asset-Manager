@@ -31,5 +31,17 @@ export interface Sale {
   odooRef?: string | null;
   /** @nullable */
   odooId?: number | null;
+  /**
+     * Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)
+     * @nullable
+     */
+  pesoTotalOdoo?: number | null;
+  /**
+     * Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)
+     * @nullable
+     */
+  volumenTotalOdoo?: number | null;
+  /** true si alguna partida proviene de un producto sin dimensiones confirmadas */
+  dimensionesIncompletas?: boolean;
   createdAt: string;
 }

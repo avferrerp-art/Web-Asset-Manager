@@ -1,4 +1,4 @@
-import { pgTable, serial, text, real, integer, timestamp } from "drizzle-orm/pg-core";
+import { pgTable, serial, text, real, integer, timestamp, boolean } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -11,6 +11,11 @@ export const salesTable = pgTable("sales", {
   tipoMaterial: text("tipo_material"),
   volumenTotal: real("volumen_total").notNull(),
   pesoTotal: real("peso_total").notNull(),
+  // Totales originales importados de Odoo (nunca los pisa el cálculo local)
+  pesoTotalOdoo: real("peso_total_odoo"),
+  volumenTotalOdoo: real("volumen_total_odoo"),
+  // true cuando alguna partida proviene de un producto sin dimensiones confirmadas
+  dimensionesIncompletas: boolean("dimensiones_incompletas").notNull().default(false),
   destino: text("destino").notNull(),
   estado: text("estado").notNull().default("pendiente"),
   notas: text("notas"),

@@ -275,6 +275,9 @@ export const ListSalesResponseItem = zod.object({
   "notas": zod.string().nullish(),
   "odooRef": zod.string().nullish().describe('Odoo sale order reference (e.g. S00042) when imported from Odoo'),
   "odooId": zod.number().nullish(),
+  "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
+  "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
+  "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "createdAt": zod.string()
 })
 export const ListSalesResponse = zod.array(ListSalesResponseItem)
@@ -310,6 +313,9 @@ export const CreateSaleResponse = zod.object({
   "notas": zod.string().nullish(),
   "odooRef": zod.string().nullish().describe('Odoo sale order reference (e.g. S00042) when imported from Odoo'),
   "odooId": zod.number().nullish(),
+  "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
+  "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
+  "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "createdAt": zod.string()
 })
 
@@ -335,6 +341,9 @@ export const GetSaleResponse = zod.object({
   "notas": zod.string().nullish(),
   "odooRef": zod.string().nullish().describe('Odoo sale order reference (e.g. S00042) when imported from Odoo'),
   "odooId": zod.number().nullish(),
+  "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
+  "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
+  "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "createdAt": zod.string()
 })
 
@@ -373,6 +382,9 @@ export const UpdateSaleResponse = zod.object({
   "notas": zod.string().nullish(),
   "odooRef": zod.string().nullish().describe('Odoo sale order reference (e.g. S00042) when imported from Odoo'),
   "odooId": zod.number().nullish(),
+  "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
+  "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
+  "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "createdAt": zod.string()
 })
 
@@ -397,6 +409,7 @@ export const ListSaleItemsParams = zod.object({
 export const ListSaleItemsResponseItem = zod.object({
   "id": zod.number(),
   "ventaId": zod.number(),
+  "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
   "pesoUnitario": zod.number(),
@@ -416,6 +429,7 @@ export const CreateSaleItemParams = zod.object({
 })
 
 export const CreateSaleItemBody = zod.object({
+  "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (opcional)'),
   "descripcion": zod.string(),
   "cantidad": zod.number().optional(),
   "pesoUnitario": zod.number().optional(),
@@ -427,6 +441,7 @@ export const CreateSaleItemBody = zod.object({
 export const CreateSaleItemResponse = zod.object({
   "id": zod.number(),
   "ventaId": zod.number(),
+  "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
   "pesoUnitario": zod.number(),
@@ -445,6 +460,7 @@ export const UpdateSaleItemParams = zod.object({
 })
 
 export const UpdateSaleItemBody = zod.object({
+  "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (opcional)'),
   "descripcion": zod.string(),
   "cantidad": zod.number().optional(),
   "pesoUnitario": zod.number().optional(),
@@ -456,6 +472,7 @@ export const UpdateSaleItemBody = zod.object({
 export const UpdateSaleItemResponse = zod.object({
   "id": zod.number(),
   "ventaId": zod.number(),
+  "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
   "pesoUnitario": zod.number(),
@@ -750,6 +767,7 @@ export const GetDispatchResponse = zod.object({
   "saleItems": zod.array(zod.object({
   "id": zod.number(),
   "ventaId": zod.number(),
+  "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
   "pesoUnitario": zod.number(),
@@ -1110,6 +1128,7 @@ export const GetDriverDispatchResponse = zod.object({
   "saleItems": zod.array(zod.object({
   "id": zod.number(),
   "ventaId": zod.number(),
+  "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
   "pesoUnitario": zod.number(),

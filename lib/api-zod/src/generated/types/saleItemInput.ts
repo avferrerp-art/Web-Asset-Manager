@@ -7,6 +7,11 @@
  */
 
 export interface SaleItemInput {
+  /**
+     * Producto del catálogo LogiFleet vinculado (opcional)
+     * @nullable
+     */
+  productId?: number | null;
   descripcion: string;
   cantidad?: number;
   pesoUnitario?: number;

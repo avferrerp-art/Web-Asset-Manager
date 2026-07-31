@@ -9,6 +9,11 @@
 export interface SaleItem {
   id: number;
   ventaId: number;
+  /**
+     * Producto del catálogo LogiFleet vinculado (null para bultos manuales)
+     * @nullable
+     */
+  productId?: number | null;
   descripcion: string;
   cantidad: number;
   pesoUnitario: number;

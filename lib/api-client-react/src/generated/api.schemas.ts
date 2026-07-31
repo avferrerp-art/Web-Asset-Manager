@@ -249,6 +249,18 @@ export interface Sale {
   odooRef?: string | null;
   /** @nullable */
   odooId?: number | null;
+  /**
+     * Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)
+     * @nullable
+     */
+  pesoTotalOdoo?: number | null;
+  /**
+     * Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)
+     * @nullable
+     */
+  volumenTotalOdoo?: number | null;
+  /** true si alguna partida proviene de un producto sin dimensiones confirmadas */
+  dimensionesIncompletas?: boolean;
   createdAt: string;
 }
 
@@ -281,6 +293,11 @@ export interface SaleUpdate {
 export interface SaleItem {
   id: number;
   ventaId: number;
+  /**
+     * Producto del catálogo LogiFleet vinculado (null para bultos manuales)
+     * @nullable
+     */
+  productId?: number | null;
   descripcion: string;
   cantidad: number;
   pesoUnitario: number;
@@ -291,6 +308,11 @@ export interface SaleItem {
 }
 
 export interface SaleItemInput {
+  /**
+     * Producto del catálogo LogiFleet vinculado (opcional)
+     * @nullable
+     */
+  productId?: number | null;
   descripcion: string;
   cantidad?: number;
   pesoUnitario?: number;
