@@ -5,4 +5,5 @@
 - [Route cost breakdown model](route-cost-breakdown.md) — redondo/multidestino distance & toll math lives in one shared helper; frontend must read distanciaTotalKm/costoPeajesTotal/tramos, never raw route.distanciaKm.
 - [Clerk auth setup](clerk-auth-setup.md) — API auth is ordering-based (health before requireAuth); new routers after it are auto-protected; keep canonical Clerk wiring verbatim.
 - [Generated API files break on task merges](codegen-merge-conflicts.md) — after a merge, re-run codegen instead of trusting merged generated files; watch for duplicate exports.
+- [Run api-server code standalone](run-server-code-standalone.md) — to test auth-protected backend logic, bundle a tiny entry with the build.mjs esbuild+pino setup; tsx/plain esbuild fail
 - [Expo mobile quirks](chofer-expo-quirks.md) — Orval hooks in Expo need explicit queryKey; keep @types/react catalog pinned to Expo's 19.1.x; mobile auth is Bearer via setAuthTokenGetter; clear query cache on sign-out.
