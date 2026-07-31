@@ -21,9 +21,10 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Truck, Route as RouteIcon, Plus, AlertTriangle, MapPin, RefreshCw, ExternalLink } from "lucide-react";
+import { Truck, Route as RouteIcon, Plus, AlertTriangle, MapPin, RefreshCw, ExternalLink, PackageSearch } from "lucide-react";
 import { useLocation } from "wouter";
 import { NuevoDespachoWizard } from "@/components/nuevo-despacho-wizard";
+import { CargoWizard } from "@/components/cargo-wizard";
 import { OdooSyncCard, OdooBadge } from "@/components/odoo-sync-card";
 
 const dispatchSchema = z.object({
@@ -50,6 +51,9 @@ export default function PreDespacho() {
   const [, navigate] = useLocation();
   const [selectedSale, setSelectedSale] = useState<any>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+  const [cargoWizardOpen, setCargoWizardOpen] = useState(false);
+  const [cargoWizardSaleId, setCargoWizardSaleId] = useState<number | undefined>();
+  const [cargoWizardSale, setCargoWizardSale] = useState<any>(null);
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -73,6 +77,18 @@ export default function PreDespacho() {
   });
 
   const createDispatchMutation = useCreateDispatch();
+
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("pendingDispatch");
+      if (raw) {
+        sessionStorage.removeItem("pendingDispatch");
+        const { saleId, vehicleId } = JSON.parse(raw) as { saleId: number; vehicleId: number };
+        const sale = sales?.find(s => s.id === saleId);
+        if (sale) handleSelectSale(sale, vehicleId);
+      }
+    } catch {}
+  }, [sales]);
 
   const form = useForm<z.infer<typeof dispatchSchema>>({
     resolver: zodResolver(dispatchSchema),
@@ -183,9 +199,11 @@ export default function PreDespacho() {
     });
   };
 
-  const handleSelectSale = (sale: any) => {
+  const handleSelectSale = (sale: any, overrideVehicleId?: number) => {
     setSelectedSale(sale);
-    const bestVehicle = vehicles?.find(v => v.capacidadPeso >= sale.pesoTotal && v.capacidadVolumen >= sale.volumenTotal);
+    const bestVehicle = overrideVehicleId
+      ? vehicles?.find(v => v.id === overrideVehicleId)
+      : vehicles?.find(v => v.capacidadPeso >= sale.pesoTotal && v.capacidadVolumen >= sale.volumenTotal);
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -224,6 +242,16 @@ export default function PreDespacho() {
         </Button>
       </div>
       <NuevoDespachoWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
+      <CargoWizard
+        open={cargoWizardOpen}
+        onClose={() => { setCargoWizardOpen(false); setCargoWizardSaleId(undefined); setCargoWizardSale(null); }}
+        initialSaleId={cargoWizardSaleId}
+        initialSale={cargoWizardSale}
+        onVehicleAssigned={(saleId, vehicleId) => {
+          const sale = cargoWizardSale ?? sales?.find(s => s.id === saleId);
+          if (sale) handleSelectSale(sale, vehicleId);
+        }}
+      />
 
       <OdooSyncCard />
 
@@ -240,7 +268,7 @@ export default function PreDespacho() {
                 <TableHead>Destino</TableHead>
                 <TableHead>Peso</TableHead>
                 <TableHead>Volumen</TableHead>
-                <TableHead className="w-[130px]"></TableHead>
+                <TableHead className="w-[220px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -259,9 +287,20 @@ export default function PreDespacho() {
                   <TableCell>{sale.pesoTotal} kg</TableCell>
                   <TableCell>{sale.volumenTotal} m³</TableCell>
                   <TableCell>
-                    <Button data-testid={`button-process-sale-${sale.id}`} size="sm" onClick={() => handleSelectSale(sale)}>
-                      Procesar
-                    </Button>
+                    <div className="flex gap-2">
+                      <Button
+                        data-testid={`button-cargo-plan-${sale.id}`}
+                        size="sm"
+                        variant="outline"
+                        className="gap-1"
+                        onClick={() => { setCargoWizardSaleId(sale.id); setCargoWizardSale(sale); setCargoWizardOpen(true); }}
+                      >
+                        <PackageSearch className="w-3.5 h-3.5" /> Planificar
+                      </Button>
+                      <Button data-testid={`button-process-sale-${sale.id}`} size="sm" onClick={() => handleSelectSale(sale)}>
+                        Procesar
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}

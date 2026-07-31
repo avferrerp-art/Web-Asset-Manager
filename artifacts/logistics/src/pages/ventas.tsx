@@ -1,11 +1,12 @@
 import React, { useState, useRef } from "react";
+import { useLocation } from "wouter";
 import {
   useListSales, getListSalesQueryKey,
   useCreateSale, useUpdateSale, useDeleteSale
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2, Upload, Loader2, FileText, X } from "lucide-react";
+import { Plus, Edit2, Trash2, Upload, Loader2, FileText, X, PackageSearch } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -19,6 +20,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { OdooBadge } from "@/components/odoo-sync-card";
+import { CargoWizard } from "@/components/cargo-wizard";
 
 const saleSchema = z.object({
   cliente: z.string().min(1, "Requerido"),
@@ -56,6 +58,10 @@ export default function Ventas() {
   const [activeFilter, setActiveFilter] = useState<FilterKey>("todas");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<any>(null);
+  const [, navigate] = useLocation();
+  const [cargoWizardOpen, setCargoWizardOpen] = useState(false);
+  const [cargoWizardSaleId, setCargoWizardSaleId] = useState<number | undefined>();
+  const [cargoWizardSale, setCargoWizardSale] = useState<any>(null);
   const [isExtracting, setIsExtracting] = useState(false);
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
@@ -196,6 +202,18 @@ export default function Ventas() {
 
   return (
     <div className="space-y-6">
+      <CargoWizard
+        open={cargoWizardOpen}
+        onClose={() => { setCargoWizardOpen(false); setCargoWizardSaleId(undefined); setCargoWizardSale(null); }}
+        initialSaleId={cargoWizardSaleId}
+        initialSale={cargoWizardSale}
+        onVehicleAssigned={(saleId, vehicleId) => {
+          try {
+            sessionStorage.setItem("pendingDispatch", JSON.stringify({ saleId, vehicleId }));
+          } catch {}
+          navigate("/pre-despacho");
+        }}
+      />
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Órdenes de Venta</h1>
@@ -448,7 +466,7 @@ export default function Ventas() {
                 <TableHead>Destino / Material</TableHead>
                 <TableHead>Carga</TableHead>
                 <TableHead>Estado</TableHead>
-                <TableHead className="w-[100px]"></TableHead>
+                <TableHead className="w-[160px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -485,7 +503,16 @@ export default function Ventas() {
                   </TableCell>
                   <TableCell>{ESTADO_BADGE[sale.estado] ?? <Badge>{sale.estado}</Badge>}</TableCell>
                   <TableCell>
-                    <div className="flex justify-end gap-2">
+                    <div className="flex justify-end gap-1">
+                      <Button
+                        data-testid={`button-cargo-plan-${sale.id}`}
+                        variant="ghost"
+                        size="sm"
+                        className="gap-1 text-xs px-2"
+                        onClick={() => { setCargoWizardSaleId(sale.id); setCargoWizardSale(sale); setCargoWizardOpen(true); }}
+                      >
+                        <PackageSearch className="w-3.5 h-3.5" /> Planificar
+                      </Button>
                       <Button data-testid={`button-edit-sale-${sale.id}`} variant="ghost" size="icon" onClick={() => handleEdit(sale)}>
                         <Edit2 className="w-4 h-4" />
                       </Button>
