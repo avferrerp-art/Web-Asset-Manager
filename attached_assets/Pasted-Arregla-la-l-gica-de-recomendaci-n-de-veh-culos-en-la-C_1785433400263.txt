@@ -1,0 +1,42 @@
+Arregla la lógica de recomendación de vehículos en la Calculadora de Carga
+(artifacts/logistics/src/pages/carga.tsx, paso 3 "Compatibilidad de Flota").
+
+PROBLEMA ACTUAL
+El array `sortedVehicles` ordena por utilización ASCENDENTE, así que el primer
+vehículo que aparece es el que queda MÁS VACÍO — o sea, el camión más grande.
+Es exactamente al revés de lo que se necesita: mandar una carga pequeña en el
+camión más grande desperdicia combustible.
+
+QUÉ QUIERO
+1. Separa los vehículos en dos grupos:
+   - APTOS: los que soportan la carga (utilización de peso Y de volumen ≤ 100%)
+   - NO APTOS: los que la exceden
+2. Dentro de APTOS, ordena por utilización DESCENDENTE. El primero — el de mayor
+   utilización sin pasarse — es el vehículo más ajustado a la carga.
+3. Ese primero recibe un badge visible "⭐ SUGERIDO" con un texto corto que explique
+   por qué, del estilo: "Vehículo más ajustado a la carga — menor consumo estimado".
+   Debe destacarse claramente del resto (borde más marcado, o fondo distinto).
+4. Los NO APTOS van al final, en una sección aparte colapsada por defecto, con un
+   encabezado tipo "N vehículos no soportan esta carga". No los mezcles con los aptos.
+5. Si NINGÚN vehículo soporta la carga, muestra un aviso claro sugiriendo dividir el
+   envío en varios viajes. No dejes la pantalla en blanco ni sugieras uno que no cabe.
+
+BUGS A CORREGIR EN EL MISMO PASO
+6. División por cero: si un vehículo tiene capacidadPeso o capacidadVolumen en 0, hoy
+   el cálculo da Infinity/NaN y ese vehículo se cuela al tope como si fuera ideal.
+   Trátalo como no apto y muestra un aviso de "capacidad sin configurar" en su tarjeta.
+7. El botón "Importar totales actuales" (handleImportTotals) inventa un cubo perfecto
+   sacando la raíz cúbica del volumen total (Math.cbrt). Genera dimensiones absurdas.
+   Cámbialo para que el bulto generado se marque visiblemente como estimado
+   (por ejemplo descripción "[ESTIMADO] ...") y advierta al usuario que ajuste las
+   dimensiones reales.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos tú mismo antes de terminar:
+- Con una carga de 5 kg / 0.02 m³ y una flota mixta, el SUGERIDO debe ser el vehículo
+  más pequeño que la soporte, NO el más grande.
+- Con una carga que excede a todos los vehículos, aparece el aviso de dividir el envío
+  y ningún vehículo queda marcado como sugerido.
+- Un vehículo con capacidad 0 no aparece nunca como sugerido.
+- `pnpm run typecheck` pasa limpio.
+
+NO hagas cambios de base de datos ni de API en esta tarea. Solo frontend.
