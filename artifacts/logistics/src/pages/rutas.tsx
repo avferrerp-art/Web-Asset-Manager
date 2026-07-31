@@ -206,10 +206,13 @@ function RouteDialog({
   const [localWaypoints, setLocalWaypoints] = useState<{ id: number; ubicacion: string; orden: number; distanciaKm: number }[]>([]);
   const [savedRouteId, setSavedRouteId] = useState<number | null>(null);
 
+  const routeNameFallback =
+    route && !route.nombre ? `${route.origen} → ${route.destino}` : (route?.nombre ?? "");
+
   const form = useForm<RouteFormValues>({
     resolver: zodResolver(routeFormSchema),
     defaultValues: {
-      nombre: route?.nombre ?? "",
+      nombre: routeNameFallback,
       tipo: (route?.tipo as RouteType) ?? "sencillo",
       origen: route?.origen ?? "",
       destino: route?.destino ?? "",
@@ -221,8 +224,10 @@ function RouteDialog({
 
   React.useEffect(() => {
     if (open) {
+      const nameFallback =
+        route && !route.nombre ? `${route.origen} → ${route.destino}` : (route?.nombre ?? "");
       form.reset({
-        nombre: route?.nombre ?? "",
+        nombre: nameFallback,
         tipo: (route?.tipo as RouteType) ?? "sencillo",
         origen: route?.origen ?? "",
         destino: route?.destino ?? "",
