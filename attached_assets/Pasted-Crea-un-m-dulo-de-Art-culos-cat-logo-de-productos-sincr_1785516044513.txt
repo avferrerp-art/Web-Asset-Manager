@@ -1,0 +1,72 @@
+Crea un módulo de Artículos (catálogo de productos) sincronizado desde Odoo.
+
+CONTEXTO
+Hoy la app no tiene catálogo de productos. Las partidas (sale_items) guardan solo una
+descripción de texto libre, así que las dimensiones que un operador teclea se pierden
+al terminar esa orden — el mismo producto hay que medirlo de nuevo en cada venta.
+
+PRINCIPIO DE DISEÑO — RESPÉTALO ESTRICTAMENTE
+Odoo es dueño de: qué productos existen, cómo se llaman, su categoría.
+LogiFleet es dueño de: peso real y dimensiones físicas.
+Los campos manuales NUNCA deben ser sobrescritos por el sync, bajo ninguna
+circunstancia. Esto es lo más importante de toda la tarea.
+
+1) SCHEMA — nueva tabla `products` en lib/db/src/schema/products.ts
+   Campos desde Odoo (los actualiza el sync):
+     odooId (int, unique), odooRef (default_code), nombre, categoria, uom,
+     pesoOdoo (real), volumenOdoo (real), activo (boolean), lastSyncAt
+   Campos manuales (el sync NO los toca jamás):
+     pesoKg, largoCm, anchoCm, altoCm (real)
+     apilable (boolean, default true), fragil (boolean, default false)
+     notas (text)
+     dimensionesConfirmadas (boolean, default false)
+   Más id serial PK, createdAt, updatedAt.
+   Expórtala en el index.ts del schema.
+
+2) SERVICIO DE SYNC — en artifacts/api-server/src/services/
+   Sigue el mismo patrón que odooSync.ts (getOdooConfig → authenticate → executeKw).
+   - search_read sobre `product.product`
+   - fields: default_code, name, categ_id, uom_id, weight, volume, active, type
+   - filtra solo productos almacenables o consumibles: type in ['product','consu']
+     (excluye servicios)
+   - pagina por id igual que fetchConfirmedOrders (batches de 200)
+   - UPSERT por odooId:
+       * si es nuevo → inserta con dimensionesConfirmadas = false
+       * si ya existe → actualiza SOLO nombre, categoria, uom, pesoOdoo, volumenOdoo,
+         activo, lastSyncAt. Los campos manuales quedan intactos.
+   - registra el resultado en odoo_sync_state o en una tabla equivalente,
+     diferenciando el sync de productos del de órdenes.
+
+3) API — nuevos endpoints, siguiendo el patrón existente
+   GET    /api/products            (con query params: search, soloSinDimensiones)
+   GET    /api/products/:id
+   PATCH  /api/products/:id        (SOLO permite editar los campos manuales)
+   POST   /api/odoo/sync-products
+   GET    /api/products/stats      → { total, confirmados, pendientes }
+   Actualiza lib/api-spec/openapi.yaml y regenera los hooks con
+   `pnpm --filter @workspace/api-spec run codegen`.
+
+4) UI — nueva página "Artículos" en artifacts/logistics/src/pages/articulos.tsx
+   Agrégala al menú lateral (components/layout.tsx), con un ícono adecuado.
+   Debe tener:
+   - Tabla con: Referencia, Nombre, Categoría, Peso (kg), L×A×Al (cm), Volumen
+     calculado (m³), y un badge de estado (✅ Confirmado / ⚠️ Sin medir)
+   - Buscador por nombre y por referencia
+   - Filtro destacado "Solo sin dimensiones" — este es el flujo de trabajo principal,
+     la lista de lo que falta por medir
+   - Edición inline de peso y dimensiones (mismo patrón que ya usa carga.tsx para los
+     bultos). Al guardar dimensiones válidas, marca dimensionesConfirmadas = true
+     automáticamente.
+   - Botón "Sincronizar con Odoo" con indicador de progreso y resultado
+   - Contador arriba: "X de Y artículos con dimensiones confirmadas"
+
+CRITERIOS DE ACEPTACIÓN — verifícalos antes de terminar:
+- Correr el sync dos veces seguidas no duplica productos ni pierde datos manuales.
+- Editar a mano el peso de un artículo, luego correr el sync, y comprobar que el peso
+  manual SIGUE AHÍ. Esta es la prueba crítica de la tarea, no la des por buena
+  sin ejecutarla.
+- El filtro "sin dimensiones" devuelve exactamente los que tienen
+  dimensionesConfirmadas = false.
+- `pnpm run typecheck` pasa limpio.
+
+NO toques todavía sale_items ni la calculadora de carga — eso es la tarea siguiente.
