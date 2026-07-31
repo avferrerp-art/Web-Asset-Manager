@@ -1,0 +1,46 @@
+Conecta las partidas de venta (sale_items) con el catálogo de Artículos, para que el
+sync de órdenes de Odoo genere automáticamente las partidas con dimensiones ya cargadas.
+
+1) SCHEMA
+   Añade a sale_items la columna `productId` (integer, nullable, FK a products.id,
+   onDelete: 'set null'). Nullable a propósito: las partidas manuales existentes
+   deben seguir funcionando sin producto asociado.
+
+2) SYNC DE ÓRDENES — modifica services/odooSync.ts
+   Hoy lee las sale.order.line, calcula peso y volumen, y bota el desglose guardando
+   solo pesoTotal y volumenTotal en la venta. Cámbialo para que además:
+   - por cada línea de la orden cree un sale_item, con:
+       productId  → el producto del catálogo que corresponda a ese odooId
+       descripcion → nombre del producto
+       cantidad    → product_uom_qty
+       pesoUnitario, largo, ancho, alto → copiados del catálogo de LogiFleet
+         (pesoKg, largoCm, anchoCm, altoCm), NO de Odoo
+   - si el producto no está en el catálogo todavía, crea la partida igual con
+     dimensiones en 0 y déjala marcada como pendiente
+   - marca la venta con un indicador de "dimensiones incompletas" cuando alguna de
+     sus partidas venga de un producto sin dimensionesConfirmadas
+   - mantén la idempotencia: reimportar una orden no debe duplicar partidas
+
+3) BUG A CORREGIR — routes/sale-items.ts, función syncSaleTotals
+   Hoy recalcula pesoTotal y volumenTotal en cada create/update/delete de partida.
+   Si se borra la ÚLTIMA partida de una orden, ambos totales se sobrescriben con 0 y
+   se destruyen los totales que habían venido de Odoo, sin ningún aviso.
+   Arréglalo: si la orden queda sin partidas, NO pises los totales originales de Odoo.
+   Guarda los valores originales importados en columnas aparte
+   (por ejemplo pesoTotalOdoo / volumenTotalOdoo) para poder distinguir siempre entre
+   el dato importado y el dato calculado localmente.
+
+4) UI — Calculadora de Carga (carga.tsx, paso 2)
+   - Al añadir un bulto, permite buscar y elegir un artículo del catálogo. Al
+     seleccionarlo, peso y dimensiones se autocompletan.
+   - Si el artículo elegido no tiene dimensiones confirmadas, muéstralo con una
+     advertencia visible y un enlace directo a la página de Artículos para completarlo.
+   - Deja intacta la opción de crear un bulto manual sin artículo asociado.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos antes de terminar:
+- Importar una orden de Odoo cuyos productos ya tengan dimensiones confirmadas genera
+  las partidas completas, sin que nadie teclee nada.
+- Reimportar esa misma orden no duplica partidas.
+- Borrar todas las partidas de una orden importada NO deja los totales de Odoo en cero.
+- La calculadora de carga funciona igual que antes para bultos manuales.
+- `pnpm run typecheck` pasa limpio.
