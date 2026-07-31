@@ -60,6 +60,7 @@ export default function Carga() {
   const [editingItem, setEditingItem] = useState<ItemDraft | null>(null);
   const [isAddingNew, setIsAddingNew] = useState(false);
   const [newDraft, setNewDraft] = useState<ItemDraft>(emptyDraft());
+  const [showUnfit, setShowUnfit] = useState(false);
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(undefined, {
     query: { queryKey: getListSalesQueryKey() }
@@ -143,7 +144,7 @@ export default function Carga() {
       {
         saleId: selectedSaleId,
         data: {
-          descripcion: selectedSale.tipoMaterial || "Carga general",
+          descripcion: `[ESTIMADO] ${selectedSale.tipoMaterial || "Carga general"}`,
           cantidad: 1,
           pesoUnitario: peso,
           largo: parseFloat(lSide.toFixed(1)),
@@ -154,7 +155,10 @@ export default function Carga() {
       {
         onSuccess: () => {
           invalidateItems();
-          toast({ title: "Totales importados como bulto genérico", description: "Ajusta las dimensiones según necesites." });
+          toast({
+            title: "Totales importados como bulto estimado",
+            description: "Las dimensiones son una estimación (cubo equivalente). Ajusta las medidas reales del bulto antes de planificar.",
+          });
         },
       }
     );
@@ -168,17 +172,20 @@ export default function Carga() {
     setNewDraft(emptyDraft());
   }
 
-  const sortedVehicles = [...(vehicles ?? [])].sort((a, b) => {
-    const aScore = Math.max(
-      totalPeso / a.capacidadPeso,
-      totalVolumen / a.capacidadVolumen
-    );
-    const bScore = Math.max(
-      totalPeso / b.capacidadPeso,
-      totalVolumen / b.capacidadVolumen
-    );
-    return aScore - bScore;
+  // Classify fleet: fit vehicles (weight & volume utilization ≤ 100%, capacities > 0)
+  // sorted by utilization descending (tightest fit first = suggested).
+  const classifiedVehicles = (vehicles ?? []).map(vehicle => {
+    const hasCapacity = vehicle.capacidadPeso > 0 && vehicle.capacidadVolumen > 0;
+    const weightPct = hasCapacity ? (totalPeso / vehicle.capacidadPeso) * 100 : NaN;
+    const volPct = hasCapacity ? (totalVolumen / vehicle.capacidadVolumen) * 100 : NaN;
+    const maxPct = Math.max(weightPct, volPct);
+    const isFit = hasCapacity && Number.isFinite(maxPct) && maxPct <= 100;
+    return { vehicle, hasCapacity, weightPct, volPct, maxPct, isFit };
   });
+  const fitVehicles = classifiedVehicles
+    .filter(v => v.isFit)
+    .sort((a, b) => b.maxPct - a.maxPct);
+  const unfitVehicles = classifiedVehicles.filter(v => !v.isFit);
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -480,90 +487,170 @@ export default function Carga() {
             </div>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {sortedVehicles.map(vehicle => {
-              const weightPct = totalPeso > 0 ? (totalPeso / vehicle.capacidadPeso) * 100 : 0;
-              const volPct = totalVolumen > 0 ? (totalVolumen / vehicle.capacidadVolumen) * 100 : 0;
-              const maxPct = Math.max(weightPct, volPct);
-              const isOver = maxPct > 100;
-              const isWarning = !isOver && maxPct > 85;
-              const isFit = !isOver && !isWarning;
+          {fitVehicles.length === 0 && (
+            <Card className="border-yellow-500/40 bg-yellow-500/5" data-testid="card-no-fit-warning">
+              <CardContent className="p-4 flex items-start gap-3">
+                <Truck className="w-5 h-5 text-yellow-400 mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-semibold text-yellow-400">Ningún vehículo soporta esta carga</div>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    El peso o volumen total excede la capacidad de todos los vehículos de la flota.
+                    Considera dividir el envío en varios viajes o usar más de un vehículo.
+                  </p>
+                </div>
+              </CardContent>
+            </Card>
+          )}
 
-              return (
-                <Card
-                  key={vehicle.id}
-                  className={`transition-colors ${
-                    isOver ? "border-red-500/40 bg-red-500/5" :
-                    isWarning ? "border-yellow-500/40 bg-yellow-500/5" :
-                    "border-green-500/40 bg-green-500/5"
-                  }`}
-                >
-                  <CardContent className="p-4 space-y-3">
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <div className="font-semibold flex items-center gap-2">
-                          <Truck className="w-4 h-4 text-muted-foreground" />
-                          {vehicle.modelo}
+          {fitVehicles.length > 0 && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {fitVehicles.map(({ vehicle, weightPct, volPct, maxPct }, idx) => {
+                const isSuggested = idx === 0;
+                const isWarning = maxPct > 85;
+
+                return (
+                  <Card
+                    key={vehicle.id}
+                    data-testid={`card-vehicle-${vehicle.id}`}
+                    className={`transition-colors ${
+                      isSuggested ? "border-2 border-primary bg-primary/5 shadow-md" :
+                      isWarning ? "border-yellow-500/40 bg-yellow-500/5" :
+                      "border-green-500/40 bg-green-500/5"
+                    }`}
+                  >
+                    <CardContent className="p-4 space-y-3">
+                      {isSuggested && (
+                        <div data-testid="badge-suggested">
+                          <Badge className="bg-primary text-primary-foreground">⭐ SUGERIDO</Badge>
+                          <p className="text-xs text-muted-foreground mt-1.5">
+                            Vehículo más ajustado a la carga — menor consumo estimado
+                          </p>
                         </div>
-                        <div className="text-xs text-muted-foreground mt-0.5">
-                          {vehicle.tipo === "tercero" ? "Tercero" : "Propio"} · {vehicle.placa ?? "Sin placa"}
+                      )}
+                      <div className="flex items-start justify-between">
+                        <div>
+                          <div className="font-semibold flex items-center gap-2">
+                            <Truck className="w-4 h-4 text-muted-foreground" />
+                            {vehicle.modelo}
+                          </div>
+                          <div className="text-xs text-muted-foreground mt-0.5">
+                            {vehicle.tipo === "tercero" ? "Tercero" : "Propio"} · {vehicle.placa ?? "Sin placa"}
+                          </div>
+                        </div>
+                        <Badge
+                          variant="outline"
+                          className={isWarning ? "border-yellow-400 text-yellow-400" : "border-green-500 text-green-500"}
+                        >
+                          {isWarning ? "Casi lleno" : "Disponible"}
+                        </Badge>
+                      </div>
+
+                      {/* Weight bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Peso</span>
+                          <span className={utilizationColor(weightPct)}>
+                            {totalPeso.toFixed(1)} / {vehicle.capacidadPeso} kg
+                            <span className="ml-1 font-semibold">({Math.min(weightPct, 999).toFixed(0)}%)</span>
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${utilizationBg(weightPct)}`}
+                            style={{ width: `${Math.min(weightPct, 100)}%` }}
+                          />
                         </div>
                       </div>
-                      <Badge
-                        variant="outline"
-                        className={
-                          isOver ? "border-red-500 text-red-500" :
-                          isWarning ? "border-yellow-400 text-yellow-400" :
-                          "border-green-500 text-green-500"
-                        }
-                      >
-                        {isOver ? "Excede capacidad" : isWarning ? "Casi lleno" : "Disponible"}
-                      </Badge>
-                    </div>
 
-                    {/* Weight bar */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Peso</span>
-                        <span className={utilizationColor(weightPct)}>
-                          {totalPeso.toFixed(1)} / {vehicle.capacidadPeso} kg
-                          <span className="ml-1 font-semibold">({Math.min(weightPct, 999).toFixed(0)}%)</span>
-                        </span>
+                      {/* Volume bar */}
+                      <div className="space-y-1">
+                        <div className="flex justify-between text-xs text-muted-foreground">
+                          <span>Volumen</span>
+                          <span className={utilizationColor(volPct)}>
+                            {totalVolumen.toFixed(3)} / {vehicle.capacidadVolumen} m³
+                            <span className="ml-1 font-semibold">({Math.min(volPct, 999).toFixed(0)}%)</span>
+                          </span>
+                        </div>
+                        <div className="h-2 rounded-full bg-muted overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${utilizationBg(volPct)}`}
+                            style={{ width: `${Math.min(volPct, 100)}%` }}
+                          />
+                        </div>
                       </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${utilizationBg(weightPct)}`}
-                          style={{ width: `${Math.min(weightPct, 100)}%` }}
-                        />
-                      </div>
-                    </div>
 
-                    {/* Volume bar */}
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs text-muted-foreground">
-                        <span>Volumen</span>
-                        <span className={utilizationColor(volPct)}>
-                          {totalVolumen.toFixed(3)} / {vehicle.capacidadVolumen} m³
-                          <span className="ml-1 font-semibold">({Math.min(volPct, 999).toFixed(0)}%)</span>
-                        </span>
+                      {/* Capacity reference */}
+                      <div className="text-[11px] text-muted-foreground border-t border-border pt-2">
+                        Capacidad: {vehicle.capacidadPeso} kg · {vehicle.capacidadVolumen} m³
                       </div>
-                      <div className="h-2 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className={`h-full rounded-full transition-all ${utilizationBg(volPct)}`}
-                          style={{ width: `${Math.min(volPct, 100)}%` }}
-                        />
-                      </div>
-                    </div>
+                    </CardContent>
+                  </Card>
+                );
+              })}
+            </div>
+          )}
 
-                    {/* Capacity reference */}
-                    <div className="text-[11px] text-muted-foreground border-t border-border pt-2">
-                      Capacidad: {vehicle.capacidadPeso} kg · {vehicle.capacidadVolumen} m³
-                    </div>
-                  </CardContent>
-                </Card>
-              );
-            })}
-          </div>
+          {/* Unfit vehicles: collapsed section */}
+          {unfitVehicles.length > 0 && (
+            <div className="space-y-3">
+              <Button
+                variant="ghost"
+                onClick={() => setShowUnfit(v => !v)}
+                className="gap-2 text-muted-foreground"
+                data-testid="button-toggle-unfit"
+              >
+                <ChevronRight className={`w-4 h-4 transition-transform ${showUnfit ? "rotate-90" : ""}`} />
+                {unfitVehicles.length} vehículo{unfitVehicles.length !== 1 ? "s" : ""} no soporta{unfitVehicles.length !== 1 ? "n" : ""} esta carga
+              </Button>
+              {showUnfit && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {unfitVehicles.map(({ vehicle, hasCapacity, weightPct, volPct }) => (
+                    <Card
+                      key={vehicle.id}
+                      data-testid={`card-vehicle-${vehicle.id}`}
+                      className="border-red-500/40 bg-red-500/5 opacity-80"
+                    >
+                      <CardContent className="p-4 space-y-3">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <div className="font-semibold flex items-center gap-2">
+                              <Truck className="w-4 h-4 text-muted-foreground" />
+                              {vehicle.modelo}
+                            </div>
+                            <div className="text-xs text-muted-foreground mt-0.5">
+                              {vehicle.tipo === "tercero" ? "Tercero" : "Propio"} · {vehicle.placa ?? "Sin placa"}
+                            </div>
+                          </div>
+                          <Badge variant="outline" className="border-red-500 text-red-500">
+                            {hasCapacity ? "Excede capacidad" : "Capacidad sin configurar"}
+                          </Badge>
+                        </div>
+                        {hasCapacity ? (
+                          <div className="text-xs text-muted-foreground space-y-1">
+                            <div>
+                              Peso: {totalPeso.toFixed(1)} / {vehicle.capacidadPeso} kg{" "}
+                              <span className={utilizationColor(weightPct)}>({Math.min(weightPct, 999).toFixed(0)}%)</span>
+                            </div>
+                            <div>
+                              Volumen: {totalVolumen.toFixed(3)} / {vehicle.capacidadVolumen} m³{" "}
+                              <span className={utilizationColor(volPct)}>({Math.min(volPct, 999).toFixed(0)}%)</span>
+                            </div>
+                          </div>
+                        ) : (
+                          <p className="text-xs text-muted-foreground">
+                            Este vehículo tiene capacidad de peso o volumen en 0. Configura sus capacidades para incluirlo en la comparación.
+                          </p>
+                        )}
+                        <div className="text-[11px] text-muted-foreground border-t border-border pt-2">
+                          Capacidad: {vehicle.capacidadPeso} kg · {vehicle.capacidadVolumen} m³
+                        </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
 
           <div className="flex justify-between pt-2">
             <Button variant="ghost" onClick={() => setStep(2)} className="gap-2">
