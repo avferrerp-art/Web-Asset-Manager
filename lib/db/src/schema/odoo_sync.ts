@@ -7,6 +7,12 @@ export const odooSyncStateTable = pgTable("odoo_sync_state", {
   lastError: text("last_error"),
   importedCount: integer("imported_count").notNull().default(0),
   skippedCount: integer("skipped_count").notNull().default(0),
+  // --- Sync de productos (independiente del sync de órdenes) ---
+  lastProductsSyncAt: timestamp("last_products_sync_at", { withTimezone: true }),
+  lastProductsResult: text("last_products_result"),
+  lastProductsError: text("last_products_error"),
+  productsCreatedCount: integer("products_created_count").notNull().default(0),
+  productsUpdatedCount: integer("products_updated_count").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

@@ -9,6 +9,7 @@ import {
   Navigation,
   FileText,
   Weight,
+  Boxes,
   LogOut,
   Settings
 } from "lucide-react";
@@ -81,6 +82,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/personal", label: "Personal", icon: Users },
     { href: "/rutas", label: "Rutas", icon: MapPin },
     { href: "/carga", label: "Calc. de Carga", icon: Weight },
+    { href: "/articulos", label: "Artículos", icon: Boxes },
     { href: "/configuracion", label: "Configuración", icon: Settings },
   ];
 

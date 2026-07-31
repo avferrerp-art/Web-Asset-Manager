@@ -514,6 +514,134 @@ export const SyncOdooNowResponse = zod.object({
 
 
 /**
+ * @summary Sync the product catalog from Odoo (never overwrites manual fields)
+ */
+export const SyncOdooProductsResponse = zod.object({
+  "ok": zod.boolean(),
+  "created": zod.number(),
+  "updated": zod.number(),
+  "total": zod.number(),
+  "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary List products with optional search and missing-dimensions filter
+ */
+export const ListProductsQueryParams = zod.object({
+  "search": zod.coerce.string().optional(),
+  "soloSinDimensiones": zod.coerce.boolean().optional()
+})
+
+export const ListProductsResponseItem = zod.object({
+  "id": zod.number(),
+  "odooId": zod.number(),
+  "odooRef": zod.string().nullish(),
+  "nombre": zod.string(),
+  "categoria": zod.string().nullish(),
+  "uom": zod.string().nullish(),
+  "pesoOdoo": zod.number(),
+  "volumenOdoo": zod.number(),
+  "activo": zod.boolean(),
+  "lastSyncAt": zod.string().nullish(),
+  "pesoKg": zod.number().nullish().describe('Peso real medido manualmente (kg)'),
+  "largoCm": zod.number().nullish(),
+  "anchoCm": zod.number().nullish(),
+  "altoCm": zod.number().nullish(),
+  "apilable": zod.boolean(),
+  "fragil": zod.boolean(),
+  "notas": zod.string().nullish(),
+  "dimensionesConfirmadas": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+export const ListProductsResponse = zod.array(ListProductsResponseItem)
+
+
+/**
+ * @summary Counts of products with confirmed dimensions
+ */
+export const GetProductStatsResponse = zod.object({
+  "total": zod.number(),
+  "confirmados": zod.number(),
+  "pendientes": zod.number()
+})
+
+
+/**
+ * @summary Get a product by ID
+ */
+export const GetProductParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetProductResponse = zod.object({
+  "id": zod.number(),
+  "odooId": zod.number(),
+  "odooRef": zod.string().nullish(),
+  "nombre": zod.string(),
+  "categoria": zod.string().nullish(),
+  "uom": zod.string().nullish(),
+  "pesoOdoo": zod.number(),
+  "volumenOdoo": zod.number(),
+  "activo": zod.boolean(),
+  "lastSyncAt": zod.string().nullish(),
+  "pesoKg": zod.number().nullish().describe('Peso real medido manualmente (kg)'),
+  "largoCm": zod.number().nullish(),
+  "anchoCm": zod.number().nullish(),
+  "altoCm": zod.number().nullish(),
+  "apilable": zod.boolean(),
+  "fragil": zod.boolean(),
+  "notas": zod.string().nullish(),
+  "dimensionesConfirmadas": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
+ * @summary Update manual fields of a product (Odoo-owned fields are read-only)
+ */
+export const UpdateProductParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateProductBody = zod.object({
+  "pesoKg": zod.number().nullish(),
+  "largoCm": zod.number().nullish(),
+  "anchoCm": zod.number().nullish(),
+  "altoCm": zod.number().nullish(),
+  "apilable": zod.boolean().optional(),
+  "fragil": zod.boolean().optional(),
+  "notas": zod.string().nullish(),
+  "dimensionesConfirmadas": zod.boolean().optional()
+}).describe('Only manual fields can be edited; Odoo-owned fields are rejected')
+
+export const UpdateProductResponse = zod.object({
+  "id": zod.number(),
+  "odooId": zod.number(),
+  "odooRef": zod.string().nullish(),
+  "nombre": zod.string(),
+  "categoria": zod.string().nullish(),
+  "uom": zod.string().nullish(),
+  "pesoOdoo": zod.number(),
+  "volumenOdoo": zod.number(),
+  "activo": zod.boolean(),
+  "lastSyncAt": zod.string().nullish(),
+  "pesoKg": zod.number().nullish().describe('Peso real medido manualmente (kg)'),
+  "largoCm": zod.number().nullish(),
+  "anchoCm": zod.number().nullish(),
+  "altoCm": zod.number().nullish(),
+  "apilable": zod.boolean(),
+  "fragil": zod.boolean(),
+  "notas": zod.string().nullish(),
+  "dimensionesConfirmadas": zod.boolean(),
+  "createdAt": zod.string(),
+  "updatedAt": zod.string()
+})
+
+
+/**
  * @summary List all dispatches
  */
 export const ListDispatchesQueryParams = zod.object({

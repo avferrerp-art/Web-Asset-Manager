@@ -12,3 +12,4 @@ export * from "./messages";
 export * from "./sale_items";
 export * from "./fuel_prices";
 export * from "./odoo_sync";
+export * from "./products";

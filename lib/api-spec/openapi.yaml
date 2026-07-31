@@ -30,6 +30,8 @@ tags:
     description: Odoo sales order synchronization
   - name: driver
     description: Driver mobile app endpoints (authenticated driver scope)
+  - name: products
+    description: Product catalog synced from Odoo with manual dimensions
 
 paths:
   /healthz:
@@ -515,6 +517,111 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/OdooSyncResult"
+
+  /odoo/sync-products:
+    post:
+      operationId: syncOdooProducts
+      tags: [odoo]
+      summary: Sync the product catalog from Odoo (never overwrites manual fields)
+      responses:
+        "200":
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductSyncResult"
+        "400":
+          description: Sync failed (missing config or connection error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductSyncResult"
+
+  # --- PRODUCTS ---
+  /products:
+    get:
+      operationId: listProducts
+      tags: [products]
+      summary: List products with optional search and missing-dimensions filter
+      parameters:
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: soloSinDimensiones
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of products
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Product"
+
+  /products/stats:
+    get:
+      operationId: getProductStats
+      tags: [products]
+      summary: Counts of products with confirmed dimensions
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductStats"
+
+  /products/{id}:
+    get:
+      operationId: getProduct
+      tags: [products]
+      summary: Get a product by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Product
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateProduct
+      tags: [products]
+      summary: Update manual fields of a product (Odoo-owned fields are read-only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "404":
+          description: Not found
 
   # --- DISPATCHES ---
   /dispatches:
@@ -1518,6 +1625,100 @@ components:
           type: array
           items:
             type: string
+        error:
+          type: ["string", "null"]
+
+    Product:
+      type: object
+      required: [id, odooId, nombre, pesoOdoo, volumenOdoo, activo, apilable, fragil, dimensionesConfirmadas, createdAt, updatedAt]
+      properties:
+        id:
+          type: integer
+        odooId:
+          type: integer
+        odooRef:
+          type: ["string", "null"]
+        nombre:
+          type: string
+        categoria:
+          type: ["string", "null"]
+        uom:
+          type: ["string", "null"]
+        pesoOdoo:
+          type: number
+        volumenOdoo:
+          type: number
+        activo:
+          type: boolean
+        lastSyncAt:
+          type: ["string", "null"]
+        pesoKg:
+          type: ["number", "null"]
+          description: Peso real medido manualmente (kg)
+        largoCm:
+          type: ["number", "null"]
+        anchoCm:
+          type: ["number", "null"]
+        altoCm:
+          type: ["number", "null"]
+        apilable:
+          type: boolean
+        fragil:
+          type: boolean
+        notas:
+          type: ["string", "null"]
+        dimensionesConfirmadas:
+          type: boolean
+        createdAt:
+          type: string
+        updatedAt:
+          type: string
+
+    ProductUpdate:
+      type: object
+      description: Only manual fields can be edited; Odoo-owned fields are rejected
+      additionalProperties: false
+      properties:
+        pesoKg:
+          type: ["number", "null"]
+        largoCm:
+          type: ["number", "null"]
+        anchoCm:
+          type: ["number", "null"]
+        altoCm:
+          type: ["number", "null"]
+        apilable:
+          type: boolean
+        fragil:
+          type: boolean
+        notas:
+          type: ["string", "null"]
+        dimensionesConfirmadas:
+          type: boolean
+
+    ProductStats:
+      type: object
+      required: [total, confirmados, pendientes]
+      properties:
+        total:
+          type: integer
+        confirmados:
+          type: integer
+        pendientes:
+          type: integer
+
+    ProductSyncResult:
+      type: object
+      required: [ok, created, updated, total]
+      properties:
+        ok:
+          type: boolean
+        created:
+          type: integer
+        updated:
+          type: integer
+        total:
+          type: integer
         error:
           type: ["string", "null"]
 

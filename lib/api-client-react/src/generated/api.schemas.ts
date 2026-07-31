@@ -155,6 +155,75 @@ export interface OdooSyncResult {
   error: string | null;
 }
 
+export interface Product {
+  id: number;
+  odooId: number;
+  /** @nullable */
+  odooRef?: string | null;
+  nombre: string;
+  /** @nullable */
+  categoria?: string | null;
+  /** @nullable */
+  uom?: string | null;
+  pesoOdoo: number;
+  volumenOdoo: number;
+  activo: boolean;
+  /** @nullable */
+  lastSyncAt?: string | null;
+  /**
+     * Peso real medido manualmente (kg)
+     * @nullable
+     */
+  pesoKg?: number | null;
+  /** @nullable */
+  largoCm?: number | null;
+  /** @nullable */
+  anchoCm?: number | null;
+  /** @nullable */
+  altoCm?: number | null;
+  apilable: boolean;
+  fragil: boolean;
+  /** @nullable */
+  notas?: string | null;
+  dimensionesConfirmadas: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/**
+ * Only manual fields can be edited; Odoo-owned fields are rejected
+ */
+export interface ProductUpdate {
+  /** @nullable */
+  pesoKg?: number | null;
+  /** @nullable */
+  largoCm?: number | null;
+  /** @nullable */
+  anchoCm?: number | null;
+  /** @nullable */
+  altoCm?: number | null;
+  apilable?: boolean;
+  fragil?: boolean;
+  /** @nullable */
+  notas?: string | null;
+  dimensionesConfirmadas?: boolean;
+}
+
+export interface ProductStats {
+  total: number;
+  confirmados: number;
+  pendientes: number;
+}
+
+export interface ProductSyncResult {
+  ok: boolean;
+  created: number;
+  updated: number;
+  total: number;
+  /** @nullable */
+  error?: string | null;
+}
+
 export interface Sale {
   id: number;
   cliente: string;
@@ -597,6 +666,11 @@ export interface ActiveDispatch {
 
 export type ListSalesParams = {
 status?: string;
+};
+
+export type ListProductsParams = {
+search?: string;
+soloSinDimensiones?: boolean;
 };
 
 export type ListDispatchesParams = {

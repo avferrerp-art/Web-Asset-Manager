@@ -11,6 +11,7 @@ import ordersExtractRouter from "./orders/extract";
 import saleItemsRouter from "./sale-items";
 import fuelPricesRouter from "./fuel-prices";
 import odooRouter from "./odoo";
+import productsRouter from "./products";
 import driverRouter from "./driver";
 import { requireAuth } from "../middlewares/requireAuth";
 
@@ -29,6 +30,7 @@ router.use(fuelPricesRouter);
 router.use(dashboardRouter);
 router.use(ordersExtractRouter);
 router.use(odooRouter);
+router.use(productsRouter);
 router.use(driverRouter);
 
 export default router;
