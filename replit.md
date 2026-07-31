@@ -56,7 +56,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 ## Gotchas
 
 - Tras tocar `lib/api-spec/openapi.yaml`: correr `pnpm --filter @workspace/api-spec run codegen` para regenerar hooks y Zod; nunca editar los directorios `generated/` a mano.
-- Tras tocar `lib/db/src/schema/`: correr `pnpm --filter @workspace/db run push` (ojo: drizzle-kit puede pedir confirmación interactiva ante conflictos de columnas).
+- **Migraciones de DB (mecanismo persistente)**: el api-server aplica migraciones automáticamente al arrancar (`runMigrations()` en `lib/db/src/migrate.ts`, SQL embebido en `lib/db/src/migrations/`, tracking en la tabla `_migrations`). Tras tocar `lib/db/src/schema/`, NO basta con `drizzle-kit push` (ese cambio manual no sobrevive merges a main): hay que agregar una migración numerada en `lib/db/src/migrations/` (SQL idempotente: `IF NOT EXISTS` / constraints con guardas), registrarla en su `index.ts`, y reiniciar el api-server. Al arrancar, el server también verifica el schema (`verifySchema()`) y loguea `SCHEMA MISMATCH` por cada tabla/columna/UNIQUE faltante.
 - Tras cambiar cualquier lib (`api-zod`, `db`, etc.): reiniciar el workflow del api-server — el servidor bundlea con esbuild al arrancar, no hace hot-reload de las libs.
 - Routers nuevos en `src/routes/index.ts` deben montarse después de `requireAuth` (salvo endpoints públicos como health).
 
