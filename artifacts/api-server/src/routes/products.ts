@@ -13,6 +13,7 @@ import {
   recordProductSyncError,
   syncOdooProducts,
 } from "../services/productSync";
+import { propagateDimensionsForProduct } from "../services/productBackfill";
 
 const router: IRouter = Router();
 
@@ -81,6 +82,7 @@ router.patch("/products/:id", async (req, res): Promise<void> => {
     ancho != null && ancho > 0 &&
     alto != null && alto > 0;
 
+  const wasConfirmed = current.dimensionesConfirmadas;
   const [product] = await db
     .update(productsTable)
     .set({
@@ -89,6 +91,21 @@ router.patch("/products/:id", async (req, res): Promise<void> => {
     })
     .where(eq(productsTable.id, params.data.id))
     .returning();
+
+  // If the product just became confirmed (or was already confirmed and dims changed),
+  // propagate dimensions to all linked sale_items automatically.
+  const nowConfirmed = product.dimensionesConfirmadas;
+  const dimsChanged =
+    data.pesoKg !== undefined ||
+    data.largoCm !== undefined ||
+    data.anchoCm !== undefined ||
+    data.altoCm !== undefined;
+  if (nowConfirmed && (!wasConfirmed || dimsChanged)) {
+    propagateDimensionsForProduct(params.data.id).catch((err) => {
+      req.log.error({ err, productId: params.data.id }, "Auto-propagation of dimensions failed");
+    });
+  }
+
   res.json(product);
 });
 
