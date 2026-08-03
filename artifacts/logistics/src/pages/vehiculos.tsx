@@ -6,7 +6,8 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2, Fuel, Save, Loader2 } from "lucide-react";
+import { Plus, Edit2, Trash2, Fuel, Save, Loader2, Search } from "lucide-react";
+import { matchesSearch } from "@/lib/search";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -131,10 +132,15 @@ export default function Vehiculos() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<any>(null);
+  const [search, setSearch] = useState("");
 
   const { data: vehicles, isLoading } = useListVehicles({
     query: { queryKey: getListVehiclesQueryKey() }
   });
+
+  const filteredVehicles = search.trim()
+    ? (vehicles ?? []).filter(v => matchesSearch(search, [v.modelo, v.placa, v.tipo]))
+    : (vehicles ?? []);
 
   const createMutation = useCreateVehicle();
   const updateMutation = useUpdateVehicle();
@@ -217,8 +223,17 @@ export default function Vehiculos() {
 
       <FuelPricesCard />
 
-      <div className="flex justify-between items-center">
-        <div />
+      <div className="flex justify-between items-center gap-4">
+        <div className="relative flex-1 min-w-[220px] max-w-sm">
+          <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar por modelo, placa o tipo..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="pl-8 h-9"
+            data-testid="input-search-vehicles"
+          />
+        </div>
         <Dialog open={isDialogOpen} onOpenChange={(open) => {
           setIsDialogOpen(open);
           if (!open) { setEditingVehicle(null); form.reset(EMPTY_DEFAULTS); }
@@ -344,9 +359,11 @@ export default function Vehiculos() {
             <TableBody>
               {isLoading ? (
                 <TableRow><TableCell colSpan={7} className="h-24 text-center">Cargando...</TableCell></TableRow>
-              ) : vehicles?.length === 0 ? (
-                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">Sin vehículos registrados.</TableCell></TableRow>
-              ) : vehicles?.map((vehicle) => (
+              ) : filteredVehicles.length === 0 ? (
+                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                  {search.trim() ? `Sin resultados para "${search.trim()}"` : "Sin vehículos registrados."}
+                </TableCell></TableRow>
+              ) : filteredVehicles.map((vehicle) => (
                 <TableRow key={vehicle.id} data-testid={`row-vehicle-${vehicle.id}`}>
                   <TableCell>
                     <div className="font-medium">{vehicle.modelo}</div>

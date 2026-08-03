@@ -21,7 +21,8 @@ import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Truck, Route as RouteIcon, Plus, AlertTriangle, MapPin, RefreshCw, ExternalLink, PackageSearch } from "lucide-react";
+import { Truck, Route as RouteIcon, Plus, AlertTriangle, MapPin, RefreshCw, ExternalLink, PackageSearch, Search } from "lucide-react";
+import { matchesSearch } from "@/lib/search";
 import { useLocation } from "wouter";
 import { NuevoDespachoWizard } from "@/components/nuevo-despacho-wizard";
 import { CargoWizard } from "@/components/cargo-wizard";
@@ -54,6 +55,7 @@ export default function PreDespacho() {
   const [cargoWizardOpen, setCargoWizardOpen] = useState(false);
   const [cargoWizardSaleId, setCargoWizardSaleId] = useState<number | undefined>();
   const [cargoWizardSale, setCargoWizardSale] = useState<any>(null);
+  const [search, setSearch] = useState("");
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -224,7 +226,11 @@ export default function PreDespacho() {
     });
   };
 
-  const pendingSales = sales?.filter(s => s.estado === "pendiente") ?? [];
+  const allPendingSales = sales?.filter(s => s.estado === "pendiente") ?? [];
+  const pendingSales = search.trim()
+    ? allPendingSales.filter(s =>
+        matchesSearch(search, [s.cliente, s.destino, s.odooRef, s.id, `#${s.id}`]))
+    : allPendingSales;
 
   return (
     <div className="space-y-6">
@@ -257,7 +263,19 @@ export default function PreDespacho() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Órdenes de Venta Pendientes</CardTitle>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <CardTitle>Órdenes de Venta Pendientes</CardTitle>
+            <div className="relative flex-1 min-w-[220px] max-w-sm">
+              <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Buscar por cliente, destino, referencia o #orden..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-8 h-9"
+                data-testid="input-search-predespacho"
+              />
+            </div>
+          </div>
         </CardHeader>
         <CardContent className="p-0">
           <Table>
@@ -275,7 +293,9 @@ export default function PreDespacho() {
               {isLoadingSales ? (
                 <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
               ) : pendingSales.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Sin ventas pendientes.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  {search.trim() ? `Sin resultados para "${search.trim()}"` : "Sin ventas pendientes."}
+                </TableCell></TableRow>
               ) : pendingSales.map((sale) => (
                 <TableRow key={sale.id} data-testid={`row-pending-sale-${sale.id}`}>
                   <TableCell className="font-medium">

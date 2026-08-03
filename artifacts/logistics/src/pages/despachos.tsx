@@ -21,7 +21,8 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { Edit2, X, Save, Loader2 } from "lucide-react";
+import { Edit2, X, Save, Loader2, Search } from "lucide-react";
+import { matchesSearch } from "@/lib/search";
 
 const ESTADO_BADGE: Record<string, React.ReactElement> = {
   "pre-despacho": <Badge variant="outline" className="text-yellow-500 border-yellow-500/50">Pre-Despacho</Badge>,
@@ -403,16 +404,40 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
 
 export default function Despachos() {
   const [selectedId, setSelectedId] = useState<number | null>(null);
+  const [search, setSearch] = useState("");
 
   const { data: dispatches, isLoading } = useListDispatches(undefined, {
     query: { queryKey: getListDispatchesQueryKey(), refetchInterval: 30_000 }
   });
+
+  const { data: vehiclesList } = useListVehicles({ query: { queryKey: getListVehiclesQueryKey() } });
+
+  const filteredDispatches = search.trim()
+    ? (dispatches ?? []).filter(d => {
+        const vehicle = vehiclesList?.find(v => v.id === d.vehiculoId);
+        return matchesSearch(search, [
+          d.clienteNombre, d.destino, d.choferNombre,
+          d.vehiculoModelo, vehicle?.placa, d.id, `#${d.id}`,
+        ]);
+      })
+    : (dispatches ?? []);
 
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-bold tracking-tight text-foreground">Despachos</h1>
         <p className="text-muted-foreground">Historial y estado actual de todos los despachos.</p>
+      </div>
+
+      <div className="relative flex-1 min-w-[220px] max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Buscar por cliente, destino, chofer o vehículo..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-8 h-9"
+          data-testid="input-search-dispatches"
+        />
       </div>
 
       <Card>
@@ -431,9 +456,11 @@ export default function Despachos() {
             <TableBody>
               {isLoading ? (
                 <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
-              ) : dispatches?.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">Sin despachos registrados.</TableCell></TableRow>
-              ) : dispatches?.map((dispatch) => (
+              ) : filteredDispatches.length === 0 ? (
+                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                  {search.trim() ? `Sin resultados para "${search.trim()}"` : "Sin despachos registrados."}
+                </TableCell></TableRow>
+              ) : filteredDispatches.map((dispatch) => (
                 <TableRow
                   key={dispatch.id}
                   data-testid={`row-dispatch-${dispatch.id}`}

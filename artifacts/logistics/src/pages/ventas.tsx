@@ -22,6 +22,8 @@ import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { OdooBadge } from "@/components/odoo-sync-card";
 import { CargoWizard } from "@/components/cargo-wizard";
+import { Search } from "lucide-react";
+import { matchesSearch } from "@/lib/search";
 
 const saleSchema = z.object({
   cliente: z.string().min(1, "Requerido"),
@@ -57,6 +59,7 @@ export default function Ventas() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("todas");
+  const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<any>(null);
   const [, navigate] = useLocation();
@@ -77,9 +80,14 @@ export default function Ventas() {
   });
   const salesWithUnlinked = new Set((unlinkedItems ?? []).map(it => it.ventaId));
 
-  const filteredSales = activeFilter === "todas"
+  const statusFiltered = activeFilter === "todas"
     ? (sales ?? [])
     : (sales ?? []).filter(s => s.estado === activeFilter);
+
+  const filteredSales = search.trim()
+    ? statusFiltered.filter(s =>
+        matchesSearch(search, [s.cliente, s.destino, s.odooRef, s.id, `#${s.id}`]))
+    : statusFiltered;
 
   const countByStatus = (key: string) =>
     key === "todas" ? (sales?.length ?? 0) : (sales?.filter(s => s.estado === key).length ?? 0);
@@ -427,6 +435,17 @@ export default function Ventas() {
         </Dialog>
       </div>
 
+      <div className="relative flex-1 min-w-[220px] max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Buscar por cliente, destino, referencia o #orden..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-8 h-9"
+          data-testid="input-search-sales"
+        />
+      </div>
+
       {/* Status filter pills */}
       <div className="flex flex-wrap gap-2">
         {FILTERS.map(({ key, label }) => {
@@ -480,7 +499,9 @@ export default function Ventas() {
                 <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
               ) : filteredSales.length === 0 ? (
                 <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                  {activeFilter === "todas" ? "Sin órdenes registradas." : `Sin órdenes con estado "${activeFilter}".`}
+                  {search.trim()
+                    ? `Sin resultados para "${search.trim()}"`
+                    : activeFilter === "todas" ? "Sin órdenes registradas." : `Sin órdenes con estado "${activeFilter}".`}
                 </TableCell></TableRow>
               ) : filteredSales.map((sale) => (
                 <TableRow key={sale.id} data-testid={`row-sale-${sale.id}`}>

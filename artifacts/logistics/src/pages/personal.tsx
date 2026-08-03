@@ -5,7 +5,8 @@ import {
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2 } from "lucide-react";
+import { Plus, Edit2, Trash2, Search } from "lucide-react";
+import { matchesSearch } from "@/lib/search";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -30,10 +31,15 @@ export default function Personal() {
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingPersonnel, setEditingPersonnel] = useState<any>(null);
+  const [search, setSearch] = useState("");
 
   const { data: personnel, isLoading } = useListPersonnel({
     query: { queryKey: getListPersonnelQueryKey() }
   });
+
+  const filteredPersonnel = search.trim()
+    ? (personnel ?? []).filter(p => matchesSearch(search, [p.nombre, p.rol, p.telefono]))
+    : (personnel ?? []);
 
   const createMutation = useCreatePersonnel();
   const updateMutation = useUpdatePersonnel();
@@ -157,6 +163,17 @@ export default function Personal() {
         </Dialog>
       </div>
 
+      <div className="relative flex-1 min-w-[220px] max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Buscar por nombre, rol o teléfono..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-8 h-9"
+          data-testid="input-search-personnel"
+        />
+      </div>
+
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -173,9 +190,11 @@ export default function Personal() {
             <TableBody>
               {isLoading ? (
                 <TableRow><TableCell colSpan={5} className="h-24 text-center">Cargando...</TableCell></TableRow>
-              ) : personnel?.length === 0 ? (
-                <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">Sin personal registrado.</TableCell></TableRow>
-              ) : personnel?.map((person) => (
+              ) : filteredPersonnel.length === 0 ? (
+                <TableRow><TableCell colSpan={5} className="h-24 text-center text-muted-foreground">
+                  {search.trim() ? `Sin resultados para "${search.trim()}"` : "Sin personal registrado."}
+                </TableCell></TableRow>
+              ) : filteredPersonnel.map((person) => (
                 <TableRow key={person.id} data-testid={`row-personnel-${person.id}`}>
                   <TableCell className="font-medium">{person.nombre}</TableCell>
                   <TableCell className="capitalize">{person.rol}</TableCell>

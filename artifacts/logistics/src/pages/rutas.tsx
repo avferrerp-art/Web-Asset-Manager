@@ -25,8 +25,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
   Star, Plus, Trash2, Loader2, MapPin, ArrowRight, Navigation, Edit2, X, Route as RouteIcon,
-  ChevronUp, ChevronDown
+  ChevronUp, ChevronDown, Search
 } from "lucide-react";
+import { matchesSearch } from "@/lib/search";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -669,6 +670,7 @@ export default function Rutas() {
   const [editRoute, setEditRoute] = useState<RouteItem | null>(null);
   const [deleteId, setDeleteId] = useState<number | null>(null);
   const [filterTipo, setFilterTipo] = useState<string>("all");
+  const [search, setSearch] = useState("");
 
   const { data: routes, isLoading } = useListRoutes({
     query: { queryKey: getListRoutesQueryKey(), refetchInterval: 30_000 },
@@ -727,9 +729,13 @@ export default function Rutas() {
     return 0;
   });
 
-  const filtered = filterTipo === "all"
+  const tipoFiltered = filterTipo === "all"
     ? sorted
     : sorted.filter((r) => r.tipo === filterTipo);
+
+  const filtered = search.trim()
+    ? tipoFiltered.filter((r) => matchesSearch(search, [r.nombre, r.origen, r.destino]))
+    : tipoFiltered;
 
   return (
     <div className="space-y-6">
@@ -741,6 +747,17 @@ export default function Rutas() {
         <Button onClick={() => { setEditRoute(null); setDialogOpen(true); }}>
           <Plus className="w-4 h-4 mr-1" /> Nueva ruta
         </Button>
+      </div>
+
+      <div className="relative flex-1 min-w-[220px] max-w-sm">
+        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+        <Input
+          placeholder="Buscar por nombre, origen o destino..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="pl-8 h-9"
+          data-testid="input-search-routes"
+        />
       </div>
 
       <div className="flex gap-2">
@@ -765,7 +782,9 @@ export default function Rutas() {
         <div className="flex flex-col items-center justify-center h-40 text-muted-foreground gap-2">
           <MapPin className="w-8 h-8 opacity-30" />
           <p className="text-sm">
-            {routes?.length === 0 ? "No hay rutas registradas." : "Sin rutas para este filtro."}
+            {search.trim()
+              ? `Sin resultados para "${search.trim()}"`
+              : routes?.length === 0 ? "No hay rutas registradas." : "Sin rutas para este filtro."}
           </p>
         </div>
       ) : (
