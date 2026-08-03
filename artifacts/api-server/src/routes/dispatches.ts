@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and, asc, desc } from "drizzle-orm";
 import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable, saleItemsTable } from "@workspace/db";
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
+import { syncSaleEstadoFromDispatch } from "../services/saleEstadoSync";
 import {
   ListDispatchesQueryParams,
   CreateDispatchBody,
@@ -205,7 +206,7 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     );
   }
 
-  await db.update(salesTable).set({ estado: "despachado" }).where(eq(salesTable.id, dispatch.ventaId));
+  await syncSaleEstadoFromDispatch(dispatch.ventaId);
 
   const row = await buildDispatchRow(dispatch);
   res.status(201).json(row);
@@ -258,6 +259,9 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Dispatch not found" });
     return;
   }
+  if ("estado" in parsed.data) {
+    await syncSaleEstadoFromDispatch(dispatch.ventaId);
+  }
   const row = await buildDispatchRow(dispatch);
   res.json(row);
 });
@@ -273,6 +277,7 @@ router.delete("/dispatches/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Dispatch not found" });
     return;
   }
+  await syncSaleEstadoFromDispatch(dispatch.ventaId);
   res.sendStatus(204);
 });
 
@@ -291,6 +296,7 @@ router.post("/dispatches/:id/approve", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Dispatch not found" });
     return;
   }
+  await syncSaleEstadoFromDispatch(dispatch.ventaId);
   const row = await buildDispatchRow(dispatch);
   res.json(row);
 });

@@ -1,0 +1,77 @@
+Corrige el ciclo de vida del estado de una venta cuando su despacho cambia de estado
+o se elimina, en la app de logística LogiFleet.
+
+CONTEXTO DEL PROYECTO (necesario porque no tienes memoria de tareas anteriores):
+Monorepo pnpm, Node 24, TypeScript. API Express 5 con Drizzle ORM sobre PostgreSQL
+en artifacts/api-server/src/routes/. Frontend React en artifacts/logistics/src/pages/.
+
+Modelo de datos relevante:
+- La tabla `sales` tiene un campo `estado` con valores: pendiente, despachado,
+  entregado, cancelado.
+- La tabla `dispatches` tiene su propio campo `estado` con valores:
+  pre-despacho, aprobado, en-ruta, entregado, cancelado. Se vincula a la venta por
+  `dispatches.ventaId`.
+- El módulo Pre-Despacho (artifacts/logistics/src/pages/pre-despacho.tsx) lista las
+  ventas que están pendientes de planificar, y ya excluye las que tienen un despacho
+  creado.
+
+EL PROBLEMA
+En artifacts/api-server/src/routes/dispatches.ts, línea ~208, al crear un despacho
+se hace:
+  await db.update(salesTable).set({ estado: "despachado" }).where(eq(salesTable.id, dispatch.ventaId));
+
+Es decir, la venta pasa a "despachado" al crear el despacho, pero NADA revierte ese
+estado si después el despacho se cancela o se elimina. La venta queda en un limbo:
+figura como "despachado" pero no tiene ningún despacho activo, y tampoco vuelve a
+aparecer en Pre-Despacho para poder replanificarla. Se pierde el pedido de vista.
+
+CASO REAL VERIFICADO EN LA BASE DE DATOS:
+- El despacho #1 está en estado "cancelado", y su venta asociada (#3) sigue con
+  estado "despachado". Esa venta no aparece en Pre-Despacho ni tiene despacho activo.
+- Además existe la anomalía inversa: la venta #11 está en estado "pendiente" pero
+  tiene el despacho #2 en estado "aprobado". La sincronización entre ambos estados
+  no es confiable en ninguna dirección.
+
+QUÉ QUIERO
+1. Cuando un despacho pase a estado "cancelado", su venta asociada debe volver a
+   "pendiente", para que reaparezca en Pre-Despacho y se pueda replanificar.
+2. Cuando un despacho se ELIMINE (DELETE /dispatches/:id), aplica la misma regla:
+   la venta vuelve a "pendiente".
+3. Cuando un despacho pase a "entregado", la venta debe pasar a "entregado".
+4. Revisa TODOS los puntos donde cambia el estado de un despacho y aplica la regla
+   de forma consistente. En artifacts/api-server/src/routes/dispatches.ts están al
+   menos: POST /dispatches (línea ~161), PATCH /dispatches/:id (~229),
+   DELETE /dispatches/:id (~265) y POST /dispatches/:id/approve (~279).
+   No dejes ninguna ruta sin cubrir: el bug actual existe justamente porque la
+   actualización se hizo en un solo lugar.
+5. Centraliza esta lógica en una función auxiliar reutilizable (por ejemplo
+   syncSaleEstadoFromDispatch) en vez de repetir el update en cada handler. Así se
+   evita que vuelva a desincronizarse al agregar rutas nuevas.
+6. Caso borde: si una venta llegara a tener más de un despacho asociado, la venta
+   debe volver a "pendiente" solo si NINGUNO de sus despachos sigue activo. Un
+   despacho se considera activo si su estado NO es "cancelado".
+7. Corrige los datos ya inconsistentes que existen hoy: crea un proceso de
+   reconciliación que recorra todas las ventas y ajuste su estado según el estado
+   real de sus despachos. Debe ser idempotente y reportar cuántas ventas corrigió.
+   Aplícalo al menos a la venta #3 (despacho cancelado, venta en "despachado") y a
+   la venta #11 (venta "pendiente" con despacho aprobado).
+
+REGLA CRÍTICA — NO LA VIOLES
+Las columnas sales.pesoTotalOdoo y sales.volumenTotalOdoo guardan los totales
+originales importados de Odoo y NUNCA deben modificarse. Tampoco toques
+sale_items.productId ni las dimensiones heredadas del catálogo de artículos. Esta
+tarea solo cambia el campo `estado` de las ventas.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos EJECUTÁNDOLOS en el preview, no leyendo el
+código:
+- Crear un despacho para una venta pendiente: la venta pasa a "despachado" y
+  desaparece de Pre-Despacho.
+- Cancelar ese despacho: la venta vuelve a "pendiente" y REAPARECE en Pre-Despacho.
+- Eliminar un despacho: mismo resultado, la venta vuelve a "pendiente".
+- Marcar un despacho como "entregado": la venta pasa a "entregado".
+- Tras la reconciliación, no queda ninguna venta en "despachado" cuyos despachos
+  estén todos cancelados, ni ninguna venta "pendiente" con un despacho activo.
+- Correr la reconciliación dos veces seguidas no cambia nada la segunda vez.
+- pnpm run typecheck pasa limpio.
+
+NO toques la sincronización con Odoo ni el catálogo de artículos.

@@ -11,6 +11,7 @@ import {
   CompleteDriverRoutePointBody,
 } from "@workspace/api-zod";
 import { buildDispatchRow, buildDispatchDetail } from "./dispatches";
+import { syncSaleEstadoFromDispatch } from "../services/saleEstadoSync";
 
 const router: IRouter = Router();
 
@@ -171,6 +172,7 @@ router.post(
       res.status(404).json({ error: "Dispatch not found" });
       return;
     }
+    await syncSaleEstadoFromDispatch(updated.ventaId);
     const row = await buildDispatchRow(updated);
     res.json(row);
   },
