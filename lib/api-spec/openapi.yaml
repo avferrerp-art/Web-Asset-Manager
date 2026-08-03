@@ -546,7 +546,14 @@ paths:
     post:
       operationId: syncOdooNow
       tags: [odoo]
-      summary: Trigger an immediate import of confirmed Odoo sale orders
+      summary: Trigger an immediate sync (import + update) of confirmed Odoo sale orders
+      parameters:
+        - name: dryRun
+          in: query
+          required: false
+          schema:
+            type: boolean
+          description: When true, report what would change without writing anything
       responses:
         "200":
           description: Sync completed
@@ -579,6 +586,54 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProductSyncResult"
+
+  /odoo/alerts:
+    get:
+      operationId: listOdooAlerts
+      tags: [odoo]
+      summary: List sync alerts (non-pending orders changed in Odoo)
+      parameters:
+        - name: includeResolved
+          in: query
+          required: false
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: List of sync alerts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SyncAlert"
+
+  /odoo/alerts/{id}/resolve:
+    post:
+      operationId: resolveOdooAlert
+      tags: [odoo]
+      summary: Mark a sync alert as resolved
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Alert resolved
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [ok, id]
+                properties:
+                  ok:
+                    type: boolean
+                  id:
+                    type: integer
+        "404":
+          description: Alert not found
 
   # --- PRODUCTS ---
   /products:
@@ -1656,7 +1711,7 @@ components:
 
     OdooSyncResult:
       type: object
-      required: [ok, imported, skipped, orders, error]
+      required: [ok, imported, skipped, orders, updated, changes, alertsCreated, dryRun, error]
       properties:
         ok:
           type: boolean
@@ -1668,7 +1723,57 @@ components:
           type: array
           items:
             type: string
+        updated:
+          type: array
+          items:
+            type: string
+        changes:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderChange"
+        alertsCreated:
+          type: integer
+        dryRun:
+          type: boolean
         error:
+          type: ["string", "null"]
+
+    OrderChange:
+      type: object
+      required: [odooRef, estado, fields]
+      properties:
+        odooRef:
+          type: string
+        estado:
+          type: string
+        fields:
+          type: array
+          items:
+            type: string
+
+    SyncAlert:
+      type: object
+      required: [id, ventaId, odooId, odooRef, estado, mensaje, campos, resuelta, createdAt, resolvedAt]
+      properties:
+        id:
+          type: integer
+        ventaId:
+          type: integer
+        odooId:
+          type: ["integer", "null"]
+        odooRef:
+          type: ["string", "null"]
+        estado:
+          type: string
+        mensaje:
+          type: string
+        campos:
+          type: ["string", "null"]
+        resuelta:
+          type: boolean
+        createdAt:
+          type: string
+        resolvedAt:
           type: ["string", "null"]
 
     Product:

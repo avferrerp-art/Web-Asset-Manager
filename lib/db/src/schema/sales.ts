@@ -21,6 +21,8 @@ export const salesTable = pgTable("sales", {
   notas: text("notas"),
   odooRef: text("odoo_ref").unique(),
   odooId: integer("odoo_id").unique(),
+  // write_date de Odoo de la última sincronización aplicada (string tal cual lo envía Odoo)
+  odooWriteDate: text("odoo_write_date"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

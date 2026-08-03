@@ -1,4 +1,6 @@
 import { Router, type IRouter } from "express";
+import { desc, eq } from "drizzle-orm";
+import { db, syncAlertsTable } from "@workspace/db";
 import { getOdooConfig, OdooError } from "../lib/odooClient";
 import {
   getSyncState,
@@ -42,27 +44,77 @@ router.post("/odoo/test-connection", async (req, res): Promise<void> => {
 });
 
 router.post("/odoo/sync", async (req, res): Promise<void> => {
+  const dryRun = String(req.query["dryRun"] ?? "") === "true";
   try {
-    const result = await syncOdooOrders();
+    const result = await syncOdooOrders({ dryRun });
     res.json({
       ok: true,
       imported: result.imported,
       skipped: result.skipped,
       orders: result.orders,
+      updated: result.updated,
+      changes: result.changes,
+      alertsCreated: result.alertsCreated,
+      dryRun: result.dryRun,
       error: null,
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err }, "Odoo manual sync failed");
-    await recordSyncError(message).catch(() => {});
+    if (!dryRun) await recordSyncError(message).catch(() => {});
     res.status(err instanceof OdooError ? 400 : 500).json({
       ok: false,
       imported: 0,
       skipped: 0,
       orders: [],
+      updated: [],
+      changes: [],
+      alertsCreated: 0,
+      dryRun,
       error: message,
     });
   }
+});
+
+router.get("/odoo/alerts", async (req, res): Promise<void> => {
+  const includeResolved = String(req.query["includeResolved"] ?? "") === "true";
+  const rows = await db
+    .select()
+    .from(syncAlertsTable)
+    .where(includeResolved ? undefined : eq(syncAlertsTable.resuelta, false))
+    .orderBy(desc(syncAlertsTable.createdAt));
+  res.json(
+    rows.map((a) => ({
+      id: a.id,
+      ventaId: a.ventaId,
+      odooId: a.odooId,
+      odooRef: a.odooRef,
+      estado: a.estado,
+      mensaje: a.mensaje,
+      campos: a.campos,
+      resuelta: a.resuelta,
+      createdAt: a.createdAt.toISOString(),
+      resolvedAt: a.resolvedAt ? a.resolvedAt.toISOString() : null,
+    })),
+  );
+});
+
+router.post("/odoo/alerts/:id/resolve", async (req, res): Promise<void> => {
+  const id = Number(req.params["id"]);
+  if (!Number.isInteger(id)) {
+    res.status(400).json({ error: "id inválido" });
+    return;
+  }
+  const [updated] = await db
+    .update(syncAlertsTable)
+    .set({ resuelta: true, resolvedAt: new Date() })
+    .where(eq(syncAlertsTable.id, id))
+    .returning({ id: syncAlertsTable.id });
+  if (!updated) {
+    res.status(404).json({ error: "Alerta no encontrada" });
+    return;
+  }
+  res.json({ ok: true, id: updated.id });
 });
 
 router.post("/odoo/backfill-products", async (req, res): Promise<void> => {

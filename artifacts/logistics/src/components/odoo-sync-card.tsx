@@ -5,6 +5,9 @@ import {
   useTestOdooConnection,
   useSyncOdooNow,
   getListSalesQueryKey,
+  useListOdooAlerts,
+  getListOdooAlertsQueryKey,
+  useResolveOdooAlert,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
@@ -30,6 +33,22 @@ export function OdooSyncCard() {
   const { data: status, isLoading } = useGetOdooStatus({
     query: { queryKey: getGetOdooStatusQueryKey(), refetchInterval: 60_000 },
   });
+
+  const { data: alerts } = useListOdooAlerts(undefined, {
+    query: { queryKey: getListOdooAlertsQueryKey(), refetchInterval: 60_000 },
+  });
+  const resolveAlertMutation = useResolveOdooAlert();
+  const handleResolveAlert = (id: number) => {
+    resolveAlertMutation.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          queryClient.removeQueries({ queryKey: getListOdooAlertsQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getListOdooAlertsQueryKey() });
+        },
+      },
+    );
+  };
 
   const testMutation = useTestOdooConnection();
   const syncMutation = useSyncOdooNow();
@@ -60,19 +79,29 @@ export function OdooSyncCard() {
 
   const handleSync = () => {
     setTestResult(null);
-    syncMutation.mutate(undefined, {
+    syncMutation.mutate({}, {
       onSuccess: (data) => {
         refresh();
         queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListSalesQueryKey({ status: "pendiente" }) });
+        queryClient.invalidateQueries({ queryKey: getListOdooAlertsQueryKey() });
         if (data.ok) {
+          const parts: string[] = [];
+          if (data.imported > 0)
+            parts.push(`${data.imported} importada${data.imported !== 1 ? "s" : ""}`);
+          if (data.updated.length > 0)
+            parts.push(`${data.updated.length} actualizada${data.updated.length !== 1 ? "s" : ""}`);
+          if (data.alertsCreated > 0)
+            parts.push(`${data.alertsCreated} alerta${data.alertsCreated !== 1 ? "s" : ""}`);
           toast({
             title:
-              data.imported > 0
-                ? `Se importaron ${data.imported} orden${data.imported !== 1 ? "es" : ""} de Odoo`
-                : "Sincronización completada — sin órdenes nuevas",
+              parts.length > 0
+                ? `Sincronización: ${parts.join(", ")}`
+                : "Sincronización completada — sin cambios",
             description:
-              data.orders.length > 0 ? `Órdenes: ${data.orders.join(", ")}` : undefined,
+              [...data.orders, ...data.updated].length > 0
+                ? `Órdenes: ${[...data.orders, ...data.updated].join(", ")}`
+                : undefined,
           });
         }
       },
@@ -176,6 +205,33 @@ export function OdooSyncCard() {
               <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
             )}
             <span>{testResult.message}</span>
+          </div>
+        )}
+
+        {alerts && alerts.length > 0 && (
+          <div className="mt-3 space-y-2" data-testid="list-odoo-alerts">
+            {alerts.map((alert) => (
+              <div
+                key={alert.id}
+                className="flex items-start justify-between gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs"
+                data-testid={`alert-odoo-${alert.id}`}
+              >
+                <div className="flex items-start gap-2 min-w-0">
+                  <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0 text-amber-500" />
+                  <span className="text-amber-700 dark:text-amber-400">{alert.mensaje}</span>
+                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-6 px-2 text-[11px] shrink-0"
+                  disabled={resolveAlertMutation.isPending}
+                  onClick={() => handleResolveAlert(alert.id)}
+                  data-testid={`button-resolve-alert-${alert.id}`}
+                >
+                  Marcar resuelta
+                </Button>
+              </div>
+            ))}
           </div>
         )}
 

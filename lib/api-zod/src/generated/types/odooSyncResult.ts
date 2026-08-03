@@ -5,12 +5,17 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
+import type { OrderChange } from './orderChange';
 
 export interface OdooSyncResult {
   ok: boolean;
   imported: number;
   skipped: number;
   orders: string[];
+  updated: string[];
+  changes: OrderChange[];
+  alertsCreated: number;
+  dryRun: boolean;
   /** @nullable */
   error: string | null;
 }

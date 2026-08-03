@@ -35,6 +35,7 @@ import type {
   HealthStatus,
   LinkSaleItemInput,
   ListDispatchesParams,
+  ListOdooAlertsParams,
   ListProductsParams,
   ListSalesParams,
   LoadRequirement,
@@ -48,6 +49,7 @@ import type {
   ProductStats,
   ProductSyncResult,
   ProductUpdate,
+  ResolveOdooAlert200,
   Route,
   RouteInput,
   RoutePoint,
@@ -65,6 +67,8 @@ import type {
   SaleItem,
   SaleItemInput,
   SaleUpdate,
+  SyncAlert,
+  SyncOdooNowParams,
   TollRoute,
   TollRouteInput,
   TollRouteUpdate,
@@ -2016,20 +2020,27 @@ export const useTestOdooConnection = <TError = ErrorType<OdooTestResult>,
       return useMutation(getTestOdooConnectionMutationOptions(options));
     }
 
-export const getSyncOdooNowUrl = () => {
+export const getSyncOdooNowUrl = (params?: SyncOdooNowParams,) => {
+  const normalizedParams = new URLSearchParams();
 
+  Object.entries(params || {}).forEach(([key, value]) => {
 
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
 
+  const stringifiedParams = normalizedParams.toString();
 
-  return `/api/odoo/sync`
+  return stringifiedParams.length > 0 ? `/api/odoo/sync?${stringifiedParams}` : `/api/odoo/sync`
 }
 
 /**
- * @summary Trigger an immediate import of confirmed Odoo sale orders
+ * @summary Trigger an immediate sync (import + update) of confirmed Odoo sale orders
  */
-export const syncOdooNow = async ( options?: RequestInit): Promise<OdooSyncResult> => {
+export const syncOdooNow = async (params?: SyncOdooNowParams, options?: RequestInit): Promise<OdooSyncResult> => {
 
-  return customFetch<OdooSyncResult>(getSyncOdooNowUrl(),
+  return customFetch<OdooSyncResult>(getSyncOdooNowUrl(params),
   {
     ...options,
     method: 'POST'
@@ -2042,8 +2053,8 @@ export const syncOdooNow = async ( options?: RequestInit): Promise<OdooSyncResul
 
 
 export const getSyncOdooNowMutationOptions = <TError = ErrorType<OdooSyncResult>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,void, TContext> => {
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,{params?: SyncOdooNowParams}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,{params?: SyncOdooNowParams}, TContext> => {
 
 const mutationKey = ['syncOdooNow'];
 const {mutation: mutationOptions, request: requestOptions} = options ?
@@ -2055,10 +2066,10 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
 
 
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncOdooNow>>, void> = () => {
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncOdooNow>>, {params?: SyncOdooNowParams}> = (props) => {
+          const {params} = props ?? {};
 
-
-          return  syncOdooNow(requestOptions)
+          return  syncOdooNow(params,requestOptions)
         }
 
 
@@ -2073,14 +2084,14 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SyncOdooNowMutationError = ErrorType<OdooSyncResult>
 
     /**
- * @summary Trigger an immediate import of confirmed Odoo sale orders
+ * @summary Trigger an immediate sync (import + update) of confirmed Odoo sale orders
  */
 export const useSyncOdooNow = <TError = ErrorType<OdooSyncResult>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooNow>>, TError,{params?: SyncOdooNowParams}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof syncOdooNow>>,
         TError,
-        void,
+        {params?: SyncOdooNowParams},
         TContext
       > => {
       return useMutation(getSyncOdooNowMutationOptions(options));
@@ -2154,6 +2165,160 @@ export const useSyncOdooProducts = <TError = ErrorType<ProductSyncResult>,
         TContext
       > => {
       return useMutation(getSyncOdooProductsMutationOptions(options));
+    }
+
+export const getListOdooAlertsUrl = (params?: ListOdooAlertsParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/odoo/alerts?${stringifiedParams}` : `/api/odoo/alerts`
+}
+
+/**
+ * @summary List sync alerts (non-pending orders changed in Odoo)
+ */
+export const listOdooAlerts = async (params?: ListOdooAlertsParams, options?: RequestInit): Promise<SyncAlert[]> => {
+
+  return customFetch<SyncAlert[]>(getListOdooAlertsUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListOdooAlertsQueryKey = (params?: ListOdooAlertsParams,) => {
+    return [
+    `/api/odoo/alerts`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListOdooAlertsQueryOptions = <TData = Awaited<ReturnType<typeof listOdooAlerts>>, TError = ErrorType<unknown>>(params?: ListOdooAlertsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOdooAlerts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListOdooAlertsQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listOdooAlerts>>> = ({ signal }) => listOdooAlerts(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listOdooAlerts>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListOdooAlertsQueryResult = NonNullable<Awaited<ReturnType<typeof listOdooAlerts>>>
+export type ListOdooAlertsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List sync alerts (non-pending orders changed in Odoo)
+ */
+
+export function useListOdooAlerts<TData = Awaited<ReturnType<typeof listOdooAlerts>>, TError = ErrorType<unknown>>(
+ params?: ListOdooAlertsParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listOdooAlerts>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListOdooAlertsQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getResolveOdooAlertUrl = (id: number,) => {
+
+
+
+
+  return `/api/odoo/alerts/${id}/resolve`
+}
+
+/**
+ * @summary Mark a sync alert as resolved
+ */
+export const resolveOdooAlert = async (id: number, options?: RequestInit): Promise<ResolveOdooAlert200> => {
+
+  return customFetch<ResolveOdooAlert200>(getResolveOdooAlertUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getResolveOdooAlertMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveOdooAlert>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resolveOdooAlert>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['resolveOdooAlert'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resolveOdooAlert>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  resolveOdooAlert(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResolveOdooAlertMutationResult = NonNullable<Awaited<ReturnType<typeof resolveOdooAlert>>>
+
+    export type ResolveOdooAlertMutationError = ErrorType<void>
+
+    /**
+ * @summary Mark a sync alert as resolved
+ */
+export const useResolveOdooAlert = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resolveOdooAlert>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resolveOdooAlert>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getResolveOdooAlertMutationOptions(options));
     }
 
 export const getListProductsUrl = (params?: ListProductsParams,) => {

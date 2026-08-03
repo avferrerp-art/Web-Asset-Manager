@@ -146,13 +146,40 @@ export interface OdooTestResult {
   error: string | null;
 }
 
+export interface OrderChange {
+  odooRef: string;
+  estado: string;
+  fields: string[];
+}
+
 export interface OdooSyncResult {
   ok: boolean;
   imported: number;
   skipped: number;
   orders: string[];
+  updated: string[];
+  changes: OrderChange[];
+  alertsCreated: number;
+  dryRun: boolean;
   /** @nullable */
   error: string | null;
+}
+
+export interface SyncAlert {
+  id: number;
+  ventaId: number;
+  /** @nullable */
+  odooId: number | null;
+  /** @nullable */
+  odooRef: string | null;
+  estado: string;
+  mensaje: string;
+  /** @nullable */
+  campos: string | null;
+  resuelta: boolean;
+  createdAt: string;
+  /** @nullable */
+  resolvedAt: string | null;
 }
 
 export interface Product {
@@ -700,6 +727,22 @@ export interface ActiveDispatch {
 
 export type ListSalesParams = {
 status?: string;
+};
+
+export type SyncOdooNowParams = {
+/**
+ * When true, report what would change without writing anything
+ */
+dryRun?: boolean;
+};
+
+export type ListOdooAlertsParams = {
+includeResolved?: boolean;
+};
+
+export type ResolveOdooAlert200 = {
+  ok: boolean;
+  id: number;
 };
 
 export type ListProductsParams = {

@@ -557,13 +557,25 @@ export const TestOdooConnectionResponse = zod.object({
 
 
 /**
- * @summary Trigger an immediate import of confirmed Odoo sale orders
+ * @summary Trigger an immediate sync (import + update) of confirmed Odoo sale orders
  */
+export const SyncOdooNowQueryParams = zod.object({
+  "dryRun": zod.coerce.boolean().optional().describe('When true, report what would change without writing anything')
+})
+
 export const SyncOdooNowResponse = zod.object({
   "ok": zod.boolean(),
   "imported": zod.number(),
   "skipped": zod.number(),
   "orders": zod.array(zod.string()),
+  "updated": zod.array(zod.string()),
+  "changes": zod.array(zod.object({
+  "odooRef": zod.string(),
+  "estado": zod.string(),
+  "fields": zod.array(zod.string())
+})),
+  "alertsCreated": zod.number(),
+  "dryRun": zod.boolean(),
   "error": zod.string().nullable()
 })
 
@@ -577,6 +589,41 @@ export const SyncOdooProductsResponse = zod.object({
   "updated": zod.number(),
   "total": zod.number(),
   "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary List sync alerts (non-pending orders changed in Odoo)
+ */
+export const ListOdooAlertsQueryParams = zod.object({
+  "includeResolved": zod.coerce.boolean().optional()
+})
+
+export const ListOdooAlertsResponseItem = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "odooId": zod.number().nullable(),
+  "odooRef": zod.string().nullable(),
+  "estado": zod.string(),
+  "mensaje": zod.string(),
+  "campos": zod.string().nullable(),
+  "resuelta": zod.boolean(),
+  "createdAt": zod.string(),
+  "resolvedAt": zod.string().nullable()
+})
+export const ListOdooAlertsResponse = zod.array(ListOdooAlertsResponseItem)
+
+
+/**
+ * @summary Mark a sync alert as resolved
+ */
+export const ResolveOdooAlertParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ResolveOdooAlertResponse = zod.object({
+  "ok": zod.boolean(),
+  "id": zod.number()
 })
 
 

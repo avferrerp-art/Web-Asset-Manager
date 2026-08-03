@@ -1,5 +1,12 @@
-import { eq, inArray } from "drizzle-orm";
-import { db, salesTable, saleItemsTable, productsTable, odooSyncStateTable } from "@workspace/db";
+import { and, eq, inArray } from "drizzle-orm";
+import {
+  db,
+  salesTable,
+  saleItemsTable,
+  productsTable,
+  odooSyncStateTable,
+  syncAlertsTable,
+} from "@workspace/db";
 import {
   authenticate,
   executeKw,
@@ -8,11 +15,22 @@ import {
   type OdooConfig,
 } from "../lib/odooClient";
 import { logger } from "../lib/logger";
+import { recalcSales } from "./productBackfill";
+
+export interface OrderChange {
+  odooRef: string;
+  estado: string;
+  fields: string[];
+}
 
 export interface SyncResult {
   imported: number;
   skipped: number;
   orders: string[];
+  updated: string[];
+  changes: OrderChange[];
+  alertsCreated: number;
+  dryRun: boolean;
 }
 
 interface OdooSaleOrder {
@@ -23,6 +41,7 @@ interface OdooSaleOrder {
   user_id: [number, string] | false;
   note: string | false;
   order_line: number[];
+  write_date: string;
 }
 
 interface OdooOrderLine {
@@ -212,6 +231,7 @@ async function fetchConfirmedOrders(
           "user_id",
           "note",
           "order_line",
+          "write_date",
         ],
         limit: FETCH_BATCH_SIZE,
         order: "id asc",
@@ -228,7 +248,116 @@ function stripHtml(value: string): string {
   return value.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
 }
 
-export async function syncOdooOrders(): Promise<SyncResult> {
+// ---------------------------------------------------------------------------
+// Shared computation: given an Odoo order + its lines/products/partners,
+// compute what the LogiFleet sale (and its items) should look like.
+// ---------------------------------------------------------------------------
+interface DesiredItem {
+  key: string; // odoo product id or descripcion-based key
+  productId: number | null;
+  descripcion: string;
+  cantidad: number;
+  pesoUnitario: number;
+  largo: number;
+  ancho: number;
+  alto: number;
+}
+
+interface DesiredSale {
+  cliente: string;
+  vendedor: string | null;
+  personaContacto: string | null;
+  numeroCel: string | null;
+  tipoMaterial: string | null;
+  destino: string | null; // null = no usable address from Odoo
+  notas: string | null;
+  pesoTotalOdoo: number;
+  volumenTotalOdoo: number;
+  dimensionesIncompletas: boolean;
+  items: DesiredItem[];
+}
+
+function itemKey(odooProductId: number | null, descripcion: string): string {
+  return odooProductId !== null ? `p:${odooProductId}` : `d:${descripcion.trim().toLowerCase()}`;
+}
+
+function computeDesiredSale(
+  order: OdooSaleOrder,
+  lines: OdooOrderLine[],
+  productById: Map<number, OdooProduct>,
+  catalogByOdooId: Map<number | null, typeof productsTable.$inferSelect>,
+  partnerById: Map<number, OdooPartner>,
+): DesiredSale {
+  const orderLines = lines.filter((l) => l.order_id[0] === order.id);
+  let peso = 0;
+  let volumen = 0;
+  const materials = new Set<string>();
+  for (const line of orderLines) {
+    if (!line.product_id) continue;
+    const product = productById.get(line.product_id[0]);
+    const qty = line.product_uom_qty ?? 0;
+    if (product) {
+      peso += (product.weight ?? 0) * qty;
+      volumen += (product.volume ?? 0) * qty;
+    }
+    materials.add(line.product_id[1]);
+  }
+
+  const shippingPartner = order.partner_shipping_id
+    ? partnerById.get(order.partner_shipping_id[0])
+    : undefined;
+
+  // Aggregate items by product (multiple Odoo lines for the same product merge)
+  let dimensionesIncompletas = false;
+  const byKey = new Map<string, DesiredItem>();
+  for (const line of orderLines) {
+    if (!line.product_id) continue;
+    const odooProductId = line.product_id[0];
+    const catalog = catalogByOdooId.get(odooProductId);
+    const qty = Math.max(1, Math.round(line.product_uom_qty ?? 1));
+    if (!catalog || !catalog.dimensionesConfirmadas) dimensionesIncompletas = true;
+    const key = itemKey(odooProductId, catalog?.nombre ?? line.product_id[1]);
+    const existing = byKey.get(key);
+    if (existing) {
+      existing.cantidad += qty;
+      continue;
+    }
+    byKey.set(key, {
+      key,
+      productId: catalog?.id ?? null,
+      descripcion: catalog?.nombre ?? line.product_id[1],
+      cantidad: qty,
+      pesoUnitario: catalog?.pesoKg ?? 0,
+      largo: catalog?.largoCm ?? 0,
+      ancho: catalog?.anchoCm ?? 0,
+      alto: catalog?.altoCm ?? 0,
+    });
+  }
+
+  return {
+    cliente: order.partner_id ? order.partner_id[1] : "Cliente Odoo",
+    vendedor: order.user_id ? order.user_id[1] : null,
+    personaContacto: shippingPartner?.name ?? null,
+    numeroCel:
+      (shippingPartner?.mobile && String(shippingPartner.mobile)) ||
+      (shippingPartner?.phone && String(shippingPartner.phone)) ||
+      null,
+    tipoMaterial: materials.size > 0 ? [...materials].slice(0, 3).join(", ") : null,
+    destino: buildDestino(shippingPartner),
+    notas: order.note ? stripHtml(String(order.note)) : null,
+    pesoTotalOdoo: Math.round(peso * 100) / 100,
+    volumenTotalOdoo: Math.round(volumen * 10000) / 10000,
+    dimensionesIncompletas,
+    items: [...byKey.values()],
+  };
+}
+
+export interface SyncOptions {
+  dryRun?: boolean;
+}
+
+export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncResult> {
+  const dryRun = options.dryRun ?? false;
   const config = getOdooConfig();
   if (!config) {
     throw new OdooError(
@@ -239,14 +368,29 @@ export async function syncOdooOrders(): Promise<SyncResult> {
   const uid = await authenticate(config);
   const orders = await fetchConfirmedOrders(config, uid);
 
+  const emptyResult: SyncResult = {
+    imported: 0,
+    skipped: 0,
+    orders: [],
+    updated: [],
+    changes: [],
+    alertsCreated: 0,
+    dryRun,
+  };
+
   if (orders.length === 0) {
-    await recordSyncResult({ imported: 0, skipped: 0, orders: [] });
-    return { imported: 0, skipped: 0, orders: [] };
+    if (!dryRun) await recordSyncResult(emptyResult);
+    return emptyResult;
   }
 
-  // Idempotency: skip orders already imported (by Odoo id)
+  // Split into new orders vs. already-imported orders (by Odoo id)
   const existing = await db
-    .select({ odooId: salesTable.odooId })
+    .select({
+      id: salesTable.id,
+      odooId: salesTable.odooId,
+      estado: salesTable.estado,
+      odooWriteDate: salesTable.odooWriteDate,
+    })
     .from(salesTable)
     .where(
       inArray(
@@ -254,17 +398,27 @@ export async function syncOdooOrders(): Promise<SyncResult> {
         orders.map((o) => o.id),
       ),
     );
-  const existingIds = new Set(existing.map((r) => r.odooId));
-  const newOrders = orders.filter((o) => !existingIds.has(o.id));
-  const skipped = orders.length - newOrders.length;
+  const existingByOdooId = new Map(existing.map((r) => [r.odooId, r]));
+  const newOrders = orders.filter((o) => !existingByOdooId.has(o.id));
 
-  if (newOrders.length === 0) {
-    await recordSyncResult({ imported: 0, skipped, orders: [] });
-    return { imported: 0, skipped, orders: [] };
+  // Change detection: existing orders whose Odoo write_date differs from the
+  // one recorded at last sync (a never-recorded write_date counts as changed —
+  // the field diff below decides whether anything is actually different).
+  const changedOrders = orders.filter((o) => {
+    const row = existingByOdooId.get(o.id);
+    return row !== undefined && row.odooWriteDate !== o.write_date;
+  });
+  const skipped = orders.length - newOrders.length - changedOrders.length;
+
+  if (newOrders.length === 0 && changedOrders.length === 0) {
+    const result = { ...emptyResult, skipped };
+    if (!dryRun) await recordSyncResult(result);
+    return result;
   }
 
-  // Fetch order lines and products to compute weight/volume
-  const lineIds = newOrders.flatMap((o) => o.order_line);
+  // Fetch order lines, products, catalog and partners for all orders we touch
+  const touchedOrders = [...newOrders, ...changedOrders];
+  const lineIds = touchedOrders.flatMap((o) => o.order_line);
   const lines =
     lineIds.length > 0
       ? ((await executeKw(config, uid, "sale.order.line", "read", [lineIds], {
@@ -293,7 +447,7 @@ export async function syncOdooOrders(): Promise<SyncResult> {
   // Fetch shipping partners for destination info
   const partnerIds = [
     ...new Set(
-      newOrders
+      touchedOrders
         .filter((o) => o.partner_shipping_id)
         .map((o) => (o.partner_shipping_id as [number, string])[0]),
     ),
@@ -301,121 +455,273 @@ export async function syncOdooOrders(): Promise<SyncResult> {
   const partners = await readPartners(config, uid, partnerIds);
   const partnerById = new Map(partners.map((p) => [p.id, p]));
 
+  // ── Import new orders (unchanged behavior + write_date recorded) ─────────
   const importedRefs: string[] = [];
-
   for (const order of newOrders) {
-    const orderLines = lines.filter((l) => l.order_id[0] === order.id);
-    let peso = 0;
-    let volumen = 0;
-    const materials = new Set<string>();
-    for (const line of orderLines) {
-      if (!line.product_id) continue;
-      const product = productById.get(line.product_id[0]);
-      const qty = line.product_uom_qty ?? 0;
-      if (product) {
-        peso += (product.weight ?? 0) * qty;
-        volumen += (product.volume ?? 0) * qty;
-      }
-      materials.add(line.product_id[1]);
-    }
+    const desired = computeDesiredSale(order, lines, productById, catalogByOdooId, partnerById);
+    const destino = desired.destino ?? "Por definir";
 
-    const shippingPartner = order.partner_shipping_id
-      ? partnerById.get(order.partner_shipping_id[0])
-      : undefined;
-    const destino = buildDestino(shippingPartner) ?? "Por definir";
-
-    const notas = order.note ? stripHtml(String(order.note)) : null;
-
-    // Build sale items from order lines using LogiFleet catalog dimensions
-    let dimensionesIncompletas = false;
-    const itemsToCreate: {
-      productId: number | null;
-      descripcion: string;
-      cantidad: number;
-      pesoUnitario: number;
-      largo: number;
-      ancho: number;
-      alto: number;
-    }[] = [];
-    for (const line of orderLines) {
-      if (!line.product_id) continue;
-      const catalog = catalogByOdooId.get(line.product_id[0]);
-      const qty = Math.max(1, Math.round(line.product_uom_qty ?? 1));
-      if (catalog && catalog.dimensionesConfirmadas) {
-        itemsToCreate.push({
-          productId: catalog.id,
-          descripcion: catalog.nombre,
-          cantidad: qty,
-          pesoUnitario: catalog.pesoKg ?? 0,
-          largo: catalog.largoCm ?? 0,
-          ancho: catalog.anchoCm ?? 0,
-          alto: catalog.altoCm ?? 0,
-        });
-      } else {
-        // Producto sin dimensiones confirmadas o ausente del catálogo → partida pendiente
-        dimensionesIncompletas = true;
-        itemsToCreate.push({
-          productId: catalog?.id ?? null,
-          descripcion: catalog?.nombre ?? line.product_id[1],
-          cantidad: qty,
-          pesoUnitario: catalog?.pesoKg ?? 0,
-          largo: catalog?.largoCm ?? 0,
-          ancho: catalog?.anchoCm ?? 0,
-          alto: catalog?.altoCm ?? 0,
-        });
-      }
-    }
-
-    const pesoTotalOdoo = Math.round(peso * 100) / 100;
-    const volumenTotalOdoo = Math.round(volumen * 10000) / 10000;
-    const pesoLocal = itemsToCreate.reduce((s, it) => s + it.cantidad * it.pesoUnitario, 0);
-    const volumenLocal = itemsToCreate.reduce(
+    const pesoLocal = desired.items.reduce((s, it) => s + it.cantidad * it.pesoUnitario, 0);
+    const volumenLocal = desired.items.reduce(
       (s, it) => s + (it.cantidad * it.largo * it.ancho * it.alto) / 1_000_000,
       0,
     );
-    const hasLocalData = itemsToCreate.length > 0 && (pesoLocal > 0 || volumenLocal > 0);
+    const hasLocalData = desired.items.length > 0 && (pesoLocal > 0 || volumenLocal > 0);
+
+    if (dryRun) {
+      importedRefs.push(order.name);
+      continue;
+    }
 
     const inserted = await db
       .insert(salesTable)
       .values({
-        cliente: order.partner_id ? order.partner_id[1] : "Cliente Odoo",
-        vendedor: order.user_id ? order.user_id[1] : null,
-        personaContacto: shippingPartner?.name ?? null,
-        numeroCel:
-          (shippingPartner?.mobile && String(shippingPartner.mobile)) ||
-          (shippingPartner?.phone && String(shippingPartner.phone)) ||
-          null,
-        tipoMaterial: materials.size > 0 ? [...materials].slice(0, 3).join(", ") : null,
-        pesoTotal: hasLocalData ? Math.round(pesoLocal * 100) / 100 : pesoTotalOdoo,
-        volumenTotal: hasLocalData ? Math.round(volumenLocal * 10000) / 10000 : volumenTotalOdoo,
-        pesoTotalOdoo,
-        volumenTotalOdoo,
-        dimensionesIncompletas,
+        cliente: desired.cliente,
+        vendedor: desired.vendedor,
+        personaContacto: desired.personaContacto,
+        numeroCel: desired.numeroCel,
+        tipoMaterial: desired.tipoMaterial,
+        pesoTotal: hasLocalData ? Math.round(pesoLocal * 100) / 100 : desired.pesoTotalOdoo,
+        volumenTotal: hasLocalData
+          ? Math.round(volumenLocal * 10000) / 10000
+          : desired.volumenTotalOdoo,
+        pesoTotalOdoo: desired.pesoTotalOdoo,
+        volumenTotalOdoo: desired.volumenTotalOdoo,
+        dimensionesIncompletas: desired.dimensionesIncompletas,
         destino,
         estado: "pendiente",
-        notas,
+        notas: desired.notas,
         odooRef: order.name,
         odooId: order.id,
+        odooWriteDate: order.write_date,
       })
       .onConflictDoNothing({ target: salesTable.odooId })
       .returning({ id: salesTable.id });
     if (inserted.length > 0) {
       const ventaId = inserted[0]!.id;
-      if (itemsToCreate.length > 0) {
-        await db
-          .insert(saleItemsTable)
-          .values(itemsToCreate.map((it) => ({ ...it, ventaId })));
+      if (desired.items.length > 0) {
+        await db.insert(saleItemsTable).values(
+          desired.items.map((it) => ({
+            productId: it.productId,
+            descripcion: it.descripcion,
+            cantidad: it.cantidad,
+            pesoUnitario: it.pesoUnitario,
+            largo: it.largo,
+            ancho: it.ancho,
+            alto: it.alto,
+            ventaId,
+          })),
+        );
       }
       importedRefs.push(order.name);
     }
   }
 
+  // ── Update changed, already-imported orders (conservative) ───────────────
+  const updatedRefs: string[] = [];
+  const changes: OrderChange[] = [];
+  let alertsCreated = 0;
+  let unchangedStamped = 0;
+
+  for (const order of changedOrders) {
+    const row = existingByOdooId.get(order.id)!;
+    const desired = computeDesiredSale(order, lines, productById, catalogByOdooId, partnerById);
+
+    const [currentSale] = await db
+      .select()
+      .from(salesTable)
+      .where(eq(salesTable.id, row.id));
+    if (!currentSale) continue;
+
+    const currentItems = await db
+      .select()
+      .from(saleItemsTable)
+      .where(eq(saleItemsTable.ventaId, row.id));
+
+    // Field diff on the sale header. destino only changes when Odoo provides
+    // a real address (never downgrade an existing destino to "Por definir").
+    const saleUpdate: Record<string, unknown> = {};
+    const changedFields: string[] = [];
+    const compare: [string, unknown, unknown][] = [
+      ["cliente", currentSale.cliente, desired.cliente],
+      ["vendedor", currentSale.vendedor, desired.vendedor],
+      ["personaContacto", currentSale.personaContacto, desired.personaContacto],
+      ["numeroCel", currentSale.numeroCel, desired.numeroCel],
+      ["tipoMaterial", currentSale.tipoMaterial, desired.tipoMaterial],
+      ["notas", currentSale.notas, desired.notas],
+      // Regla crítica: pesoTotalOdoo/volumenTotalOdoo SOLO con valores de Odoo
+      ["pesoTotalOdoo", currentSale.pesoTotalOdoo, desired.pesoTotalOdoo],
+      ["volumenTotalOdoo", currentSale.volumenTotalOdoo, desired.volumenTotalOdoo],
+    ];
+    for (const [field, cur, next] of compare) {
+      if (cur !== next) {
+        saleUpdate[field] = next;
+        changedFields.push(field);
+      }
+    }
+    if (desired.destino !== null && desired.destino !== currentSale.destino) {
+      saleUpdate["destino"] = desired.destino;
+      changedFields.push("destino");
+    }
+
+    // Item reconciliation plan (match by catalog product, fallback descripcion).
+    const catalogIdToOdooId = new Map(catalogProducts.map((p) => [p.id, p.odooId]));
+    const currentByKey = new Map<string, (typeof currentItems)[number][]>();
+    for (const it of currentItems) {
+      const odooPid = it.productId !== null ? (catalogIdToOdooId.get(it.productId) ?? null) : null;
+      const key = itemKey(odooPid, it.descripcion);
+      const list = currentByKey.get(key) ?? [];
+      list.push(it);
+      currentByKey.set(key, list);
+    }
+
+    const itemOps: {
+      kind: "insert" | "updateQty" | "delete";
+      detail: string;
+      run: () => Promise<void>;
+    }[] = [];
+    const matchedKeys = new Set<string>();
+    for (const want of desired.items) {
+      const have = currentByKey.get(want.key);
+      if (have && have.length > 0) {
+        matchedKeys.add(want.key);
+        const totalQty = have.reduce((s, it) => s + it.cantidad, 0);
+        const primary = have[0]!;
+        if (totalQty !== want.cantidad) {
+          itemOps.push({
+            kind: "updateQty",
+            detail: `${primary.descripcion}: cantidad ${totalQty} → ${want.cantidad}`,
+            run: async () => {
+              // Preserve productId and inherited dimensions; only fix quantity.
+              await db
+                .update(saleItemsTable)
+                .set({ cantidad: want.cantidad })
+                .where(eq(saleItemsTable.id, primary.id));
+              const extras = have.slice(1).map((it) => it.id);
+              if (extras.length > 0) {
+                await db.delete(saleItemsTable).where(inArray(saleItemsTable.id, extras));
+              }
+            },
+          });
+        }
+      } else {
+        itemOps.push({
+          kind: "insert",
+          detail: `+ ${want.descripcion} x${want.cantidad}`,
+          run: async () => {
+            await db.insert(saleItemsTable).values({
+              ventaId: row.id,
+              productId: want.productId,
+              descripcion: want.descripcion,
+              cantidad: want.cantidad,
+              pesoUnitario: want.pesoUnitario,
+              largo: want.largo,
+              ancho: want.ancho,
+              alto: want.alto,
+            });
+          },
+        });
+      }
+    }
+    for (const [key, have] of currentByKey) {
+      if (matchedKeys.has(key)) continue;
+      const ids = have.map((it) => it.id);
+      itemOps.push({
+        kind: "delete",
+        detail: `- ${have[0]!.descripcion}`,
+        run: async () => {
+          await db.delete(saleItemsTable).where(inArray(saleItemsTable.id, ids));
+        },
+      });
+    }
+    if (itemOps.length > 0) changedFields.push("partidas");
+
+    if (changedFields.length === 0) {
+      // Nothing actually differs (e.g. write_date never recorded, or a change
+      // in an Odoo field we don't import). Just stamp write_date so the order
+      // is not re-examined every run.
+      if (!dryRun) {
+        await db
+          .update(salesTable)
+          .set({ odooWriteDate: order.write_date })
+          .where(eq(salesTable.id, row.id));
+        unchangedStamped++;
+      }
+      continue;
+    }
+
+    changes.push({ odooRef: order.name, estado: currentSale.estado, fields: changedFields });
+
+    // Non-pending orders: never touched — persistent alert for a human.
+    if (currentSale.estado !== "pendiente") {
+      if (!dryRun) {
+        // Dedupe by (ventaId, odooWriteDate) regardless of resolution state:
+        // a resolved alert for this same Odoo change must not be recreated.
+        const [dup] = await db
+          .select({ id: syncAlertsTable.id })
+          .from(syncAlertsTable)
+          .where(
+            and(
+              eq(syncAlertsTable.ventaId, row.id),
+              eq(syncAlertsTable.odooWriteDate, order.write_date),
+            ),
+          )
+          .limit(1);
+        if (!dup) {
+          await db.insert(syncAlertsTable).values({
+            ventaId: row.id,
+            odooId: order.id,
+            odooRef: order.name,
+            estado: currentSale.estado,
+            mensaje: `La orden ${order.name} cambió en Odoo pero está en estado '${currentSale.estado}' — revisar manualmente. Campos: ${changedFields.join(", ")}`,
+            campos: changedFields.join(","),
+            odooWriteDate: order.write_date,
+          });
+          alertsCreated++;
+          logger.warn(
+            { odooRef: order.name, estado: currentSale.estado, fields: changedFields },
+            "Orden no-pendiente cambió en Odoo: alerta creada, sin modificar",
+          );
+        }
+      }
+      continue;
+    }
+
+    if (dryRun) continue;
+
+    // Apply header updates + write_date stamp
+    await db
+      .update(salesTable)
+      .set({ ...saleUpdate, odooWriteDate: order.write_date })
+      .where(eq(salesTable.id, row.id));
+
+    // Apply item reconciliation
+    for (const op of itemOps) await op.run();
+
+    // Recalculate local totals (recalcSales never touches pesoTotalOdoo/volumenTotalOdoo)
+    if (itemOps.length > 0) await recalcSales([row.id]);
+
+    updatedRefs.push(order.name);
+    logger.info(
+      {
+        odooRef: order.name,
+        fields: changedFields,
+        items: itemOps.map((op) => op.detail),
+      },
+      "Orden actualizada desde Odoo",
+    );
+  }
+
   const result: SyncResult = {
     imported: importedRefs.length,
-    skipped,
+    skipped: skipped + unchangedStamped,
     orders: importedRefs,
+    updated: updatedRefs,
+    changes,
+    alertsCreated,
+    dryRun,
   };
-  await recordSyncResult(result);
+  if (!dryRun) await recordSyncResult(result);
   return result;
 }
 
@@ -462,8 +768,8 @@ export function startOdooPolling(): void {
     if (!getOdooConfig()) return; // not configured yet — skip silently
     try {
       const result = await syncOdooOrders();
-      if (result.imported > 0) {
-        logger.info({ result }, "Odoo sync imported new orders");
+      if (result.imported > 0 || result.updated.length > 0 || result.alertsCreated > 0) {
+        logger.info({ result }, "Odoo sync applied changes");
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
