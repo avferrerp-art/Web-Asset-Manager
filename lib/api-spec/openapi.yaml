@@ -466,6 +466,49 @@ paths:
         "404":
           description: Not found
 
+  # --- UNLINKED SALE ITEMS ---
+  /sale-items/sin-vincular:
+    get:
+      operationId: listUnlinkedSaleItems
+      tags: [sales]
+      summary: List sale items without a linked product (productId null)
+      responses:
+        "200":
+          description: List of unlinked sale items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/UnlinkedSaleItem"
+
+  /sale-items/{itemId}/vincular:
+    post:
+      operationId: linkSaleItemProduct
+      tags: [sales]
+      summary: Manually link a sale item to a catalog product (copies confirmed dimensions and recalculates sale totals)
+      parameters:
+        - name: itemId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkSaleItemInput"
+      responses:
+        "200":
+          description: Linked
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaleItem"
+        "404":
+          description: Item or product not found
+
   # --- ODOO SYNC ---
   /odoo/status:
     get:
@@ -1861,6 +1904,28 @@ components:
           type: number
         alto:
           type: number
+
+    UnlinkedSaleItem:
+      type: object
+      required: [id, ventaId, descripcion, cantidad, cliente]
+      properties:
+        id:
+          type: integer
+        ventaId:
+          type: integer
+        descripcion:
+          type: string
+        cantidad:
+          type: integer
+        cliente:
+          type: string
+
+    LinkSaleItemInput:
+      type: object
+      required: [productId]
+      properties:
+        productId:
+          type: integer
 
     # --- DISPATCHES ---
     Dispatch:

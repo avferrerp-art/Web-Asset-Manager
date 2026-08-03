@@ -494,6 +494,44 @@ export const DeleteSaleItemResponse = zod.void()
 
 
 /**
+ * @summary List sale items without a linked product (productId null)
+ */
+export const ListUnlinkedSaleItemsResponseItem = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "descripcion": zod.string(),
+  "cantidad": zod.number(),
+  "cliente": zod.string()
+})
+export const ListUnlinkedSaleItemsResponse = zod.array(ListUnlinkedSaleItemsResponseItem)
+
+
+/**
+ * @summary Manually link a sale item to a catalog product (copies confirmed dimensions and recalculates sale totals)
+ */
+export const LinkSaleItemProductParams = zod.object({
+  "itemId": zod.coerce.number()
+})
+
+export const LinkSaleItemProductBody = zod.object({
+  "productId": zod.number()
+})
+
+export const LinkSaleItemProductResponse = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
+  "descripcion": zod.string(),
+  "cantidad": zod.number(),
+  "pesoUnitario": zod.number(),
+  "largo": zod.number(),
+  "ancho": zod.number(),
+  "alto": zod.number(),
+  "createdAt": zod.string()
+})
+
+
+/**
  * @summary Get Odoo connection configuration and last sync status
  */
 export const GetOdooStatusResponse = zod.object({

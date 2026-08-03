@@ -2,11 +2,12 @@ import React, { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import {
   useListSales, getListSalesQueryKey,
-  useCreateSale, useUpdateSale, useDeleteSale
+  useCreateSale, useUpdateSale, useDeleteSale,
+  useListUnlinkedSaleItems, getListUnlinkedSaleItemsQueryKey
 } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus, Edit2, Trash2, Upload, Loader2, FileText, X, PackageSearch, AlertTriangle } from "lucide-react";
+import { Plus, Edit2, Trash2, Upload, Loader2, FileText, X, PackageSearch, AlertTriangle, Unlink } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { useQueryClient } from "@tanstack/react-query";
 import { z } from "zod";
@@ -70,6 +71,11 @@ export default function Ventas() {
   const { data: sales, isLoading } = useListSales(undefined, {
     query: { queryKey: getListSalesQueryKey() }
   });
+
+  const { data: unlinkedItems } = useListUnlinkedSaleItems({
+    query: { queryKey: getListUnlinkedSaleItemsQueryKey() }
+  });
+  const salesWithUnlinked = new Set((unlinkedItems ?? []).map(it => it.ventaId));
 
   const filteredSales = activeFilter === "todas"
     ? (sales ?? [])
@@ -507,6 +513,15 @@ export default function Ventas() {
                         data-testid={`badge-dimensiones-incompletas-${sale.id}`}
                       >
                         <AlertTriangle className="w-3 h-3" /> Dimensiones incompletas
+                      </Badge>
+                    )}
+                    {salesWithUnlinked.has(sale.id) && (
+                      <Badge
+                        variant="outline"
+                        className="mt-1 text-purple-500 border-purple-500/50 bg-purple-500/10 text-[10px] gap-1"
+                        data-testid={`badge-sin-vincular-${sale.id}`}
+                      >
+                        <Unlink className="w-3 h-3" /> Partidas sin vincular
                       </Badge>
                     )}
                   </TableCell>

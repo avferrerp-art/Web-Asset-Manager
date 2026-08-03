@@ -33,6 +33,7 @@ import type {
   FuelPriceUpdate,
   GetVehicleScheduleParams,
   HealthStatus,
+  LinkSaleItemInput,
   ListDispatchesParams,
   ListProductsParams,
   ListSalesParams,
@@ -69,6 +70,7 @@ import type {
   TollRouteUpdate,
   TravelCost,
   TravelCostInput,
+  UnlinkedSaleItem,
   Vehicle,
   VehicleInput,
   VehicleScheduleEntry,
@@ -1717,6 +1719,154 @@ export const useDeleteSaleItem = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteSaleItemMutationOptions(options));
+    }
+
+export const getListUnlinkedSaleItemsUrl = () => {
+
+
+
+
+  return `/api/sale-items/sin-vincular`
+}
+
+/**
+ * @summary List sale items without a linked product (productId null)
+ */
+export const listUnlinkedSaleItems = async ( options?: RequestInit): Promise<UnlinkedSaleItem[]> => {
+
+  return customFetch<UnlinkedSaleItem[]>(getListUnlinkedSaleItemsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListUnlinkedSaleItemsQueryKey = () => {
+    return [
+    `/api/sale-items/sin-vincular`
+    ] as const;
+    }
+
+
+export const getListUnlinkedSaleItemsQueryOptions = <TData = Awaited<ReturnType<typeof listUnlinkedSaleItems>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listUnlinkedSaleItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListUnlinkedSaleItemsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listUnlinkedSaleItems>>> = ({ signal }) => listUnlinkedSaleItems({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listUnlinkedSaleItems>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListUnlinkedSaleItemsQueryResult = NonNullable<Awaited<ReturnType<typeof listUnlinkedSaleItems>>>
+export type ListUnlinkedSaleItemsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List sale items without a linked product (productId null)
+ */
+
+export function useListUnlinkedSaleItems<TData = Awaited<ReturnType<typeof listUnlinkedSaleItems>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listUnlinkedSaleItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListUnlinkedSaleItemsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getLinkSaleItemProductUrl = (itemId: number,) => {
+
+
+
+
+  return `/api/sale-items/${itemId}/vincular`
+}
+
+/**
+ * @summary Manually link a sale item to a catalog product (copies confirmed dimensions and recalculates sale totals)
+ */
+export const linkSaleItemProduct = async (itemId: number,
+    linkSaleItemInput: LinkSaleItemInput, options?: RequestInit): Promise<SaleItem> => {
+
+  return customFetch<SaleItem>(getLinkSaleItemProductUrl(itemId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(linkSaleItemInput)
+  }
+);}
+
+
+
+
+export const getLinkSaleItemProductMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkSaleItemProduct>>, TError,{itemId: number;data: BodyType<LinkSaleItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof linkSaleItemProduct>>, TError,{itemId: number;data: BodyType<LinkSaleItemInput>}, TContext> => {
+
+const mutationKey = ['linkSaleItemProduct'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof linkSaleItemProduct>>, {itemId: number;data: BodyType<LinkSaleItemInput>}> = (props) => {
+          const {itemId,data} = props ?? {};
+
+          return  linkSaleItemProduct(itemId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type LinkSaleItemProductMutationResult = NonNullable<Awaited<ReturnType<typeof linkSaleItemProduct>>>
+    export type LinkSaleItemProductMutationBody = BodyType<LinkSaleItemInput>
+    export type LinkSaleItemProductMutationError = ErrorType<void>
+
+    /**
+ * @summary Manually link a sale item to a catalog product (copies confirmed dimensions and recalculates sale totals)
+ */
+export const useLinkSaleItemProduct = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkSaleItemProduct>>, TError,{itemId: number;data: BodyType<LinkSaleItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof linkSaleItemProduct>>,
+        TError,
+        {itemId: number;data: BodyType<LinkSaleItemInput>},
+        TContext
+      > => {
+      return useMutation(getLinkSaleItemProductMutationOptions(options));
     }
 
 export const getGetOdooStatusUrl = () => {

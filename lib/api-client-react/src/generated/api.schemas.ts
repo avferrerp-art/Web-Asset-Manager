@@ -321,6 +321,18 @@ export interface SaleItemInput {
   alto?: number;
 }
 
+export interface UnlinkedSaleItem {
+  id: number;
+  ventaId: number;
+  descripcion: string;
+  cantidad: number;
+  cliente: string;
+}
+
+export interface LinkSaleItemInput {
+  productId: number;
+}
+
 export interface Dispatch {
   id: number;
   ventaId: number;

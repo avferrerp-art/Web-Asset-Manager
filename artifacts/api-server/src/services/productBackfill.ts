@@ -14,7 +14,7 @@ export interface BackfillResult {
 // for a batch of sale IDs based on their current items. Never touches
 // pesoTotalOdoo / volumenTotalOdoo.
 // ---------------------------------------------------------------------------
-async function recalcSales(saleIds: number[]): Promise<number> {
+export async function recalcSales(saleIds: number[]): Promise<number> {
   if (saleIds.length === 0) return 0;
   let updated = 0;
   for (let i = 0; i < saleIds.length; i += 200) {

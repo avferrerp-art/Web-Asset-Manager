@@ -6,6 +6,8 @@ import {
   useCreateSaleItem,
   useUpdateSaleItem,
   useDeleteSaleItem,
+  useListProducts, getListProductsQueryKey,
+  useLinkSaleItemProduct, getListUnlinkedSaleItemsQueryKey,
 } from "@workspace/api-client-react";
 import type { SaleItem, SaleItemInput, Vehicle, Sale } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -22,7 +24,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import {
   CheckCircle2, ChevronRight, ChevronLeft, Package, ClipboardList, Truck,
-  Plus, Trash2, Edit2, Check, X, Download,
+  Plus, Trash2, Edit2, Check, X, Download, Unlink, Search, Loader2,
 } from "lucide-react";
 
 interface Props {
@@ -104,6 +106,35 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
   const createItem = useCreateSaleItem();
   const updateItem = useUpdateSaleItem();
   const deleteItem = useDeleteSaleItem();
+  const linkItem = useLinkSaleItemProduct();
+
+  // ── Manual product linking for unlinked items ──────────────────────────
+  const [linkingItemId, setLinkingItemId] = useState<number | null>(null);
+  const [linkSearch, setLinkSearch] = useState("");
+  const trimmedLinkSearch = linkSearch.trim();
+  const { data: linkResults, isLoading: isSearchingLink } = useListProducts(
+    { search: trimmedLinkSearch },
+    {
+      query: {
+        queryKey: getListProductsQueryKey({ search: trimmedLinkSearch }),
+        enabled: linkingItemId !== null && trimmedLinkSearch.length > 0,
+      },
+    }
+  );
+
+  function handleLinkProduct(itemId: number, productId: number) {
+    linkItem.mutate({ itemId, data: { productId } }, {
+      onSuccess: () => {
+        setLinkingItemId(null);
+        setLinkSearch("");
+        invalidateItems();
+        queryClient.removeQueries({ queryKey: getListUnlinkedSaleItemsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListUnlinkedSaleItemsQueryKey() });
+        toast({ title: "Artículo vinculado", description: "La partida quedó asociada al catálogo." });
+      },
+      onError: () => toast({ title: "No se pudo vincular la partida", variant: "destructive" }),
+    });
+  }
 
   const pendingSales = salesData?.filter(s => s.estado === "pendiente") ?? [];
 
@@ -362,7 +393,8 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                   ) : (
                     <>
                       {(saleItems ?? []).map(item => (
-                        <TableRow key={item.id} className="text-xs">
+                        <React.Fragment key={item.id}>
+                        <TableRow className="text-xs">
                           {editingRow?.id === item.id ? (
                             <>
                               <TableCell>
@@ -407,7 +439,24 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                             </>
                           ) : (
                             <>
-                              <TableCell className="font-medium">{item.descripcion}</TableCell>
+                              <TableCell className="font-medium">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span>{item.descripcion}</span>
+                                  {item.productId == null && (
+                                    <Badge
+                                      variant="outline"
+                                      className="text-purple-500 border-purple-500/50 bg-purple-500/10 text-[10px] gap-1 cursor-pointer"
+                                      data-testid={`badge-item-sin-vincular-${item.id}`}
+                                      onClick={() => {
+                                        setLinkingItemId(linkingItemId === item.id ? null : item.id);
+                                        setLinkSearch("");
+                                      }}
+                                    >
+                                      <Unlink className="w-3 h-3" /> Sin vincular
+                                    </Badge>
+                                  )}
+                                </div>
+                              </TableCell>
                               <TableCell className="text-right">{item.cantidad}</TableCell>
                               <TableCell className="text-right">{item.largo}</TableCell>
                               <TableCell className="text-right">{item.ancho}</TableCell>
@@ -431,6 +480,58 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                             </>
                           )}
                         </TableRow>
+                        {item.productId == null && linkingItemId === item.id && (
+                          <TableRow className="bg-purple-500/5">
+                            <TableCell colSpan={8} className="py-2">
+                              <div className="space-y-2">
+                                <div className="relative">
+                                  <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                                  <Input
+                                    autoFocus
+                                    data-testid={`input-link-search-${item.id}`}
+                                    className="h-8 text-xs pl-8"
+                                    placeholder="Buscar artículo por nombre o referencia..."
+                                    value={linkSearch}
+                                    onChange={e => setLinkSearch(e.target.value)}
+                                  />
+                                </div>
+                                {trimmedLinkSearch.length > 0 && (
+                                  <div className="max-h-44 overflow-y-auto rounded border divide-y">
+                                    {isSearchingLink ? (
+                                      <div className="p-2 text-xs text-muted-foreground flex items-center gap-2">
+                                        <Loader2 className="w-3 h-3 animate-spin" /> Buscando...
+                                      </div>
+                                    ) : (linkResults ?? []).length === 0 ? (
+                                      <div className="p-2 text-xs text-muted-foreground">Sin resultados.</div>
+                                    ) : (linkResults ?? []).slice(0, 20).map(p => (
+                                      <div key={p.id} className="flex items-center justify-between gap-2 p-2 text-xs">
+                                        <div className="min-w-0">
+                                          <div className="font-medium truncate">{p.nombre}</div>
+                                          <div className="text-muted-foreground">
+                                            {p.odooRef ?? "sin ref."}
+                                            {p.dimensionesConfirmadas
+                                              ? ` · ${p.pesoKg ?? 0} kg · ${p.largoCm ?? 0}×${p.anchoCm ?? 0}×${p.altoCm ?? 0} cm`
+                                              : " · sin dimensiones confirmadas"}
+                                          </div>
+                                        </div>
+                                        <Button
+                                          size="sm"
+                                          className="h-7 text-xs shrink-0"
+                                          data-testid={`button-link-${item.id}-${p.id}`}
+                                          disabled={linkItem.isPending}
+                                          onClick={() => handleLinkProduct(item.id, p.id)}
+                                        >
+                                          Asignar
+                                        </Button>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        </React.Fragment>
                       ))}
 
                       {addingNew && (
