@@ -1,0 +1,51 @@
+## ▸ TAREA 8 — Ordenar los listados de más reciente a más antiguo
+
+**El problema:** en Ventas los pedidos salen del más viejo al más nuevo, así que hay que bajar hasta el final para ver lo que acaba de entrar.
+
+**La causa, ya localizada:** en `artifacts/api-server/src/routes/sales.ts` línea ~17 está `orderBy(salesTable.createdAt)` sin `desc()`, o sea orden ascendente.
+
+Pegá esto en `New task`:
+
+```
+Corrige el orden de los listados en la app de logística LogiFleet: deben mostrar lo
+más reciente primero.
+
+CONTEXTO DEL PROYECTO (necesario porque no tienes memoria de tareas anteriores):
+Monorepo pnpm con Node 24 y TypeScript. API en Express 5 con Drizzle ORM sobre
+PostgreSQL, en artifacts/api-server/src/routes/. Frontend React en
+artifacts/logistics/src/pages/. Hay 735 ventas, la mayoría importadas de Odoo.
+
+PROBLEMA
+En artifacts/api-server/src/routes/sales.ts, alrededor de la línea 17, el listado es:
+  let results = await db.select().from(salesTable).orderBy(salesTable.createdAt);
+Eso ordena ASCENDENTE (la venta más antigua primero). El usuario necesita lo
+contrario: la más reciente arriba, porque trabaja siempre con los pedidos nuevos.
+
+QUÉ QUIERO
+1. Cambia el listado de ventas a orden DESCENDENTE por createdAt, usando desc() de
+   drizzle-orm.
+2. Revisa también estos listados y aplica el mismo criterio donde el orden
+   cronológico sea el útil:
+   - artifacts/api-server/src/routes/dispatches.ts (despachos)
+   - artifacts/api-server/src/routes/routes.ts (rutas)
+   Ojo: en esos archivos hay varios orderBy que ordenan waypoints y peajes POR SU
+   ORDEN DENTRO DE LA RUTA (routeWaypointsTable.orden, routeTollsTable.orden).
+   Esos NO se tocan: son la secuencia de paradas de un recorrido, no una fecha.
+   Solo cambia el orden del listado principal de cada entidad.
+3. NO cambies el orden de estos, que hoy están bien:
+   - products.ts, que ordena alfabéticamente por nombre (es un catálogo, el orden
+     alfabético es el correcto para buscar un artículo).
+   - vehicles.ts y personnel.ts: si hoy ordenan por createdAt, cámbialos a orden
+     ALFABÉTICO por su nombre identificador, que es más útil en un catálogo estable.
+     La tabla vehicles no tiene campo "nombre": usa modelo y/o placa.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos tú mismo en el preview, no leyendo el código:
+- Al abrir Ventas, la primera fila es la orden con createdAt más reciente.
+- Los despachos también muestran lo más reciente primero.
+- Abrir una ruta con varias paradas muestra las paradas en su secuencia correcta,
+  no invertidas. Este es el punto donde es fácil romper algo: compruébalo.
+- pnpm run typecheck pasa limpio.
+
+NO toques la sincronización con Odoo, ni las columnas pesoTotalOdoo /
+volumenTotalOdoo, ni el catálogo de artículos.
+```
