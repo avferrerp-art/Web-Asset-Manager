@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable, saleItemsTable } from "@workspace/db";
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
 import {
@@ -150,7 +150,7 @@ export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect
 
 router.get("/dispatches", async (req, res): Promise<void> => {
   const query = ListDispatchesQueryParams.safeParse(req.query);
-  let dispatches = await db.select().from(dispatchesTable).orderBy(dispatchesTable.createdAt);
+  let dispatches = await db.select().from(dispatchesTable).orderBy(desc(dispatchesTable.createdAt));
   if (query.success && query.data.status) {
     dispatches = dispatches.filter((d) => d.estado === query.data.status);
   }

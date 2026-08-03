@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 import { db, salesTable } from "@workspace/db";
 import {
   ListSalesQueryParams,
@@ -14,7 +14,7 @@ const router: IRouter = Router();
 
 router.get("/sales", async (req, res): Promise<void> => {
   const query = ListSalesQueryParams.safeParse(req.query);
-  let results = await db.select().from(salesTable).orderBy(salesTable.createdAt);
+  let results = await db.select().from(salesTable).orderBy(desc(salesTable.createdAt));
   if (query.success && query.data.status) {
     results = results.filter((s) => s.estado === query.data.status);
   }

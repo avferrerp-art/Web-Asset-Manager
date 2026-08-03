@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, count } from "drizzle-orm";
+import { eq, count, asc } from "drizzle-orm";
 import { db, vehiclesTable, dispatchesTable } from "@workspace/db";
 import {
   CreateVehicleBody,
@@ -13,7 +13,7 @@ import {
 const router: IRouter = Router();
 
 router.get("/vehicles", async (_req, res): Promise<void> => {
-  const vehicles = await db.select().from(vehiclesTable).orderBy(vehiclesTable.createdAt);
+  const vehicles = await db.select().from(vehiclesTable).orderBy(asc(vehiclesTable.modelo), asc(vehiclesTable.placa));
   res.json(vehicles);
 });
 
