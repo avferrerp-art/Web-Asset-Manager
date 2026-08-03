@@ -1,0 +1,50 @@
+## ▸ TAREA 4 — Usar dimensiones reales del catálogo en "Importar totales"
+
+**Por qué:** el botón ya marca los bultos como `[ESTIMADO]`, pero estima **siempre**, aunque los artículos de esa orden ya estén medidos en el catálogo. Desperdicia datos reales que ya tenemos.
+
+**Riesgo:** ninguno. Solo frontend.
+
+```
+Mejora la función handleImportTotals en artifacts/logistics/src/pages/carga.tsx
+(línea ~157, botón "Importar totales actuales" del paso 2 "Detalle de Bultos" de la
+Calculadora de Carga).
+
+CONTEXTO DEL PROYECTO (necesario porque no tienes memoria de tareas anteriores):
+Esta app tiene un catálogo de artículos en la tabla `products` sincronizado desde
+Odoo. Cada producto tiene campos manuales medidos por el equipo: pesoKg, largoCm,
+anchoCm, altoCm, y un flag dimensionesConfirmadas que se pone en true cuando alguien
+cargó las tres dimensiones. Las partidas de venta (tabla sale_items) tienen una
+columna productId que las vincula a ese catálogo.
+
+COMPORTAMIENTO ACTUAL
+handleImportTotals toma el volumenTotal de la orden, le saca la raíz cúbica
+(Math.cbrt) y fabrica UN bulto con forma de cubo perfecto. Ya marca la descripción
+con el prefijo "[ESTIMADO]" y muestra un toast de advertencia — eso está bien y hay
+que conservarlo. El problema es que estima SIEMPRE, incluso cuando la orden tiene
+partidas vinculadas a artículos que ya fueron medidos y cuyas dimensiones reales
+están disponibles.
+
+QUÉ QUIERO
+1. Al importar totales, revisa las partidas (sale_items) de la orden seleccionada:
+   - Para las partidas con productId no nulo cuyo producto tenga
+     dimensionesConfirmadas = true: usa las dimensiones REALES del catálogo
+     (pesoKg, largoCm, anchoCm, altoCm) y NO las marques como estimadas.
+   - Para el resto: mantén el comportamiento actual de estimar un cubo equivalente
+     con el prefijo "[ESTIMADO]" en la descripción.
+2. Si TODAS las partidas de la orden tienen dimensiones confirmadas, no estimes nada
+   y no muestres la advertencia de estimación: muestra un mensaje indicando que se
+   importaron dimensiones reales del catálogo.
+3. Si NINGUNA la tiene, el comportamiento debe ser idéntico al actual.
+4. El toast debe reflejar con precisión qué se importó, por ejemplo:
+   "3 bultos con dimensiones reales, 1 estimado — ajusta el estimado antes de
+   planificar."
+
+CRITERIOS DE ACEPTACIÓN — verifícalos tú mismo en el preview antes de terminar:
+- Importar totales de una orden cuyos artículos NO están medidos genera bultos
+  marcados como [ESTIMADO], igual que hoy.
+- Importar totales de una orden cuyos artículos SÍ están medidos usa las medidas
+  reales del catálogo y no los marca como estimados.
+- Una orden mixta genera unos con dimensiones reales y otros marcados como estimados.
+- pnpm run typecheck pasa limpio.
+
+NO hagas cambios de base de datos ni de API en esta tarea. Solo frontend.
