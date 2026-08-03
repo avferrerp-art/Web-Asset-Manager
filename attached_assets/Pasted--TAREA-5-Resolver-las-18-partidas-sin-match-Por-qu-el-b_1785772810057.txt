@@ -1,0 +1,59 @@
+## ▸ TAREA 5 — Resolver las 18 partidas sin match
+
+**Por qué:** el backfill vinculó 1601 de 1619 partidas. Las 18 restantes tienen descripciones genéricas sin la referencia `[NTSxxxxxx]`, así que ningún proceso automático puede resolverlas. Hoy quedan invisibles para el operador.
+
+**Riesgo:** bajo. Toca datos, no schema.
+
+```
+Haz visibles y resolubles a mano las partidas de venta que quedaron sin vincular al
+catálogo de artículos.
+
+CONTEXTO DEL PROYECTO (necesario porque no tienes memoria de tareas anteriores):
+La tabla sale_items tiene una columna productId (FK nullable a products.id) que
+vincula cada partida con el catálogo. El servicio
+artifacts/api-server/src/services/productBackfill.ts vincula automáticamente las
+partidas leyendo la referencia del formato "[NTS040009] NOMBRE DEL PRODUCTO" al
+inicio del campo descripcion, y la busca contra products.odooRef.
+
+SITUACIÓN
+Tras correr el backfill quedaron 18 partidas con productId en null. Su descripcion
+es genérica (por ejemplo "Carga general") y no contiene ninguna referencia entre
+corchetes, así que no hay forma automática de saber a qué producto corresponden.
+Necesitan resolución manual, pero hoy no hay ninguna forma de encontrarlas desde
+la interfaz.
+
+QUÉ QUIERO
+1. Nuevo endpoint GET /api/sale-items/sin-vincular que liste las partidas con
+   productId null, incluyendo id de la partida, descripcion, cantidad, y el id y
+   cliente de la venta a la que pertenecen.
+2. En la pantalla de Ventas (artifacts/logistics/src/pages/), marca visualmente las
+   órdenes que tengan al menos una partida sin vincular. Usa un indicador CLARAMENTE
+   DISTINTO del flag existente dimensionesIncompletas, porque son dos problemas
+   diferentes:
+     - partida sin vincular = no tiene producto asociado
+     - dimensiones incompletas = sí tiene producto, pero sin medir
+3. Permite asignar manualmente un artículo del catálogo a una partida sin vincular,
+   desde el detalle de la orden, con un buscador por nombre y referencia.
+4. Al asignar el artículo, replica exactamente lo que hace el backfill: guarda el
+   productId y, si el producto tiene dimensionesConfirmadas = true, copia pesoKg,
+   largoCm, anchoCm y altoCm a la partida. Después recalcula pesoTotal, volumenTotal
+   y dimensionesIncompletas de esa venta.
+
+REGLA CRÍTICA — NO LA VIOLES
+Las columnas sales.pesoTotalOdoo y sales.volumenTotalOdoo guardan los totales
+originales importados de Odoo y NUNCA deben sobrescribirse con valores calculados
+localmente. Son el registro del dato original. Reutiliza la función recalcSales de
+productBackfill.ts, que ya respeta esta regla, en vez de escribir lógica nueva.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos tú mismo antes de terminar:
+- El endpoint devuelve exactamente las partidas con productId null (hoy son 18).
+- Asignar un artículo a mano vincula la partida y copia las dimensiones si el
+  artículo está confirmado.
+- Tras la asignación, pesoTotal y volumenTotal de la venta se recalculan, y
+  pesoTotalOdoo y volumenTotalOdoo quedan INTACTOS. Compruébalo con una venta real.
+- Actualiza lib/api-spec/openapi.yaml y regenera los hooks con
+  `pnpm --filter @workspace/api-spec run codegen`.
+- pnpm run typecheck pasa limpio.
+```
+
+---
