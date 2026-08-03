@@ -1,0 +1,67 @@
+# ▸ TAREA 6 — Tests de las piezas críticas
+
+**Por qué:** los únicos tests del repo son `e2e/tests/rutas.spec.ts` y `e2e/tests/rutas-api.test.ts`, ambos de Rutas. Cero cobertura sobre artículos, ventas, carga o el sync de Odoo. Ya hubo dos incidentes en producción-de-desarrollo que se detectaron a mano.
+
+**Riesgo:** ninguno. Solo agrega tests.
+
+```
+Agrega cobertura de tests sobre la lógica crítica de sincronización con Odoo y
+cálculo de carga. Hoy los únicos tests del repositorio son e2e/tests/rutas.spec.ts y
+e2e/tests/rutas-api.test.ts, ambos de Rutas.
+
+CONTEXTO DEL PROYECTO (necesario porque no tienes memoria de tareas anteriores):
+- La tabla products es un catálogo sincronizado desde Odoo. Tiene campos que vienen
+  de Odoo (odooId, odooRef, nombre, categoria, uom, pesoOdoo, volumenOdoo, activo) y
+  campos MANUALES medidos por el equipo (pesoKg, largoCm, anchoCm, altoCm, apilable,
+  fragil, notas, dimensionesConfirmadas).
+- Regla de oro del sistema: el sync NUNCA debe sobrescribir los campos manuales.
+- sale_items.productId vincula partidas al catálogo.
+- sales.pesoTotalOdoo y sales.volumenTotalOdoo guardan los totales originales de
+  Odoo y nunca deben pisarse con valores calculados localmente.
+- Servicios relevantes: artifacts/api-server/src/services/productSync.ts,
+  productBackfill.ts y odooSync.ts.
+
+CUBRE ESTOS COMPORTAMIENTOS — son exactamente los que ya se rompieron o
+estuvieron en riesgo:
+
+1. SYNC DE PRODUCTOS (productSync.ts)
+   - Correr el sync dos veces seguidas no duplica productos (upsert por odooId).
+   - Editar a mano pesoKg / largoCm / anchoCm / altoCm de un artículo y luego correr
+     el sync NO sobrescribe esos valores. Este es el test más importante de todos.
+   - El sync solo importa productos de tipo 'product' o 'consu' (excluye servicios).
+
+2. VINCULACIÓN Y TOTALES (productBackfill.ts, routes/sale-items.ts)
+   - Borrar TODAS las partidas de una orden importada NO pone en cero
+     pesoTotalOdoo ni volumenTotalOdoo. Este bug existió y fue corregido; el test
+     evita que vuelva.
+   - Confirmar las dimensiones de un artículo propaga peso y medidas a sus partidas
+     vinculadas y recalcula los totales de la venta multiplicando por la cantidad.
+     Caso concreto a testear: artículo de 0.5 kg y 10x10x10 cm en una partida de 200
+     unidades debe dar pesoTotal 100 kg y volumenTotal 0.2 m3.
+   - El backfill es idempotente: dos corridas seguidas no modifican nada la segunda.
+   - Una partida cuya descripcion NO tiene el formato "[REF] nombre" queda sin
+     vincular y se cuenta como unmatched.
+
+3. CALCULADORA DE CARGA (artifacts/logistics/src/pages/carga.tsx)
+   - Con una carga pequeña y una flota mixta, el vehículo marcado como SUGERIDO es el
+     más chico que la soporta, NO el más grande.
+   - Con una carga que excede a todos los vehículos, ninguno queda marcado como
+     sugerido y aparece el aviso de dividir el envío.
+   - Un vehículo con capacidadPeso o capacidadVolumen en 0 nunca aparece como
+     sugerido (evita la división por cero que daba Infinity).
+
+REQUISITOS
+- Los tests no deben depender de una conexión real a Odoo: mockea el cliente
+  (src/lib/odooClient.ts) donde haga falta.
+- Usa el mismo enfoque y herramientas que los tests existentes de Rutas.
+- Documenta en replit.md, en la sección correspondiente, cómo correr la suite.
+
+LIMPIEZA ADICIONAL
+En artifacts/api-server/src/services/productBackfill.ts hay una variable `linkedItems`
+(alrededor de la línea 185) que se consulta a la base de datos pero nunca se usa —
+quedó como código muerto tras una refactorización; la consulta que sí se usa es
+`linkedWithDims`. Elimínala.
+
+CRITERIOS DE ACEPTACIÓN:
+- Todos los tests nuevos pasan.
+- pnpm run typecheck pasa limpio.
