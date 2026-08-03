@@ -1,0 +1,71 @@
+ ▸ TAREA 7 — Sync bidireccional de órdenes
+
+**Por qué está de última:** es la que más puede romper. Las 719 órdenes importadas están **todas en estado "pendiente"**, así que la salvaguarda del plan original ("actualiza solo las pendientes") hoy no limita nada — tocaría el 100% de las órdenes en una pasada. Y puede desvincular las 1601 partidas que costó conectar.
+
+**Antes de arrancarla: hacé push a GitHub.** Cancelar una tarea no revierte cambios de schema ni de datos.
+
+**Riesgo:** alto.
+
+```
+Implementa actualización de órdenes ya importadas desde Odoo.
+
+CONTEXTO DEL PROYECTO (necesario porque no tienes memoria de tareas anteriores):
+El servicio artifacts/api-server/src/services/odooSync.ts importa órdenes de Odoo
+(sale.order en estado sale o done). En la línea ~286 usa
+.onConflictDoNothing({ target: salesTable.odooId }), es decir es SOLO-INSERCIÓN: si
+una orden cambia en Odoo después de haber sido importada (cantidad, producto,
+dirección de entrega), LogiFleet nunca se entera y queda desincronizado en silencio.
+
+Estructura de datos relevante:
+- sales: tiene pesoTotal, volumenTotal (calculados localmente), pesoTotalOdoo y
+  volumenTotalOdoo (los totales ORIGINALES importados de Odoo), el flag
+  dimensionesIncompletas, y estado (hoy: 'pendiente', 'despachado', 'entregado').
+- sale_items: tiene productId (FK nullable a products.id) que vincula cada partida
+  con el catálogo de artículos, más pesoUnitario, largo, ancho, alto heredados del
+  catálogo cuando el artículo está medido.
+- El servicio productBackfill.ts tiene una función recalcSales() que recalcula
+  pesoTotal, volumenTotal y dimensionesIncompletas respetando las reglas.
+
+SITUACIÓN ACTUAL A TENER EN CUENTA
+Hay 719 órdenes importadas y TODAS están en estado 'pendiente'. Es decir, este
+cambio las alcanza a todas de una sola pasada. Hay 1601 partidas ya vinculadas al
+catálogo. Sé conservador.
+
+QUÉ QUIERO
+- Detecta cambios usando el campo write_date de Odoo. Guarda ese valor en la orden
+  para poder comparar en corridas siguientes (requiere una columna nueva).
+- Actualiza SOLO órdenes en estado 'pendiente'. Si una orden ya despachada o
+  entregada cambió en Odoo, NO la modifiques: genera una alerta visible para que un
+  humano decida qué hacer. Modificar un despacho en curso es inaceptable.
+- Al actualizar una orden, RECONCILIA sus partidas contra las líneas de Odoo. No
+  borres y recrees a ciegas: las partidas que sigan correspondiendo al mismo producto
+  deben conservar su productId y las dimensiones ya heredadas del catálogo. Solo
+  agrega, actualiza o elimina lo que realmente cambió.
+- Después de reconciliar, recalcula pesoTotal, volumenTotal y dimensionesIncompletas
+  reutilizando recalcSales() de productBackfill.ts.
+- Registra en un log qué órdenes se actualizaron y qué campos cambiaron.
+- Agrega un modo "dry-run" (por ejemplo query param ?dryRun=true) que reporte qué
+  cambiaría sin escribir nada en la base. Es imprescindible para poder revisar el
+  impacto antes de ejecutarlo de verdad sobre las 719 órdenes.
+
+REGLA CRÍTICA — NO LA VIOLES
+NUNCA sobrescribas pesoTotalOdoo ni volumenTotalOdoo con valores calculados
+localmente. Son el registro inmutable del dato original importado. Si Odoo envía
+totales nuevos para una orden que se está actualizando, actualiza esas columnas con
+los valores de Odoo, nunca con cálculos locales.
+
+MIGRACIONES
+Este proyecto aplica migraciones automáticamente al arrancar el servidor
+(artifacts/api-server/src/index.ts llama a runMigrations() y verifySchema()). Si
+agregas columnas, añade la migración correspondiente en lib/db/src/migrations/ y
+actualiza verifySchema para que las verifique. No dependas solo de `db push`.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos EJECUTÁNDOLOS, no leyendo el código:
+- El dry-run reporta los cambios sin escribir nada en la base.
+- Tras actualizar una orden real, sus partidas conservan el productId.
+- Tras actualizar una orden real, pesoTotalOdoo y volumenTotalOdoo NO quedaron
+  pisados por cálculos locales.
+- Una orden en estado 'despachado' que cambió en Odoo no se modifica y genera alerta.
+- Correr el sync dos veces seguidas no duplica partidas.
+- pnpm run typecheck pasa limpio.
+```
