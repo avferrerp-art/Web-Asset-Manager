@@ -38,13 +38,144 @@ interface OdooProduct {
   volume: number;
 }
 
-interface OdooPartner {
+export interface OdooPartner {
   id: number;
   name: string;
+  street: string | false;
+  street2: string | false;
   city: string | false;
+  zip: string | false;
+  state_id: [number, string] | false;
+  country_id: [number, string] | false;
   contact_address: string | false;
   phone: string | false;
   mobile: string | false;
+}
+
+// Fields we want from res.partner. Address fields must never be silently dropped.
+const PARTNER_FIELDS = [
+  "name",
+  "street",
+  "street2",
+  "city",
+  "zip",
+  "state_id",
+  "country_id",
+  "contact_address",
+  "phone",
+  "mobile",
+] as const;
+const PARTNER_ADDRESS_FIELDS = new Set([
+  "street",
+  "street2",
+  "city",
+  "zip",
+  "state_id",
+  "country_id",
+  "contact_address",
+]);
+
+/**
+ * Read partners robustly:
+ * 1. Detect which fields actually exist via fields_get and request only those.
+ * 2. If a read still fails, degrade optional (non-address) fields one by one,
+ *    always keeping name + address fields. Never fall back to name+phone only.
+ * Any degradation is logged at warn level with the fields lost.
+ */
+export async function readPartners(
+  config: OdooConfig,
+  uid: number,
+  partnerIds: number[],
+): Promise<OdooPartner[]> {
+  if (partnerIds.length === 0) return [];
+
+  let fields: string[] = [...PARTNER_FIELDS];
+  try {
+    const available = (await executeKw(config, uid, "res.partner", "fields_get", [], {
+      attributes: ["type"],
+    })) as Record<string, unknown>;
+    const missing = fields.filter((f) => !(f in available));
+    if (missing.length > 0) {
+      logger.warn(
+        { missingFields: missing },
+        "Odoo res.partner no expone algunos campos; se omiten de la lectura",
+      );
+      fields = fields.filter((f) => f in available);
+    }
+  } catch (err) {
+    logger.warn({ err }, "fields_get de res.partner falló; se intentará con la lista completa");
+  }
+
+  try {
+    return (await executeKw(config, uid, "res.partner", "read", [partnerIds], {
+      fields,
+    })) as OdooPartner[];
+  } catch (err) {
+    logger.warn(
+      { err, fields },
+      "Lectura de res.partner falló; degradando campos opcionales uno por uno (los campos de dirección se conservan)",
+    );
+  }
+
+  // Degrade optional (non-address, non-name) fields one at a time.
+  const optional = fields.filter((f) => f !== "name" && !PARTNER_ADDRESS_FIELDS.has(f));
+  const dropped: string[] = [];
+  let current = [...fields];
+  for (const field of optional) {
+    current = current.filter((f) => f !== field);
+    dropped.push(field);
+    try {
+      const partners = (await executeKw(config, uid, "res.partner", "read", [partnerIds], {
+        fields: current,
+      })) as OdooPartner[];
+      logger.warn(
+        { droppedFields: dropped },
+        "Lectura de res.partner degradada: se perdieron campos opcionales",
+      );
+      return partners;
+    } catch {
+      // keep dropping
+    }
+  }
+
+  // Last attempt: name + address fields only (address is never sacrificed).
+  const addressOnly = fields.filter((f) => f === "name" || PARTNER_ADDRESS_FIELDS.has(f));
+  logger.error(
+    { attemptedFields: addressOnly },
+    "Lectura de res.partner degradada al mínimo (solo name + dirección)",
+  );
+  return (await executeKw(config, uid, "res.partner", "read", [partnerIds], {
+    fields: addressOnly,
+  })) as OdooPartner[];
+}
+
+/**
+ * Compose a real destination address from partner data.
+ * Returns null when the partner has no usable address (caller decides fallback).
+ * Never returns the partner name.
+ */
+export function buildDestino(partner: OdooPartner | undefined): string | null {
+  if (!partner) return null;
+  const state = partner.state_id ? partner.state_id[1] : null;
+  const country = partner.country_id ? partner.country_id[1] : null;
+  const parts = [
+    partner.street && String(partner.street).trim(),
+    partner.street2 && String(partner.street2).trim(),
+    partner.city && String(partner.city).trim(),
+    state,
+    country,
+  ].filter((p): p is string => Boolean(p));
+  if (parts.length > 0) return parts.join(", ");
+  if (partner.contact_address) {
+    const addr = stripHtml(String(partner.contact_address));
+    // contact_address in Odoo often equals/embeds the partner name; strip it
+    const name = String(partner.name ?? "").trim();
+    const cleaned = name
+      ? addr.replace(name, "").replace(/^[,\s]+|[,\s]+$/g, "").trim()
+      : addr;
+    if (cleaned && cleaned !== name) return cleaned;
+  }
+  return null;
 }
 
 export async function testOdooConnection(): Promise<{ uid: number; url: string }> {
@@ -167,19 +298,7 @@ export async function syncOdooOrders(): Promise<SyncResult> {
         .map((o) => (o.partner_shipping_id as [number, string])[0]),
     ),
   ];
-  let partners: OdooPartner[] = [];
-  if (partnerIds.length > 0) {
-    try {
-      partners = (await executeKw(config, uid, "res.partner", "read", [partnerIds], {
-        fields: ["name", "city", "contact_address", "phone", "mobile"],
-      })) as OdooPartner[];
-    } catch {
-      // Algunas instancias de Odoo no exponen todos los campos (p.ej. 'mobile'); reintentar con campos básicos
-      partners = (await executeKw(config, uid, "res.partner", "read", [partnerIds], {
-        fields: ["name", "phone"],
-      })) as OdooPartner[];
-    }
-  }
+  const partners = await readPartners(config, uid, partnerIds);
   const partnerById = new Map(partners.map((p) => [p.id, p]));
 
   const importedRefs: string[] = [];
@@ -203,12 +322,7 @@ export async function syncOdooOrders(): Promise<SyncResult> {
     const shippingPartner = order.partner_shipping_id
       ? partnerById.get(order.partner_shipping_id[0])
       : undefined;
-    const destino =
-      (shippingPartner?.city && String(shippingPartner.city)) ||
-      (shippingPartner?.contact_address &&
-        stripHtml(String(shippingPartner.contact_address))) ||
-      (order.partner_shipping_id ? order.partner_shipping_id[1] : "") ||
-      "Por definir";
+    const destino = buildDestino(shippingPartner) ?? "Por definir";
 
     const notas = order.note ? stripHtml(String(order.note)) : null;
 

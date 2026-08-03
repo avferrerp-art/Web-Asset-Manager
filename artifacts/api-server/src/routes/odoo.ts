@@ -7,6 +7,7 @@ import {
   testOdooConnection,
 } from "../services/odooSync";
 import { backfillSaleItemProducts } from "../services/productBackfill";
+import { backfillDestinos } from "../services/destinoBackfill";
 
 const router: IRouter = Router();
 
@@ -85,6 +86,26 @@ router.post("/odoo/backfill-products", async (req, res): Promise<void> => {
       linked: 0,
       unmatched: 0,
       salesFlagUpdated: 0,
+      error: message,
+    });
+  }
+});
+
+router.post("/odoo/backfill-destinos", async (req, res): Promise<void> => {
+  try {
+    const result = await backfillDestinos();
+    res.json({ ok: true, ...result, error: null });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    req.log.error({ err }, "Destino backfill failed");
+    res.status(err instanceof OdooError ? 400 : 500).json({
+      ok: false,
+      examined: 0,
+      updated: 0,
+      realAddress: 0,
+      porDefinir: 0,
+      unchanged: 0,
+      missingInOdoo: 0,
       error: message,
     });
   }

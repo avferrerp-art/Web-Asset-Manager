@@ -8,4 +8,5 @@
 - [Run api-server code standalone](run-server-code-standalone.md) — to test auth-protected backend logic, bundle a tiny entry with the build.mjs esbuild+pino setup; tsx/plain esbuild fail
 - [Task-env DB schema drift](task-db-schema-drift.md) — task DB may lack tables/columns already in code schema; check information_schema and apply DDL before FKs/queries.
 - [DB migrations at boot](db-migrations-boot.md) — schema changes need an idempotent migration in lib/db/src/migrations (auto-applied at api-server boot); drizzle-kit push alone doesn't survive merges.
+- [Odoo partner reads](odoo-partner-reads.md) — this Odoo instance lacks `mobile` on res.partner; use fields_get-driven reads and never drop address fields on retry.
 - [Expo mobile quirks](chofer-expo-quirks.md) — Orval hooks in Expo need explicit queryKey; keep @types/react catalog pinned to Expo's 19.1.x; mobile auth is Bearer via setAuthTokenGetter; clear query cache on sign-out.
