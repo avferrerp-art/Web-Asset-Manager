@@ -15,6 +15,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
+import { classifyFleet } from "@/lib/fleet";
 import {
   CheckCircle2, ChevronRight, PackageOpen, Truck, Weight,
   Plus, Trash2, Edit2, BarChart3, ArrowLeft, Check,
@@ -349,18 +350,12 @@ export default function Carga() {
 
   // Classify fleet: fit vehicles (weight & volume utilization ≤ 100%, capacities > 0)
   // sorted by utilization descending (tightest fit first = suggested).
-  const classifiedVehicles = (vehicles ?? []).map(vehicle => {
-    const hasCapacity = vehicle.capacidadPeso > 0 && vehicle.capacidadVolumen > 0;
-    const weightPct = hasCapacity ? (totalPeso / vehicle.capacidadPeso) * 100 : NaN;
-    const volPct = hasCapacity ? (totalVolumen / vehicle.capacidadVolumen) * 100 : NaN;
-    const maxPct = Math.max(weightPct, volPct);
-    const isFit = hasCapacity && Number.isFinite(maxPct) && maxPct <= 100;
-    return { vehicle, hasCapacity, weightPct, volPct, maxPct, isFit };
-  });
-  const fitVehicles = classifiedVehicles
-    .filter(v => v.isFit)
-    .sort((a, b) => b.maxPct - a.maxPct);
-  const unfitVehicles = classifiedVehicles.filter(v => !v.isFit);
+  // Logic lives in src/lib/fleet.ts (pure, unit-tested).
+  const { fit: fitVehicles, unfit: unfitVehicles } = classifyFleet(
+    vehicles ?? [],
+    totalPeso,
+    totalVolumen,
+  );
 
   return (
     <div className="space-y-6 max-w-4xl">

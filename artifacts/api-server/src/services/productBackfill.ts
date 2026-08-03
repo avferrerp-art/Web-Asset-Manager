@@ -187,15 +187,6 @@ export async function backfillSaleItemProducts(): Promise<BackfillResult> {
   // Items that have a productId but still have zero dimensions while their
   // product is confirmed. We also update items whose catalog dimensions have
   // changed (re-run is idempotent because we overwrite the same values).
-  const linkedItems = await db
-    .select({
-      id: saleItemsTable.id,
-      ventaId: saleItemsTable.ventaId,
-      productId: saleItemsTable.productId,
-    })
-    .from(saleItemsTable)
-    .where(isNotNull(saleItemsTable.productId));
-
   // Build a quick lookup of confirmed products by id
   const confirmedById = new Map(
     products.filter((p) => p.dimensionesConfirmadas).map((p) => [p.id, p]),

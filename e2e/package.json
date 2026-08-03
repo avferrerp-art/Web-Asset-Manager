@@ -9,6 +9,8 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.50.0",
+    "@workspace/db": "workspace:*",
+    "drizzle-orm": "catalog:",
     "vitest": "^4.1.9"
   }
 }

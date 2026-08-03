@@ -9,6 +9,8 @@ Sistema de gestión logística de flota: planifica despachos de ventas (propias 
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
+- `pnpm --filter @workspace/e2e run test:api` — Vitest suite: API/service tests (rutas HTTP flows + piezas críticas: sync de productos Odoo con cliente mockeado, backfill/vinculación y calculadora de carga). Requiere `DATABASE_URL`; no requiere Odoo real. Los tests de rutas requieren además el api-server corriendo en `localhost:80/api`.
+- `pnpm --filter @workspace/e2e run test` — Playwright browser suite (rutas UI); requiere la web corriendo en `localhost:80`
 - Required env: `DATABASE_URL` — Postgres connection string
 - Optional env (Odoo sync): `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_API_KEY` — if missing, sync stays silently disabled
 
