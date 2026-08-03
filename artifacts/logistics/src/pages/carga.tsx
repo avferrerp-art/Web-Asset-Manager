@@ -6,6 +6,7 @@ import {
   useListSaleItems, getListSaleItemsQueryKey,
   useCreateSaleItem, useUpdateSaleItem, useDeleteSaleItem,
   useListProducts, getListProductsQueryKey,
+  getProduct,
 } from "@workspace/api-client-react";
 import type { SaleItem, Product } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -67,6 +68,7 @@ export default function Carga() {
   const [showUnfit, setShowUnfit] = useState(false);
   const [productSearch, setProductSearch] = useState("");
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [isImporting, setIsImporting] = useState(false);
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(undefined, {
     query: { queryKey: getListSalesQueryKey() }
@@ -154,33 +156,166 @@ export default function Carga() {
     );
   }
 
-  function handleImportTotals() {
-    if (!selectedSale || !selectedSaleId) return;
-    const vol = selectedSale.volumenTotal;
-    const peso = selectedSale.pesoTotal;
-    const lSide = Math.cbrt(vol * 1_000_000);
-    createItem.mutate(
-      {
-        saleId: selectedSaleId,
-        data: {
-          descripcion: `[ESTIMADO] ${selectedSale.tipoMaterial || "Carga general"}`,
-          cantidad: 1,
-          pesoUnitario: peso,
-          largo: parseFloat(lSide.toFixed(1)),
-          ancho: parseFloat(lSide.toFixed(1)),
-          alto: parseFloat(lSide.toFixed(1)),
-        },
-      },
-      {
-        onSuccess: () => {
-          invalidateItems();
+  async function handleImportTotals() {
+    if (!selectedSale || !selectedSaleId || isImporting) return;
+    setIsImporting(true);
+    try {
+      const partidas = items ?? [];
+
+      // Para distribución de estimados: usar siempre el total de Odoo como fuente de verdad
+      // si está disponible (es el dato original, nunca sobreescrito). Caer al local solo
+      // si no existe total de Odoo — el local puede estar contaminado por redondeos previos.
+      const bestVol = (selectedSale.volumenTotalOdoo != null && selectedSale.volumenTotalOdoo > 0
+        ? selectedSale.volumenTotalOdoo
+        : selectedSale.volumenTotal > 0 ? selectedSale.volumenTotal : 0);
+      const bestPeso = (selectedSale.pesoTotalOdoo != null && selectedSale.pesoTotalOdoo > 0
+        ? selectedSale.pesoTotalOdoo
+        : selectedSale.pesoTotal > 0 ? selectedSale.pesoTotal : 0);
+
+      // Sin partidas registradas: un bulto estimado como cubo equivalente
+      if (partidas.length === 0) {
+        if (bestVol === 0 && bestPeso === 0) {
           toast({
-            title: "Totales importados como bulto estimado",
-            description: "Las dimensiones son una estimación (cubo equivalente). Ajusta las medidas reales del bulto antes de planificar.",
+            title: "Sin datos de peso ni volumen",
+            description: "Esta orden no tiene peso ni volumen registrados en Odoo. Carga las dimensiones de los bultos a mano.",
+            variant: "destructive",
           });
-        },
+          return;
+        }
+        const lSide = bestVol > 0 ? Math.cbrt(bestVol * 1_000_000) : 0;
+        await createItem.mutateAsync({
+          saleId: selectedSaleId,
+          data: {
+            descripcion: `[ESTIMADO] ${selectedSale.tipoMaterial || "Carga general"}`,
+            cantidad: 1,
+            pesoUnitario: bestPeso,
+            largo: parseFloat(lSide.toFixed(1)),
+            ancho: parseFloat(lSide.toFixed(1)),
+            alto: parseFloat(lSide.toFixed(1)),
+          },
+        });
+        invalidateItems();
+        toast({
+          title: "Totales importados como bulto estimado",
+          description: "Las dimensiones son una estimación (cubo equivalente). Ajusta las medidas reales del bulto antes de planificar.",
+        });
+        return;
       }
-    );
+
+      // Consultar el catálogo para las partidas vinculadas a un producto
+      const productIds = [...new Set(
+        partidas.map(p => p.productId).filter((id): id is number => id != null)
+      )];
+      const productById = new Map<number, Product>();
+      await Promise.all(productIds.map(async id => {
+        try {
+          productById.set(id, await getProduct(id));
+        } catch {
+          // producto ausente del catálogo → se trata como no medido
+        }
+      }));
+
+      const isMeasured = (p: SaleItem) => {
+        if (p.productId == null) return false;
+        return productById.get(p.productId)?.dimensionesConfirmadas === true;
+      };
+      const reales = partidas.filter(isMeasured);
+      const estimadas = partidas.filter(p => !isMeasured(p));
+
+      // Bultos con dimensiones reales del catálogo
+      let volCubierto = 0;
+      let pesoCubierto = 0;
+      for (const p of reales) {
+        const prod = productById.get(p.productId!)!;
+        const data = {
+          descripcion: prod.nombre,
+          pesoUnitario: prod.pesoKg ?? 0,
+          largo: prod.largoCm ?? 0,
+          ancho: prod.anchoCm ?? 0,
+          alto: prod.altoCm ?? 0,
+        };
+        volCubierto += (p.cantidad * data.largo * data.ancho * data.alto) / 1_000_000;
+        pesoCubierto += p.cantidad * data.pesoUnitario;
+        await updateItem.mutateAsync({ itemId: p.id, data });
+      }
+
+      // El resto: repartir volumen/peso restante proporcionalmente a la cantidad de cada partida
+      if (estimadas.length > 0) {
+        const restanteVol = Math.max(0, bestVol - volCubierto);
+        const restantePeso = Math.max(0, bestPeso - pesoCubierto);
+        const unidadesTotales = estimadas.reduce((s, p) => s + p.cantidad, 0) || 1;
+
+        if (restanteVol === 0 && restantePeso === 0) {
+          toast({
+            title: "Sin datos de peso ni volumen",
+            description: "Esta orden no tiene peso ni volumen registrados en Odoo. Carga las dimensiones de los bultos sin medir a mano.",
+            variant: "destructive",
+          });
+          if (reales.length > 0) invalidateItems();
+          return;
+        }
+
+        // Distribuir con corrección de residuo en la última partida para que
+        // sum(cantidad × pesoUnitario) == restantePeso exactamente.
+        let pesoCubiertoEstimadas = 0;
+        let volCubiertoEstimadas = 0;
+        for (let i = 0; i < estimadas.length; i++) {
+          const p = estimadas[i]!;
+          const esUltima = i === estimadas.length - 1;
+          // Fracción proporcional a la cantidad de esta partida sobre el total estimado
+          const fraccion = p.cantidad / unidadesTotales;
+
+          // Peso: usar residuo exacto en la última partida para evitar acumulación de error
+          const pesoPartida = esUltima
+            ? restantePeso - pesoCubiertoEstimadas
+            : restantePeso * fraccion;
+          const pesoUnit = p.cantidad > 0 ? pesoPartida / p.cantidad : 0;
+          // 5 decimales bastan para kilogramos (~10 mg de precisión)
+          const pesoUnitRedondeado = parseFloat(pesoUnit.toFixed(5));
+          pesoCubiertoEstimadas += pesoUnitRedondeado * p.cantidad;
+
+          // Volumen: ídem con residuo exacto en la última partida
+          const volPartida = esUltima
+            ? restanteVol - volCubiertoEstimadas
+            : restanteVol * fraccion;
+          const volUnit = p.cantidad > 0 ? volPartida / p.cantidad : 0; // m³/u
+          const lSide = volUnit > 0 ? Math.cbrt(volUnit * 1_000_000) : 0;
+          const lSideRedondeado = parseFloat(lSide.toFixed(2)); // 2 dec en cm son ~0.1 mm
+          volCubiertoEstimadas += (lSideRedondeado ** 3 * p.cantidad) / 1_000_000;
+
+          await updateItem.mutateAsync({
+            itemId: p.id,
+            data: {
+              descripcion: p.descripcion.startsWith("[ESTIMADO]") ? p.descripcion : `[ESTIMADO] ${p.descripcion}`,
+              pesoUnitario: pesoUnitRedondeado,
+              largo: lSideRedondeado,
+              ancho: lSideRedondeado,
+              alto: lSideRedondeado,
+            },
+          });
+        }
+      }
+
+      invalidateItems();
+      if (estimadas.length === 0) {
+        toast({
+          title: "Dimensiones reales importadas",
+          description: `${reales.length} bulto${reales.length === 1 ? "" : "s"} con las medidas reales del catálogo.`,
+        });
+      } else if (reales.length === 0) {
+        toast({
+          title: "Totales importados como bultos estimados",
+          description: "Las dimensiones son una estimación (cubo equivalente). Ajusta las medidas reales del bulto antes de planificar.",
+        });
+      } else {
+        toast({
+          title: "Totales importados",
+          description: `${reales.length} bulto${reales.length === 1 ? "" : "s"} con dimensiones reales, ${estimadas.length} estimado${estimadas.length === 1 ? "" : "s"} — ajusta ${estimadas.length === 1 ? "el estimado" : "los estimados"} antes de planificar.`,
+        });
+      }
+    } finally {
+      setIsImporting(false);
+    }
   }
 
   function handleReset() {
@@ -352,8 +487,8 @@ export default function Carga() {
                 Bultos / Partidas
               </CardTitle>
               <div className="flex gap-2">
-                {(items?.length ?? 0) === 0 && (
-                  <Button size="sm" variant="outline" onClick={handleImportTotals} disabled={createItem.isPending}>
+                {((items?.length ?? 0) === 0 || (items ?? []).some(it => it.pesoUnitario === 0 || itemVolume(it) === 0)) && (
+                  <Button size="sm" variant="outline" onClick={handleImportTotals} disabled={isImporting || createItem.isPending || updateItem.isPending || isLoadingItems}>
                     Importar totales actuales
                   </Button>
                 )}
