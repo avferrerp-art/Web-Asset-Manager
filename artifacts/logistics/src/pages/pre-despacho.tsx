@@ -226,7 +226,16 @@ export default function PreDespacho() {
     });
   };
 
-  const allPendingSales = sales?.filter(s => s.estado === "pendiente") ?? [];
+  // Ventas con despacho ya creado (en cualquier estado activo) no deben aparecer aquí,
+  // incluso si su estado quedara en "pendiente" por alguna inconsistencia.
+  const salesWithDispatch = new Set(
+    (allDispatches ?? [])
+      .filter(d => d.estado !== "cancelado")
+      .map(d => d.ventaId)
+  );
+  const allPendingSales = (sales ?? []).filter(
+    s => s.estado === "pendiente" && !salesWithDispatch.has(s.id)
+  );
   const pendingSales = search.trim()
     ? allPendingSales.filter(s =>
         matchesSearch(search, [s.cliente, s.destino, s.odooRef, s.id, `#${s.id}`]))
@@ -237,7 +246,9 @@ export default function PreDespacho() {
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Pre-Despacho</h1>
-          <p className="text-muted-foreground">Autorizar envíos pendientes y asignar recursos.</p>
+          <p className="text-muted-foreground" data-testid="text-predespacho-subtitle">
+            Asigna vehículo, chofer y ruta a los pedidos pendientes para convertirlos en despachos.
+          </p>
         </div>
         <Button
           data-testid="button-nuevo-despacho-predespacho"
@@ -264,7 +275,12 @@ export default function PreDespacho() {
       <Card>
         <CardHeader>
           <div className="flex items-center justify-between gap-4 flex-wrap">
-            <CardTitle>Órdenes de Venta Pendientes</CardTitle>
+            <div>
+              <CardTitle>Órdenes de Venta por Planificar</CardTitle>
+              <p className="text-sm text-muted-foreground mt-1">
+                Cada fila es un pedido esperando acción: planifica la carga o procésalo para crear su despacho.
+              </p>
+            </div>
             <div className="relative flex-1 min-w-[220px] max-w-sm">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
               <Input
@@ -293,8 +309,18 @@ export default function PreDespacho() {
               {isLoadingSales ? (
                 <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
               ) : pendingSales.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                  {search.trim() ? `Sin resultados para "${search.trim()}"` : "Sin ventas pendientes."}
+                <TableRow><TableCell colSpan={6} className="h-32 text-center">
+                  {search.trim() ? (
+                    <span className="text-muted-foreground">Sin resultados para "{search.trim()}"</span>
+                  ) : (
+                    <div className="flex flex-col items-center gap-1.5 py-2" data-testid="empty-state-predespacho">
+                      <PackageSearch className="w-8 h-8 text-muted-foreground/50" />
+                      <p className="font-medium text-foreground">No hay pedidos pendientes de planificar</p>
+                      <p className="text-sm text-muted-foreground max-w-md">
+                        Todas las órdenes de venta pendientes ya tienen despacho creado. Las nuevas ventas en estado "Pendiente" aparecerán aquí automáticamente.
+                      </p>
+                    </div>
+                  )}
                 </TableCell></TableRow>
               ) : pendingSales.map((sale) => (
                 <TableRow key={sale.id} data-testid={`row-pending-sale-${sale.id}`}>
@@ -317,8 +343,13 @@ export default function PreDespacho() {
                       >
                         <PackageSearch className="w-3.5 h-3.5" /> Planificar
                       </Button>
-                      <Button data-testid={`button-process-sale-${sale.id}`} size="sm" onClick={() => handleSelectSale(sale)}>
-                        Procesar
+                      <Button
+                        data-testid={`button-process-sale-${sale.id}`}
+                        size="sm"
+                        className="gap-1 font-semibold shadow-sm"
+                        onClick={() => handleSelectSale(sale)}
+                      >
+                        <Truck className="w-3.5 h-3.5" /> Crear Despacho
                       </Button>
                     </div>
                   </TableCell>

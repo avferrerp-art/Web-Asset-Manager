@@ -21,6 +21,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { OdooBadge } from "@/components/odoo-sync-card";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CargoWizard } from "@/components/cargo-wizard";
 import { Search } from "lucide-react";
 import { matchesSearch } from "@/lib/search";
@@ -549,15 +550,22 @@ export default function Ventas() {
                   <TableCell>{ESTADO_BADGE[sale.estado] ?? <Badge>{sale.estado}</Badge>}</TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-1">
-                      <Button
-                        data-testid={`button-cargo-plan-${sale.id}`}
-                        variant="ghost"
-                        size="sm"
-                        className="gap-1 text-xs px-2"
-                        onClick={() => { setCargoWizardSaleId(sale.id); setCargoWizardSale(sale); setCargoWizardOpen(true); }}
-                      >
-                        <PackageSearch className="w-3.5 h-3.5" /> Planificar
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            data-testid={`button-cargo-plan-${sale.id}`}
+                            variant="ghost"
+                            size="sm"
+                            className="gap-1 text-xs px-2"
+                            onClick={() => { setCargoWizardSaleId(sale.id); setCargoWizardSale(sale); setCargoWizardOpen(true); }}
+                          >
+                            <PackageSearch className="w-3.5 h-3.5" /> Planificar
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          Abre el plan de carga y continúa en Pre-Despacho para crear el despacho
+                        </TooltipContent>
+                      </Tooltip>
                       <Button data-testid={`button-edit-sale-${sale.id}`} variant="ghost" size="icon" onClick={() => handleEdit(sale)}>
                         <Edit2 className="w-4 h-4" />
                       </Button>
