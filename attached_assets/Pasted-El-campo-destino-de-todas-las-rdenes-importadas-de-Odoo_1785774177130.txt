@@ -1,0 +1,22 @@
+El campo destino de todas las órdenes importadas de Odoo contiene el NOMBRE del cliente en vez de una dirección de entrega. Verificado: las 727 órdenes tienen destino idéntico a cliente (ejemplos: "KONEKTA ONLINE, C.A", "GIAN PIER D'UVA"). Esto rompe la planificación de rutas y el cálculo de peajes, porque no se puede rutear hacia un nombre de empresa.
+
+CAUSA IDENTIFICADA en artifacts/api-server/src/services/odooSync.ts, alrededor de las líneas 170-181:
+
+El sync lee los partners de envío con fields: ["name", "city", "contact_address", "phone", "mobile"]. Hay un try/catch que, ante cualquier error, reintenta con fields: ["name", "phone"] — descartando city y contact_address. Luego, en la línea ~206, destino se arma con esta cadena de fallback: city || contact_address || partner_shipping_id[1] (el NOMBRE) || "Por definir". Como el reintento nunca devuelve city ni contact_address, siempre cae al nombre.
+
+EVIDENCIA de que el fallback se está disparando: 320 órdenes SÍ tienen numeroCel poblado. phone es uno de los dos campos que sobreviven al reintento, mientras que ninguna orden tiene ciudad. Si el problema fuera falta de datos en Odoo, tampoco habría teléfonos.
+
+QUÉ QUIERO
+
+Arregla el reintento para que sea granular: si un campo opcional como mobile no existe en esa instancia de Odoo, reintenta SIN ese campo pero CONSERVANDO city y contact_address. Nunca degrades a solo name+phone. Detecta qué campos existen realmente en res.partner (por ejemplo con fields_get) en vez de adivinar.
+Loguea de forma visible cuándo se está usando un reintento degradado y qué campos se perdieron. Hoy falla en silencio, que es la razón por la que este bug pasó desapercibido en 727 órdenes.
+Enriquece el destino: si hay street, city, state_id y country_id, compón una dirección completa en vez de usar solo la ciudad. Agrega esos campos a la lectura.
+Si tras todo eso el partner realmente no tiene dirección en Odoo, guarda "Por definir" en vez del nombre del cliente. Es preferible un valor honesto que un dato que parece una dirección y no lo es.
+Agrega un proceso para re-procesar el destino de las 727 órdenes ya importadas, sin volver a crear las órdenes ni tocar sus partidas, pesoTotalOdoo ni volumenTotalOdoo.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos ejecutando, no leyendo el código:
+
+Tras el fix, las órdenes cuyos partners tienen dirección en Odoo muestran una dirección real, no el nombre del cliente.
+Las que genuinamente no tienen dirección muestran "Por definir".
+Reporta cuántas de las 727 quedaron con dirección real y cuántas con "Por definir".
+pnpm run typecheck pasa limpio.
