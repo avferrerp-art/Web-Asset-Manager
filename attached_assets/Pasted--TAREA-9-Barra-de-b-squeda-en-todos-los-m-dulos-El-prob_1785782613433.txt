@@ -1,0 +1,67 @@
+# ▸ TAREA 9 — Barra de búsqueda en todos los módulos
+
+**El problema:** con 735 ventas, encontrar un pedido concreto obliga a scrollear. Hoy **solo Artículos y la Calculadora de Carga tienen buscador**; Ventas, Despachos, Pre-Despacho, Vehículos, Personal y Rutas no tienen ninguno. Lo verifiqué archivo por archivo.
+
+Pegá esto en `New task`:
+
+```
+Agrega una barra de búsqueda a todos los módulos que hoy no la tienen, en la app de
+logística LogiFleet.
+
+CONTEXTO DEL PROYECTO (necesario porque no tienes memoria de tareas anteriores):
+Monorepo pnpm, React + TypeScript. Páginas en artifacts/logistics/src/pages/.
+API Express en artifacts/api-server/src/routes/. Contrato OpenAPI en
+lib/api-spec/openapi.yaml con codegen de Orval: si tocas el spec, regenera con
+`pnpm --filter @workspace/api-spec run codegen` y nunca edites los directorios
+generated/ a mano.
+
+SITUACIÓN ACTUAL
+Solo dos páginas tienen buscador: articulos.tsx y carga.tsx. Faltan en ventas.tsx,
+despachos.tsx, pre-despacho.tsx, vehiculos.tsx, personal.tsx y rutas.tsx.
+Hay 735 ventas, así que encontrar un pedido concreto hoy requiere scrollear.
+
+PATRÓN A SEGUIR — NO INVENTES UN DISEÑO NUEVO
+En artifacts/logistics/src/pages/articulos.tsx, alrededor de las líneas 145-155,
+ya existe el patrón correcto: un componente Input de @/components/ui/input con el
+ícono Search de lucide-react posicionado absoluto a la izquierda, con su
+data-testid. Replica ese mismo patrón visual en todas las páginas para que la
+interfaz quede consistente.
+
+QUÉ DEBE BUSCAR CADA MÓDULO (usa los nombres de campo reales del schema)
+- Ventas (ventas.tsx): cliente, destino, odooRef, y el id de la orden. Debe poder
+  escribirse "#25" o "25" y encontrar la orden 25.
+- Pre-Despacho (pre-despacho.tsx): los mismos campos que Ventas.
+- Despachos (despachos.tsx): cliente y destino de la venta asociada, nombre del
+  chofer, y modelo o placa del vehículo.
+- Vehículos (vehiculos.tsx): modelo, placa, tipo. Ojo: la tabla vehicles NO tiene
+  campo "nombre", tiene modelo y placa.
+- Personal (personal.tsx): nombre, rol, telefono.
+- Rutas (rutas.tsx): nombre, origen, destino.
+
+REQUISITOS
+1. La búsqueda debe COMBINARSE con los filtros que ya existen, no reemplazarlos.
+   Por ejemplo, ventas.tsx tiene chips de estado (Todas / Pendiente / Despachado /
+   Entregado / Cancelado) implementados con la variable activeFilter alrededor de
+   la línea 80. Buscar debe filtrar DENTRO del estado seleccionado.
+2. Insensible a mayúsculas Y a acentos: escribir "maturin" debe encontrar "MATURÍN".
+   Normaliza ambos lados de la comparación.
+3. Si no hay coincidencias, muestra un mensaje claro del tipo
+   'Sin resultados para "xxx"', no una tabla vacía sin explicación.
+4. Rendimiento: Ventas tiene 735 registros. Empieza filtrando en el cliente, que es
+   más simple. Si al probarlo con los 735 registros reales notas lentitud al
+   escribir, muévelo al servidor con un query param `search`, siguiendo el patrón
+   que ya usa el endpoint de productos. Prueba antes de decidir.
+5. Cada input debe tener su propio data-testid descriptivo, como hace articulos.tsx.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos tú mismo en el preview con datos reales:
+- Buscar "MATURIN" en Ventas filtra correctamente, y buscar "maturin" en minúsculas
+  devuelve exactamente el mismo resultado.
+- Con el filtro "Pendiente" activo, buscar no devuelve órdenes de otros estados.
+- Buscar "25" en Ventas encuentra la orden #25.
+- Los seis módulos nuevos filtran de verdad su tabla al escribir.
+- Buscar algo inexistente muestra el mensaje de "sin resultados".
+- pnpm run typecheck pasa limpio.
+
+NO toques la sincronización con Odoo, ni las columnas pesoTotalOdoo /
+volumenTotalOdoo, ni la lógica del catálogo de artículos.
+```

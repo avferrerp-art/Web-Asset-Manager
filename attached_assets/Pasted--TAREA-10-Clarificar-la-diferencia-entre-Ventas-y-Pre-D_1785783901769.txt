@@ -1,0 +1,66 @@
+# ▸ TAREA 10 — Clarificar la diferencia entre Ventas y Pre-Despacho
+
+**Antes del prompt, la explicación que pediste.**
+
+No son lo mismo, aunque se parezcan en pantalla:
+
+- **Ventas** es el registro de lo que se vendió, importado de Odoo. Es una vista de consulta: qué pidieron, quién, a dónde va, cuánto pesa.
+- **Pre-Despacho** es donde un pedido se convierte en un viaje. Ahí se le asigna **vehículo, chofer, ayudante y ruta**; el sistema **detecta si ese camión ya está comprometido** en otro despacho ese día y te avisa ("el vehículo ya está en el despacho #12"); **estima los costos** de combustible y peajes; y al aprobar, **crea el despacho**.
+
+Ventas responde *"¿qué me pidieron?"*. Pre-Despacho responde *"¿con qué camión, quién maneja y por dónde va?"*.
+
+Si se eliminara Pre-Despacho, se perdería la asignación de recursos y el control de que no se comprometa dos veces el mismo vehículo — que es justo lo que evita un problema caro.
+
+**Dicho eso, tu confusión tiene una causa real:** ambas pantallas muestran una tabla de pedidos casi idéntica, y Pre-Despacho no explica en ningún lado para qué sirve. Es un problema de diseño.
+
+Pegá esto en `New task`:
+
+```
+Clarifica la diferencia entre los módulos Ventas y Pre-Despacho en la app de
+logística LogiFleet. Los usuarios no entienden para qué sirve Pre-Despacho.
+
+CONTEXTO DEL PROYECTO (necesario porque no tienes memoria de tareas anteriores):
+Monorepo pnpm, React + TypeScript. Páginas en artifacts/logistics/src/pages/.
+Las páginas involucradas son ventas.tsx (556 líneas) y pre-despacho.tsx (615 líneas).
+
+CUÁL ES LA DIFERENCIA REAL ENTRE LOS DOS MÓDULOS
+- Ventas: registro de los pedidos importados de Odoo. Vista de consulta.
+- Pre-Despacho: toma las ventas en estado "pendiente" y les asigna vehículo, chofer,
+  ayudante y ruta; detecta conflictos de disponibilidad del vehículo (ya implementado,
+  avisa cuando el vehículo está ocupado en otro despacho); estima costos de
+  combustible y peajes; y al aprobar crea el despacho.
+
+EL PROBLEMA
+Ambas pantallas muestran una tabla de pedidos muy parecida y Pre-Despacho no explica
+en ninguna parte cuál es su propósito, así que parece una duplicación de Ventas.
+
+QUÉ QUIERO — NO ELIMINES NI FUSIONES LOS MÓDULOS
+1. Agrega en Pre-Despacho un encabezado o subtítulo que explique su propósito en una
+   frase clara, del estilo: "Asigna vehículo, chofer y ruta a los pedidos pendientes
+   para convertirlos en despachos."
+2. En Pre-Despacho, muestra SOLO las ventas en estado "pendiente" que TODAVÍA NO
+   tienen un despacho creado. Hoy filtra por estado pendiente (variable pendingSales,
+   alrededor de la línea 227) pero conviene verificar que una venta que ya generó
+   despacho deje de aparecer como pendiente de planificar.
+3. Haz que se note visualmente que Pre-Despacho es un paso de ACCIÓN y no un listado
+   de consulta: destaca claramente la acción principal de cada fila, para que se
+   distinga a primera vista de la tabla de Ventas.
+4. En ventas.tsx ya existe un botón "Planificar" (alrededor de la línea 538) que
+   navega a Pre-Despacho. Deja explícito que ese botón lleva a Pre-Despacho, por
+   ejemplo con un tooltip o texto de apoyo, para que la relación entre ambos módulos
+   quede clara.
+5. Si en Pre-Despacho no queda ninguna venta pendiente de planificar, muestra un
+   estado vacío que lo explique ("No hay pedidos pendientes de planificar"), en vez
+   de una tabla vacía.
+
+CRITERIOS DE ACEPTACIÓN — verifícalos tú mismo en el preview:
+- Pre-Despacho explica su propósito sin que haya que adivinarlo.
+- Una venta que ya tiene despacho creado NO aparece en Pre-Despacho.
+- La detección de conflicto de vehículo sigue funcionando igual que antes: crea dos
+  despachos con el mismo vehículo en la misma fecha y comprueba que avisa.
+- La creación de despachos desde Pre-Despacho sigue funcionando de punta a punta.
+- pnpm run typecheck pasa limpio.
+
+NO toques la sincronización con Odoo, ni las columnas pesoTotalOdoo /
+volumenTotalOdoo, ni el catálogo de artículos, ni la lógica de estimación de costos.
+```
