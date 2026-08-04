@@ -309,7 +309,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && handleClose()}>
-      <DialogContent className="sm:max-w-[680px] max-h-[90vh] overflow-y-auto overflow-x-hidden">
+      <DialogContent className="sm:max-w-[680px] grid-cols-[minmax(0,1fr)] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-lg">Nuevo Despacho</DialogTitle>
         </DialogHeader>
@@ -384,10 +384,10 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                         : "border-border bg-card hover:bg-accent/30"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3 min-w-0">
-                      <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-start justify-between gap-3 min-w-0">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
                         <div
-                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                          className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
                             selectedSale?.id === sale.id
                               ? "border-primary bg-primary"
                               : "border-border"
@@ -397,12 +397,15 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                             <div className="w-2 h-2 rounded-full bg-white" />
                           )}
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="font-semibold text-sm truncate">
                             #{sale.id} — {sale.cliente}
                           </div>
-                          <div className="text-xs text-muted-foreground truncate">
-                            {sale.destino} · {sale.pesoTotal} kg · {sale.volumenTotal} m³
+                          <div className="text-xs text-muted-foreground truncate" title={sale.destino}>
+                            {sale.destino}
+                          </div>
+                          <div className="text-xs text-muted-foreground whitespace-nowrap">
+                            {sale.pesoTotal} kg · {sale.volumenTotal} m³
                           </div>
                         </div>
                       </div>

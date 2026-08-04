@@ -244,7 +244,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
 
   return (
     <Dialog open={open} onOpenChange={o => !o && handleClose()}>
-      <DialogContent className="sm:max-w-[740px] max-h-[90vh] overflow-y-auto">
+      <DialogContent className="sm:max-w-[740px] grid-cols-[minmax(0,1fr)] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-lg">Planificar Carga</DialogTitle>
         </DialogHeader>
@@ -304,21 +304,24 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                         : "border-border bg-card hover:bg-accent/30"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3 min-w-0">
-                      <div className="flex items-center gap-3 min-w-0">
-                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 ${
+                    <div className="flex items-start justify-between gap-3 min-w-0">
+                      <div className="flex items-start gap-3 min-w-0 flex-1">
+                        <div className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 mt-0.5 ${
                           selectedSaleId === sale.id ? "border-primary bg-primary" : "border-border"
                         }`}>
                           {selectedSaleId === sale.id && <div className="w-2 h-2 rounded-full bg-white" />}
                         </div>
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="font-semibold text-sm truncate">#{sale.id} — {sale.cliente}</div>
-                          <div className="text-xs text-muted-foreground truncate">
-                            {sale.destino} · {sale.pesoTotal} kg · {sale.volumenTotal} m³
+                          <div className="text-xs text-muted-foreground truncate" title={sale.destino}>
+                            {sale.destino}
+                          </div>
+                          <div className="text-xs text-muted-foreground whitespace-nowrap">
+                            {sale.pesoTotal} kg · {sale.volumenTotal} m³
                           </div>
                         </div>
                       </div>
-                      <Badge variant="outline" className="text-[10px] shrink-0">{sale.tipoMaterial ?? "—"}</Badge>
+                      <Badge variant="outline" className="text-[10px] shrink-0 max-w-[120px] truncate block">{sale.tipoMaterial ?? "—"}</Badge>
                     </div>
                   </button>
                 ))}
