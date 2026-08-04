@@ -1,0 +1,51 @@
+Bug de layout en el modal "Nuevo Despacho" (paso 1, selección de orden).
+
+SÍNTOMA
+En Pre-Despacho / Dashboard → botón "Nuevo Despacho", el paso 1 lista las órdenes
+pendientes. Cuando el destino es una dirección larga, la línea se desborda a lo ancho:
+el diálogo se estira más allá de su max-width, el texto se corta contra el borde de la
+pantalla y no hay scroll horizontal. En las órdenes con dirección larga ni siquiera se
+alcanzan a ver el peso y el volumen, porque quedan empujados fuera de la vista.
+
+ARCHIVOS
+- artifacts/logistics/src/components/nuevo-despacho-wizard.tsx  (paso 1, ~línea 375)
+- artifacts/logistics/src/components/cargo-wizard.tsx           (mismo bloque copiado, ~línea 295)
+Los dos tienen la misma estructura de tarjeta y hay que arreglar los dos igual.
+
+CAUSA PROBABLE (verificala antes de asumirla)
+DialogContent es `grid`; sus hijos quedan con `min-width: auto`, así que el contenedor
+de la lista (`div.space-y-2.max-h-[340px].overflow-y-auto`) crece hasta el ancho del
+contenido más largo y desborda el `sm:max-w-[680px]` del diálogo. Los `truncate` que ya
+están en el markup no llegan a aplicarse porque el ancho disponible nunca se limita.
+
+QUÉ QUIERO
+1. Que el diálogo NUNCA sea más ancho que su max-width, sin importar cuán larga sea la
+   dirección, y que no aparezca scroll horizontal en ningún lado.
+2. Reorganizar la tarjeta de cada orden para que se lea mejor, en tres líneas:
+   - Línea 1: "#750 — INTERSATELITAL 2022, C.A"  (truncate si no entra)
+   - Línea 2: el destino solo, en text-xs muted, truncate a UNA línea, con `title={sale.destino}`
+     para que se vea completo al pasar el mouse.
+   - Línea 3: peso y volumen ("10.5 kg · 0 m³") en su propio renglón. Estos dos datos son
+     los que el usuario necesita para elegir el camión, así que NUNCA pueden quedar
+     truncados ni empujados fuera de la vista por un destino largo.
+   El badge de tipoMaterial se queda a la derecha, shrink-0 y con su propio truncate.
+3. Que el destino "Por definir" se siga viendo igual que hoy.
+
+RESTRICCIONES
+- Es un cambio de UI puro: NO toques el backend, ni openapi.yaml, ni el schema de DB,
+  ni corras codegen. No cambies qué órdenes se listan ni el filtro de pendientes.
+- No cambies el `data-testid="wizard-sale-${sale.id}"` ni el `data-testid="wizard-next-1"`.
+- Arreglá la causa raíz del ancho (min-w-0 / overflow donde corresponda, o cambiar el
+  contenedor del diálogo de grid a flex-col si eso es lo correcto). No lo tapes con
+  `overflow-x-hidden`, que solo esconde el desborde en vez de evitarlo.
+- Ojo con el doble scroll: DialogContent ya tiene `max-h-[90vh] overflow-y-auto` y la
+  lista tiene además `max-h-[340px] overflow-y-auto`. Dejá un solo scroll vertical claro.
+
+VERIFICACIÓN (mostrame evidencia, no me digas "listo")
+Abrí la app y el modal "Nuevo Despacho" y comprobá con capturas:
+a) Una orden con dirección larga (ej. #750 INTERSATELITAL o #747 PC SERVICE PLUS NET):
+   la dirección se corta con "…" dentro de la tarjeta, y el peso y el volumen se ven.
+b) El ancho del diálogo es el mismo con direcciones largas que con "Por definir" (#749).
+c) No hay scroll horizontal ni en el diálogo ni en la página de fondo.
+d) A ~1280px y a ~768px de ancho de ventana se ve bien en ambos casos.
+e) Lo mismo en el CargoWizard (Ventas → planificar carga de una orden).
