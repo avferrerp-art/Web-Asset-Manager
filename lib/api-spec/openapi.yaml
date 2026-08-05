@@ -1739,7 +1739,7 @@ components:
     # --- SALES ---
     OdooStatus:
       type: object
-      required: [configured, serverUrl, lastSyncAt, lastResult, lastError, importedCount, skippedCount]
+      required: [configured, serverUrl, lastSyncAt, lastResult, lastError, importedCount, skippedCount, lastDeliveriesSyncAt, lastDeliveriesResult, lastDeliveriesError, deliveriesCreatedCount, deliveriesUpdatedCount]
       properties:
         configured:
           type: boolean
@@ -1755,6 +1755,17 @@ components:
         importedCount:
           type: integer
         skippedCount:
+          type: integer
+        lastDeliveriesSyncAt:
+          type: ["string", "null"]
+        lastDeliveriesResult:
+          type: ["string", "null"]
+          description: "ok | error"
+        lastDeliveriesError:
+          type: ["string", "null"]
+        deliveriesCreatedCount:
+          type: integer
+        deliveriesUpdatedCount:
           type: integer
 
     OdooTestResult:
@@ -1995,7 +2006,7 @@ components:
 
     DeliverySyncResult:
       type: object
-      required: [ok, created, updated, itemsUpserted, unmatched, total]
+      required: [ok, created, updated, unchanged, itemsUpserted, itemsDeleted, deleted, alertsCreated, unmatched, total]
       properties:
         ok:
           type: boolean
@@ -2004,10 +2015,22 @@ components:
           description: New delivery rows inserted
         updated:
           type: integer
-          description: Existing delivery rows updated (idempotent re-run)
+          description: Existing delivery rows updated (write_date changed in Odoo)
+        unchanged:
+          type: integer
+          description: Matched pickings skipped because their write_date is unchanged (incremental)
         itemsUpserted:
           type: integer
           description: Total delivery item rows upserted
+        itemsDeleted:
+          type: integer
+          description: Local delivery lines removed because their stock.move disappeared
+        deleted:
+          type: integer
+          description: Local deliveries removed because the picking no longer exists in Odoo
+        alertsCreated:
+          type: integer
+          description: Sync alerts created (cancelled picking with an active dispatch)
         unmatched:
           type: integer
           description: Pickings skipped because no matching sale was found

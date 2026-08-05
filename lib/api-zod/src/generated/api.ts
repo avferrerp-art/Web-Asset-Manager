@@ -595,7 +595,12 @@ export const GetOdooStatusResponse = zod.object({
   "lastResult": zod.string().nullable().describe('ok | error'),
   "lastError": zod.string().nullable(),
   "importedCount": zod.number(),
-  "skippedCount": zod.number()
+  "skippedCount": zod.number(),
+  "lastDeliveriesSyncAt": zod.string().nullable(),
+  "lastDeliveriesResult": zod.string().nullable().describe('ok | error'),
+  "lastDeliveriesError": zod.string().nullable(),
+  "deliveriesCreatedCount": zod.number(),
+  "deliveriesUpdatedCount": zod.number()
 })
 
 
@@ -652,8 +657,12 @@ export const SyncOdooProductsResponse = zod.object({
 export const SyncOdooDeliveriesResponse = zod.object({
   "ok": zod.boolean(),
   "created": zod.number().describe('New delivery rows inserted'),
-  "updated": zod.number().describe('Existing delivery rows updated (idempotent re-run)'),
+  "updated": zod.number().describe('Existing delivery rows updated (write_date changed in Odoo)'),
+  "unchanged": zod.number().describe('Matched pickings skipped because their write_date is unchanged (incremental)'),
   "itemsUpserted": zod.number().describe('Total delivery item rows upserted'),
+  "itemsDeleted": zod.number().describe('Local delivery lines removed because their stock.move disappeared'),
+  "deleted": zod.number().describe('Local deliveries removed because the picking no longer exists in Odoo'),
+  "alertsCreated": zod.number().describe('Sync alerts created (cancelled picking with an active dispatch)'),
   "unmatched": zod.number().describe('Pickings skipped because no matching sale was found'),
   "total": zod.number().describe('Total outgoing pickings fetched from Odoo'),
   "error": zod.string().nullish()

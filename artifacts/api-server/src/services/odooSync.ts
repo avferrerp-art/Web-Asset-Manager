@@ -766,6 +766,8 @@ export function startOdooPolling(): void {
   if (pollTimer) return;
   const run = async () => {
     if (!getOdooConfig()) return; // not configured yet — skip silently
+
+    // 1) Orders sync (unchanged behavior)
     try {
       const result = await syncOdooOrders();
       if (result.imported > 0 || result.updated.length > 0 || result.alertsCreated > 0) {
@@ -776,9 +778,34 @@ export function startOdooPolling(): void {
       logger.error({ err }, "Odoo periodic sync failed");
       await recordSyncError(message).catch(() => {});
     }
+
+    // 2) Deliveries sync — always AFTER orders in the same cycle (an albarán of
+    // a not-yet-imported order can't be linked). Errors are recorded in
+    // odoo_sync_state (lastDeliveriesError) and never crash the server.
+    try {
+      const { syncDeliveries } = await import("./deliverySync");
+      const result = await syncDeliveries();
+      if (
+        result.created > 0 ||
+        result.updated > 0 ||
+        result.deleted > 0 ||
+        result.itemsDeleted > 0 ||
+        result.alertsCreated > 0
+      ) {
+        logger.info({ result }, "Odoo delivery sync applied changes");
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      logger.error({ err }, "Odoo periodic delivery sync failed");
+      const { recordDeliverySyncError } = await import("./deliverySync");
+      await recordDeliverySyncError(message).catch(() => {});
+    }
   };
   pollTimer = setInterval(() => void run(), POLL_INTERVAL_MS);
   // First run shortly after boot
   setTimeout(() => void run(), 10_000);
-  logger.info({ intervalMs: POLL_INTERVAL_MS }, "Odoo polling scheduled");
+  logger.info(
+    { intervalMs: POLL_INTERVAL_MS, order: ["órdenes", "albaranes"] },
+    "Odoo polling scheduled (cada ciclo: sync de órdenes → sync de albaranes)",
+  );
 }

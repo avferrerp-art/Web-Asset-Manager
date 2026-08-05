@@ -8,13 +8,14 @@ import {
   useListOdooAlerts,
   getListOdooAlertsQueryKey,
   useResolveOdooAlert,
+  useSyncOdooDeliveries,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plug, RefreshCw, CheckCircle2, XCircle, AlertCircle } from "lucide-react";
+import { Loader2, Plug, RefreshCw, CheckCircle2, XCircle, AlertCircle, Truck } from "lucide-react";
 
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-VE", {
@@ -52,6 +53,41 @@ export function OdooSyncCard() {
 
   const testMutation = useTestOdooConnection();
   const syncMutation = useSyncOdooNow();
+  const syncDeliveriesMutation = useSyncOdooDeliveries();
+
+  const handleSyncDeliveries = () => {
+    syncDeliveriesMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        refresh();
+        queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
+        queryClient.removeQueries({ queryKey: getListOdooAlertsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListOdooAlertsQueryKey() });
+        if (data.ok) {
+          const parts: string[] = [];
+          if (data.created > 0) parts.push(`${data.created} creado${data.created !== 1 ? "s" : ""}`);
+          if (data.updated > 0) parts.push(`${data.updated} actualizado${data.updated !== 1 ? "s" : ""}`);
+          if (data.deleted > 0) parts.push(`${data.deleted} eliminado${data.deleted !== 1 ? "s" : ""}`);
+          if (data.alertsCreated > 0)
+            parts.push(`${data.alertsCreated} alerta${data.alertsCreated !== 1 ? "s" : ""}`);
+          toast({
+            title:
+              parts.length > 0
+                ? `Albaranes: ${parts.join(", ")}`
+                : "Albaranes sincronizados — sin cambios",
+          });
+        }
+      },
+      onError: (err: unknown) => {
+        refresh();
+        const anyErr = err as { response?: { data?: { error?: string } }; message?: string };
+        toast({
+          title: "Error al sincronizar albaranes",
+          description: anyErr?.response?.data?.error ?? anyErr?.message ?? "Error desconocido",
+          variant: "destructive",
+        });
+      },
+    });
+  };
 
   const refresh = () => {
     queryClient.invalidateQueries({ queryKey: getGetOdooStatusQueryKey() });
@@ -205,6 +241,57 @@ export function OdooSyncCard() {
               <XCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
             )}
             <span>{testResult.message}</span>
+          </div>
+        )}
+
+        {configured && (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 justify-between rounded-md border px-3 py-2"
+            data-testid="section-odoo-deliveries"
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+              <Truck className="w-4 h-4 shrink-0 text-muted-foreground" />
+              <p className="font-semibold text-xs">Albaranes</p>
+              {status?.lastDeliveriesResult === "ok" && (
+                <Badge variant="outline" className="text-green-500 border-green-500/50 text-[10px]">
+                  OK
+                </Badge>
+              )}
+              {status?.lastDeliveriesResult === "error" && (
+                <Badge variant="outline" className="text-red-500 border-red-500/50 text-[10px]">
+                  Último intento falló
+                </Badge>
+              )}
+              <p className="text-xs text-muted-foreground truncate" data-testid="text-odoo-deliveries-detail">
+                {status?.lastDeliveriesSyncAt
+                  ? `Última sincronización: ${fmtDateTime(status.lastDeliveriesSyncAt)} · ${status.deliveriesCreatedCount} creado${status.deliveriesCreatedCount !== 1 ? "s" : ""}, ${status.deliveriesUpdatedCount} actualizado${status.deliveriesUpdatedCount !== 1 ? "s" : ""}`
+                  : "Aún sin sincronizaciones de albaranes"}
+              </p>
+            </div>
+            <Button
+              data-testid="button-odoo-sync-deliveries"
+              variant="outline"
+              size="sm"
+              onClick={handleSyncDeliveries}
+              disabled={syncDeliveriesMutation.isPending}
+              className="gap-1.5 shrink-0"
+            >
+              {syncDeliveriesMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <RefreshCw className="w-3.5 h-3.5" />
+              )}
+              Sincronizar albaranes
+            </Button>
+            {status?.lastDeliveriesResult === "error" && status?.lastDeliveriesError && (
+              <div
+                className="w-full flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                data-testid="text-odoo-deliveries-last-error"
+              >
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>{status.lastDeliveriesError}</span>
+              </div>
+            )}
           </div>
         )}
 

@@ -29,6 +29,13 @@ router.get("/odoo/status", async (_req, res): Promise<void> => {
     lastError: state?.lastError ?? null,
     importedCount: state?.importedCount ?? 0,
     skippedCount: state?.skippedCount ?? 0,
+    lastDeliveriesSyncAt: state?.lastDeliveriesSyncAt
+      ? state.lastDeliveriesSyncAt.toISOString()
+      : null,
+    lastDeliveriesResult: state?.lastDeliveriesResult ?? null,
+    lastDeliveriesError: state?.lastDeliveriesError ?? null,
+    deliveriesCreatedCount: state?.deliveriesCreatedCount ?? 0,
+    deliveriesUpdatedCount: state?.deliveriesUpdatedCount ?? 0,
   });
 });
 
@@ -129,7 +136,11 @@ router.post("/odoo/sync-deliveries", async (req, res): Promise<void> => {
       ok: true,
       created: result.created,
       updated: result.updated,
+      unchanged: result.unchanged,
       itemsUpserted: result.itemsUpserted,
+      itemsDeleted: result.itemsDeleted,
+      deleted: result.deleted,
+      alertsCreated: result.alertsCreated,
       unmatched: result.unmatched,
       total: result.total,
       error: null,
@@ -142,7 +153,11 @@ router.post("/odoo/sync-deliveries", async (req, res): Promise<void> => {
       ok: false,
       created: 0,
       updated: 0,
+      unchanged: 0,
       itemsUpserted: 0,
+      itemsDeleted: 0,
+      deleted: 0,
+      alertsCreated: 0,
       unmatched: 0,
       total: 0,
       error: message,

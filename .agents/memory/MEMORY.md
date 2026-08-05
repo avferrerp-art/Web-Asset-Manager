@@ -12,4 +12,5 @@
 - [Odoo stock.picking reads](odoo-stock-picking.md) — Odoo 19: delivered qty is `quantity` (no quantity_done); lines are `move_ids`; link albarán→venta via `sale_id`.
 - [Drizzle ANY(ARRAY) pitfall](drizzle-any-array-params.md) — raw `= ANY(ARRAY[$..])` params infer as text and break integer filters; always use `inArray`.
 - [Visual verify behind auth](visual-verify-behind-auth.md) — screenshots hit the Clerk login; use a mockup-sandbox component for captures + standalone router/SQL for real numbers.
+- [Odoo deliveries incremental sync](odoo-deliveries-incremental.md) — reads must be incremental too: write_date>=watermark domain + id-only search for deletions; test rewinds must cap the global watermark.
 - [Expo mobile quirks](chofer-expo-quirks.md) — Orval hooks in Expo need explicit queryKey; keep @types/react catalog pinned to Expo's 19.1.x; mobile auth is Bearer via setAuthTokenGetter; clear query cache on sign-out.

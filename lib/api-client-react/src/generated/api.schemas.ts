@@ -134,6 +134,17 @@ export interface OdooStatus {
   lastError: string | null;
   importedCount: number;
   skippedCount: number;
+  /** @nullable */
+  lastDeliveriesSyncAt: string | null;
+  /**
+     * ok | error
+     * @nullable
+     */
+  lastDeliveriesResult: string | null;
+  /** @nullable */
+  lastDeliveriesError: string | null;
+  deliveriesCreatedCount: number;
+  deliveriesUpdatedCount: number;
 }
 
 export interface OdooTestResult {
@@ -319,10 +330,18 @@ export interface DeliverySyncResult {
   ok: boolean;
   /** New delivery rows inserted */
   created: number;
-  /** Existing delivery rows updated (idempotent re-run) */
+  /** Existing delivery rows updated (write_date changed in Odoo) */
   updated: number;
+  /** Matched pickings skipped because their write_date is unchanged (incremental) */
+  unchanged: number;
   /** Total delivery item rows upserted */
   itemsUpserted: number;
+  /** Local delivery lines removed because their stock.move disappeared */
+  itemsDeleted: number;
+  /** Local deliveries removed because the picking no longer exists in Odoo */
+  deleted: number;
+  /** Sync alerts created (cancelled picking with an active dispatch) */
+  alertsCreated: number;
   /** Pickings skipped because no matching sale was found */
   unmatched: number;
   /** Total outgoing pickings fetched from Odoo */

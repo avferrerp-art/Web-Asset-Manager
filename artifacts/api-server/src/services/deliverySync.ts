@@ -1,11 +1,13 @@
-import { eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, notInArray, sql } from "drizzle-orm";
 import {
   db,
   salesTable,
   productsTable,
   deliveriesTable,
   deliveryItemsTable,
+  dispatchesTable,
   odooSyncStateTable,
+  syncAlertsTable,
 } from "@workspace/db";
 import {
   authenticate,
@@ -20,7 +22,14 @@ import { recomputeDeliveryDerivedState } from "./deliveryEstado";
 export interface DeliverySyncResult {
   created: number;
   updated: number;
+  /** Pickings already in sync (same odooWriteDate) — read but not written. */
+  unchanged: number;
   itemsUpserted: number;
+  /** Local delivery lines removed because their stock.move disappeared from the picking. */
+  itemsDeleted: number;
+  /** Local deliveries removed because the picking no longer exists in Odoo. */
+  deleted: number;
+  alertsCreated: number;
   unmatched: number;
   total: number;
 }
@@ -51,6 +60,7 @@ interface OdooMove {
 }
 
 const FETCH_BATCH_SIZE = 200;
+const WRITE_BATCH_SIZE = 500;
 
 /** Parse an Odoo UTC datetime string ("2026-08-03 13:42:05") into a JS Date.
  *  Odoo returns times in UTC without a timezone suffix, so we append 'Z'. */
@@ -71,24 +81,40 @@ function locationToCode(locationName: string | null): string | null {
   return null;
 }
 
+/** Lightweight id-only listing of ALL outgoing pickings (no fields read).
+ *  Used to detect pickings deleted in Odoo without downloading their data. */
+async function fetchOutgoingPickingIds(
+  config: OdooConfig,
+  uid: number,
+): Promise<number[]> {
+  return (await executeKw(config, uid, "stock.picking", "search", [
+    [["picking_type_id.code", "=", "outgoing"]],
+  ])) as number[];
+}
+
+/** Fetch outgoing pickings incrementally: when a watermark is given, only
+ *  pickings with write_date >= watermark are downloaded from Odoo (server-side
+ *  filter). '>=' instead of '>' avoids missing same-second edits; the per-row
+ *  odooWriteDate comparison downstream discards true no-ops. */
 async function fetchOutgoingPickings(
   config: OdooConfig,
   uid: number,
+  sinceWriteDate: string | null,
 ): Promise<OdooPicking[]> {
   const all: OdooPicking[] = [];
   let lastId = 0;
   for (;;) {
+    const domain: unknown[] = [
+      ["picking_type_id.code", "=", "outgoing"],
+      ["id", ">", lastId],
+    ];
+    if (sinceWriteDate) domain.push(["write_date", ">=", sinceWriteDate]);
     const batch = (await executeKw(
       config,
       uid,
       "stock.picking",
       "search_read",
-      [
-        [
-          ["picking_type_id.code", "=", "outgoing"],
-          ["id", ">", lastId],
-        ],
-      ],
+      [domain],
       {
         fields: [
           "name",
@@ -160,6 +186,92 @@ export async function recordDeliverySyncError(message: string): Promise<void> {
     .where(eq(odooSyncStateTable.id, row.id));
 }
 
+function chunk<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
+// ─── Alerts: albarán cancelado con despacho activo ─────────────────────────
+
+/** For pickings that turned to 'cancel' in Odoo, create a sync alert when the
+ *  linked sale has an active (non-cancelled) dispatch in LogiFleet. The alert
+ *  only informs — no dispatch or sale is modified automatically.
+ *  Deduped by (ventaId, odooWriteDate), same criterion as odooSync.ts. */
+async function createCancelAlerts(
+  cancelled: Array<{ picking: OdooPicking; saleId: number }>,
+): Promise<number> {
+  if (cancelled.length === 0) return 0;
+  const saleIds = [...new Set(cancelled.map((c) => c.saleId))];
+
+  const activeDispatches = await db
+    .select({
+      id: dispatchesTable.id,
+      ventaId: dispatchesTable.ventaId,
+      estado: dispatchesTable.estado,
+    })
+    .from(dispatchesTable)
+    .where(
+      and(
+        inArray(dispatchesTable.ventaId, saleIds),
+        sql`${dispatchesTable.estado} <> 'cancelado'`,
+      ),
+    );
+  if (activeDispatches.length === 0) return 0;
+  const dispatchBySaleId = new Map<number, (typeof activeDispatches)[number]>();
+  for (const d of activeDispatches) {
+    if (!dispatchBySaleId.has(d.ventaId)) dispatchBySaleId.set(d.ventaId, d);
+  }
+
+  const sales = await db
+    .select({
+      id: salesTable.id,
+      odooRef: salesTable.odooRef,
+      cliente: salesTable.cliente,
+      estado: salesTable.estado,
+    })
+    .from(salesTable)
+    .where(inArray(salesTable.id, saleIds));
+  const saleById = new Map(sales.map((s) => [s.id, s]));
+
+  let alertsCreated = 0;
+  for (const { picking, saleId } of cancelled) {
+    const dispatch = dispatchBySaleId.get(saleId);
+    if (!dispatch) continue;
+    const sale = saleById.get(saleId);
+
+    // Dedupe by (ventaId, odooWriteDate) regardless of resolution state.
+    const [dup] = await db
+      .select({ id: syncAlertsTable.id })
+      .from(syncAlertsTable)
+      .where(
+        and(
+          eq(syncAlertsTable.ventaId, saleId),
+          eq(syncAlertsTable.odooWriteDate, picking.write_date),
+        ),
+      )
+      .limit(1);
+    if (dup) continue;
+
+    const ventaLabel = sale?.odooRef ? `${sale.odooRef} (${sale.cliente})` : `#${saleId}`;
+    await db.insert(syncAlertsTable).values({
+      ventaId: saleId,
+      odooId: picking.id,
+      odooRef: sale?.odooRef ?? null,
+      estado: sale?.estado ?? "desconocido",
+      mensaje: `El albarán ${picking.name} fue cancelado en Odoo, pero la venta ${ventaLabel} tiene el despacho #${dispatch.id} activo (estado '${dispatch.estado}') — revisar manualmente.`,
+      campos: "albaran_cancelado",
+      odooWriteDate: picking.write_date,
+    });
+    alertsCreated++;
+    logger.warn(
+      { picking: picking.name, ventaId: saleId, dispatchId: dispatch.id },
+      "Albarán cancelado en Odoo con despacho activo: alerta creada, sin modificar nada",
+    );
+  }
+  return alertsCreated;
+}
+
 // ─── Main sync ─────────────────────────────────────────────────────────────
 
 export async function syncDeliveries(): Promise<DeliverySyncResult> {
@@ -173,8 +285,6 @@ export async function syncDeliveries(): Promise<DeliverySyncResult> {
   const uid = await authenticate(config);
 
   // ── Guard: verify critical fields exist before proceeding ────────────────
-  logger.info("Verificando campos críticos en Odoo antes del sync de albaranes");
-
   const pickingFields = (await executeKw(
     config,
     uid,
@@ -205,7 +315,6 @@ export async function syncDeliveries(): Promise<DeliverySyncResult> {
     );
   }
 
-  // Log optional field availability
   const optionalPickingFields = ["scheduled_date", "date_done", "backorder_id"];
   for (const f of optionalPickingFields) {
     if (!(f in pickingFields)) {
@@ -213,18 +322,57 @@ export async function syncDeliveries(): Promise<DeliverySyncResult> {
     }
   }
 
-  // ── Fetch all outgoing pickings ──────────────────────────────────────────
-  logger.info("Descargando albaranes de salida de Odoo...");
-  const pickings = await fetchOutgoingPickings(config, uid);
-  logger.info({ total: pickings.length }, "Albaranes de salida obtenidos de Odoo");
+  // ── Local state: existing deliveries by odooId ────────────────────────────
+  const localDeliveries = await db
+    .select({
+      id: deliveriesTable.id,
+      odooId: deliveriesTable.odooId,
+      ventaId: deliveriesTable.ventaId,
+      estado: deliveriesTable.estado,
+      odooWriteDate: deliveriesTable.odooWriteDate,
+    })
+    .from(deliveriesTable);
+  const localByOdooId = new Map(localDeliveries.map((d) => [d.odooId, d]));
+
+  // Watermark for the server-side incremental fetch: the max write_date we
+  // have locally (Odoo datetime strings sort lexicographically). Null on the
+  // first run → full fetch.
+  let watermark: string | null = null;
+  for (const d of localDeliveries) {
+    if (d.odooWriteDate && (!watermark || d.odooWriteDate > watermark)) {
+      watermark = d.odooWriteDate;
+    }
+  }
+
+  // ── Incremental fetch: only pickings changed since the watermark ─────────
+  const pickings = await fetchOutgoingPickings(config, uid, watermark);
+  logger.info(
+    { fetched: pickings.length, watermark },
+    "Albaranes cambiados desde la última corrida obtenidos de Odoo",
+  );
+
+  // ── Reconcile deletions via id-only search (no data downloaded) ──────────
+  const remoteIdList = await fetchOutgoingPickingIds(config, uid);
+  const remoteIds = new Set(remoteIdList);
+  const deletedLocal = localDeliveries.filter((d) => !remoteIds.has(d.odooId));
+  let deleted = 0;
+  if (deletedLocal.length > 0) {
+    const ids = deletedLocal.map((d) => d.id);
+    // delivery_items cascade on delete
+    await db.delete(deliveriesTable).where(inArray(deliveriesTable.id, ids));
+    deleted = ids.length;
+    logger.info(
+      { deleted, nombres: deletedLocal.map((d) => d.odooId) },
+      "Albaranes eliminados en Odoo — borrados localmente",
+    );
+  }
 
   // ── Build sale lookup maps ───────────────────────────────────────────────
-  // We need both odooId → sale.id and odooRef → sale.id for fallback matching
   const salesRows = await db
     .select({ id: salesTable.id, odooId: salesTable.odooId, odooRef: salesTable.odooRef })
     .from(salesTable);
-  const saleByOdooId = new Map<number, number>(); // odooId → sale PK id
-  const saleByOdooRef = new Map<string, number>(); // odooRef → sale PK id
+  const saleByOdooId = new Map<number, number>();
+  const saleByOdooRef = new Map<string, number>();
   for (const s of salesRows) {
     if (s.odooId !== null) saleByOdooId.set(s.odooId, s.id);
     if (s.odooRef !== null) saleByOdooRef.set(s.odooRef, s.id);
@@ -235,172 +383,211 @@ export async function syncDeliveries(): Promise<DeliverySyncResult> {
   const matched: Array<{ picking: OdooPicking; saleId: number }> = [];
   for (const p of pickings) {
     let saleId: number | undefined;
-
-    // Primary: sale_id[0] → sales.odooId
     if (p.sale_id !== false) {
       saleId = saleByOdooId.get(p.sale_id[0]);
     }
-
-    // Fallback: origin → sales.odooRef
     if (saleId === undefined && p.origin && typeof p.origin === "string" && p.origin.trim()) {
       saleId = saleByOdooRef.get(p.origin.trim());
     }
-
     if (saleId === undefined) {
       unmatched++;
-      logger.debug(
-        { pickingId: p.id, name: p.name, saleId: p.sale_id, origin: p.origin },
-        "Albarán sin match en ventas locales — se omite",
-      );
       continue;
     }
-
     matched.push({ picking: p, saleId });
   }
 
+  // ── Incremental filter: only touch new pickings or changed write_date ────
+  // (same odooWriteDate criterion as the orders sync in odooSync.ts)
+  const changed = matched.filter(({ picking }) => {
+    const local = localByOdooId.get(picking.id);
+    return local === undefined || local.odooWriteDate !== picking.write_date;
+  });
+  const unchanged = matched.length - changed.length;
+
   logger.info(
-    { total: pickings.length, matched: matched.length, unmatched },
-    "Match de albaranes completado",
+    { total: pickings.length, matched: matched.length, changed: changed.length, unchanged, unmatched, deleted },
+    "Match incremental de albaranes completado",
   );
 
-  // ── Collect all move IDs from matched pickings ───────────────────────────
-  const allMoveIds = matched.flatMap((m) => m.picking.move_ids);
-  const uniqueMoveIds = [...new Set(allMoveIds)];
-
-  // Fetch stock.moves in batches of 200
-  const allMoves: OdooMove[] = [];
-  for (let i = 0; i < uniqueMoveIds.length; i += FETCH_BATCH_SIZE) {
-    const batch = uniqueMoveIds.slice(i, i + FETCH_BATCH_SIZE);
-    const moves = await fetchMovesBatch(config, uid, batch);
-    allMoves.push(...moves);
-  }
-  const movesByPickingId = new Map<number, OdooMove[]>();
-  for (const m of allMoves) {
-    const pickId = m.picking_id[0];
-    if (!movesByPickingId.has(pickId)) movesByPickingId.set(pickId, []);
-    movesByPickingId.get(pickId)!.push(m);
-  }
-
-  // ── Build product catalog lookup by odooId ───────────────────────────────
-  const uniqueProductOdooIds = [
-    ...new Set(
-      allMoves
-        .filter((m) => m.product_id !== false)
-        .map((m) => (m.product_id as [number, string])[0]),
-    ),
-  ];
-  const catalogProducts =
-    uniqueProductOdooIds.length > 0
-      ? await db
-          .select({ id: productsTable.id, odooId: productsTable.odooId })
-          .from(productsTable)
-          .where(inArray(productsTable.odooId, uniqueProductOdooIds))
-      : [];
-  const catalogByOdooId = new Map(catalogProducts.map((p) => [p.odooId!, p.id]));
-
-  // ── UPSERT deliveries and items ──────────────────────────────────────────
   let created = 0;
   let updated = 0;
   let itemsUpserted = 0;
+  let itemsDeleted = 0;
+  let alertsCreated = 0;
   const now = new Date();
+  const touchedSaleIds = new Set<number>(deletedLocal.map((d) => d.ventaId));
 
-  for (const { picking: p, saleId } of matched) {
-    const locationName = p.location_id !== false ? p.location_id[1] : null;
-    const almacenCodigo = locationToCode(locationName);
-    const backorderOdooId = p.backorder_id !== false ? p.backorder_id[0] : null;
-
-    const deliveryValues = {
-      ventaId: saleId,
-      odooId: p.id,
-      nombre: p.name,
-      estado: p.state,
-      tipoOperacion: p.picking_type_id !== false ? p.picking_type_id[1] : null,
-      almacenOrigen: locationName,
-      almacenCodigo,
-      fechaProgramada: parseOdooDatetime(p.scheduled_date),
-      fechaEfectiva: parseOdooDatetime(p.date_done),
-      documentoOrigen: p.origin !== false ? p.origin : null,
-      backorderDeOdooId: backorderOdooId,
-      odooWriteDate: p.write_date,
-      lastSyncAt: now,
-    };
-
-    // UPSERT by odooId — idempotent, second run updates without duplicating
-    const result = await db
-      .insert(deliveriesTable)
-      .values({ ...deliveryValues, createdAt: now })
-      .onConflictDoUpdate({
-        target: deliveriesTable.odooId,
-        set: {
-          nombre: deliveryValues.nombre,
-          estado: deliveryValues.estado,
-          tipoOperacion: deliveryValues.tipoOperacion,
-          almacenOrigen: deliveryValues.almacenOrigen,
-          almacenCodigo: deliveryValues.almacenCodigo,
-          fechaProgramada: deliveryValues.fechaProgramada,
-          fechaEfectiva: deliveryValues.fechaEfectiva,
-          documentoOrigen: deliveryValues.documentoOrigen,
-          backorderDeOdooId: deliveryValues.backorderDeOdooId,
-          odooWriteDate: deliveryValues.odooWriteDate,
-          lastSyncAt: deliveryValues.lastSyncAt,
-        },
-      })
-      .returning({ id: deliveriesTable.id, isNew: sql<boolean>`(xmax = 0)` });
-
-    const row = result[0]!;
-    if (row.isNew) {
-      created++;
-    } else {
-      updated++;
+  if (changed.length > 0) {
+    // ── Fetch moves ONLY for changed pickings ──────────────────────────────
+    const uniqueMoveIds = [...new Set(changed.flatMap((m) => m.picking.move_ids))];
+    const allMoves: OdooMove[] = [];
+    for (const batch of chunk(uniqueMoveIds, FETCH_BATCH_SIZE)) {
+      allMoves.push(...(await fetchMovesBatch(config, uid, batch)));
     }
-    const deliveryId = row.id;
+    const movesByPickingId = new Map<number, OdooMove[]>();
+    for (const m of allMoves) {
+      const pickId = m.picking_id[0];
+      if (!movesByPickingId.has(pickId)) movesByPickingId.set(pickId, []);
+      movesByPickingId.get(pickId)!.push(m);
+    }
 
-    // UPSERT delivery items
-    const moves = movesByPickingId.get(p.id) ?? [];
-    for (const move of moves) {
-      const productOdooId = move.product_id !== false ? move.product_id[0] : null;
-      const productoDesc = move.product_id !== false ? move.product_id[1] : "Producto desconocido";
-      const productId = productOdooId !== null ? (catalogByOdooId.get(productOdooId) ?? null) : null;
+    // ── Product catalog lookup by odooId ───────────────────────────────────
+    const uniqueProductOdooIds = [
+      ...new Set(
+        allMoves
+          .filter((m) => m.product_id !== false)
+          .map((m) => (m.product_id as [number, string])[0]),
+      ),
+    ];
+    const catalogProducts =
+      uniqueProductOdooIds.length > 0
+        ? await db
+            .select({ id: productsTable.id, odooId: productsTable.odooId })
+            .from(productsTable)
+            .where(inArray(productsTable.odooId, uniqueProductOdooIds))
+        : [];
+    const catalogByOdooId = new Map(catalogProducts.map((p) => [p.odooId!, p.id]));
 
-      await db
-        .insert(deliveryItemsTable)
-        .values({
+    // ── Batched UPSERT of deliveries ───────────────────────────────────────
+    const deliveryIdByOdooId = new Map<number, number>();
+    for (const batch of chunk(changed, WRITE_BATCH_SIZE)) {
+      const values = batch.map(({ picking: p, saleId }) => {
+        const locationName = p.location_id !== false ? p.location_id[1] : null;
+        return {
+          ventaId: saleId,
+          odooId: p.id,
+          nombre: p.name,
+          estado: p.state,
+          tipoOperacion: p.picking_type_id !== false ? p.picking_type_id[1] : null,
+          almacenOrigen: locationName,
+          almacenCodigo: locationToCode(locationName),
+          fechaProgramada: parseOdooDatetime(p.scheduled_date),
+          fechaEfectiva: parseOdooDatetime(p.date_done),
+          documentoOrigen: p.origin !== false ? p.origin : null,
+          backorderDeOdooId: p.backorder_id !== false ? p.backorder_id[0] : null,
+          odooWriteDate: p.write_date,
+          lastSyncAt: now,
+          createdAt: now,
+        };
+      });
+      const rows = await db
+        .insert(deliveriesTable)
+        .values(values)
+        .onConflictDoUpdate({
+          target: deliveriesTable.odooId,
+          set: {
+            ventaId: sql`excluded.venta_id`,
+            nombre: sql`excluded.nombre`,
+            estado: sql`excluded.estado`,
+            tipoOperacion: sql`excluded.tipo_operacion`,
+            almacenOrigen: sql`excluded.almacen_origen`,
+            almacenCodigo: sql`excluded.almacen_codigo`,
+            fechaProgramada: sql`excluded.fecha_programada`,
+            fechaEfectiva: sql`excluded.fecha_efectiva`,
+            documentoOrigen: sql`excluded.documento_origen`,
+            backorderDeOdooId: sql`excluded.backorder_de_odoo_id`,
+            odooWriteDate: sql`excluded.odoo_write_date`,
+            lastSyncAt: sql`excluded.last_sync_at`,
+          },
+        })
+        .returning({
+          id: deliveriesTable.id,
+          odooId: deliveriesTable.odooId,
+          isNew: sql<boolean>`(xmax = 0)`,
+        });
+      for (const r of rows) {
+        deliveryIdByOdooId.set(r.odooId, r.id);
+        if (r.isNew) created++;
+        else updated++;
+      }
+    }
+
+    // ── Batched UPSERT of delivery items ───────────────────────────────────
+    const itemValues = changed.flatMap(({ picking: p }) => {
+      const deliveryId = deliveryIdByOdooId.get(p.id);
+      if (deliveryId === undefined) return [];
+      return (movesByPickingId.get(p.id) ?? []).map((move) => {
+        const productOdooId = move.product_id !== false ? move.product_id[0] : null;
+        return {
           deliveryId,
-          productId,
+          productId:
+            productOdooId !== null ? (catalogByOdooId.get(productOdooId) ?? null) : null,
           odooMoveId: move.id,
-          descripcion: productoDesc,
+          descripcion: move.product_id !== false ? move.product_id[1] : "Producto desconocido",
           cantidadDemanda: move.product_uom_qty ?? 0,
           cantidadEntregada: move.quantity ?? 0,
           uom: move.product_uom !== false ? move.product_uom[1] : null,
           estado: move.state,
-        })
+        };
+      });
+    });
+    for (const batch of chunk(itemValues, WRITE_BATCH_SIZE)) {
+      await db
+        .insert(deliveryItemsTable)
+        .values(batch)
         .onConflictDoUpdate({
           target: deliveryItemsTable.odooMoveId,
           set: {
-            deliveryId,
-            productId,
-            descripcion: productoDesc,
-            cantidadDemanda: move.product_uom_qty ?? 0,
-            cantidadEntregada: move.quantity ?? 0,
-            uom: move.product_uom !== false ? move.product_uom[1] : null,
-            estado: move.state,
+            deliveryId: sql`excluded.delivery_id`,
+            productId: sql`excluded.product_id`,
+            descripcion: sql`excluded.descripcion`,
+            cantidadDemanda: sql`excluded.cantidad_demanda`,
+            cantidadEntregada: sql`excluded.cantidad_entregada`,
+            uom: sql`excluded.uom`,
+            estado: sql`excluded.estado`,
           },
         });
-      itemsUpserted++;
+      itemsUpserted += batch.length;
     }
+
+    // ── Delete local items whose stock.move no longer belongs to its picking ─
+    const changedDeliveryIds = [...deliveryIdByOdooId.values()];
+    const validMoveIds = changed.flatMap(({ picking }) => picking.move_ids);
+    if (changedDeliveryIds.length > 0) {
+      const removed = await db
+        .delete(deliveryItemsTable)
+        .where(
+          and(
+            inArray(deliveryItemsTable.deliveryId, changedDeliveryIds),
+            validMoveIds.length > 0
+              ? notInArray(deliveryItemsTable.odooMoveId, validMoveIds)
+              : undefined,
+          ),
+        )
+        .returning({ id: deliveryItemsTable.id });
+      itemsDeleted = removed.length;
+      if (itemsDeleted > 0) {
+        logger.info({ itemsDeleted }, "Líneas de albarán eliminadas en Odoo — borradas localmente");
+      }
+    }
+
+    // ── Alerts: albarán pasó a 'cancel' con despacho activo ────────────────
+    const nowCancelled = changed.filter(
+      ({ picking }) =>
+        picking.state === "cancel" &&
+        localByOdooId.get(picking.id)?.estado !== "cancel",
+    );
+    alertsCreated = await createCancelAlerts(nowCancelled);
+
+    for (const { saleId } of changed) touchedSaleIds.add(saleId);
   }
 
   const syncResult: DeliverySyncResult = {
     created,
     updated,
+    unchanged,
     itemsUpserted,
+    itemsDeleted,
+    deleted,
+    alertsCreated,
     unmatched,
-    total: pickings.length,
+    total: remoteIdList.length,
   };
 
   // ── Derive estadoEntrega / almacenOrigen for all sales touched this run ──
-  const touchedSaleIds = [...new Set(matched.map((m) => m.saleId))];
-  await recomputeDeliveryDerivedState(touchedSaleIds);
+  if (touchedSaleIds.size > 0) {
+    await recomputeDeliveryDerivedState([...touchedSaleIds]);
+  }
 
   await recordDeliverySyncResult(syncResult);
   logger.info({ syncResult }, "Sync de albaranes completado");

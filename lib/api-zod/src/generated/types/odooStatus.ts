@@ -21,4 +21,15 @@ export interface OdooStatus {
   lastError: string | null;
   importedCount: number;
   skippedCount: number;
+  /** @nullable */
+  lastDeliveriesSyncAt: string | null;
+  /**
+     * ok | error
+     * @nullable
+     */
+  lastDeliveriesResult: string | null;
+  /** @nullable */
+  lastDeliveriesError: string | null;
+  deliveriesCreatedCount: number;
+  deliveriesUpdatedCount: number;
 }
