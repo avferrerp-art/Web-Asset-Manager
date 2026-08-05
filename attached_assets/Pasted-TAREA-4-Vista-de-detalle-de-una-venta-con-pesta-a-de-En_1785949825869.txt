@@ -1,0 +1,90 @@
+TAREA 4 — Vista de detalle de una venta, con pestaña de Entregas (albaranes)
+
+CONTEXTO
+Backend listo: hay 913 albaranes y 1874 líneas en la DB, cada venta tiene estadoEntrega,
+almacenOrigen y almacenesMultiples, y existen los endpoints
+GET /api/sales/{id}/deliveries (albaranes con items embebidos, cancelados al final) y
+POST /api/odoo/sync-deliveries. Los hooks generados son useListSaleDeliveries y
+useSyncOdooDeliveries.
+
+Hoy la página Ventas (artifacts/logistics/src/pages/ventas.tsx) es una tabla plana: cada
+fila tiene botones de editar, borrar y planificar carga, pero NO existe vista de detalle.
+Hace falta una.
+
+El modelo mental a replicar es el de Odoo: entrás a la orden y arriba tenés el botón
+"Entrega 2" que te lleva a los albaranes, donde ves de qué almacén salió cada uno, en qué
+estado está, y qué se pidió vs. qué se entregó realmente de cada producto.
+
+DATO QUE CONDICIONA EL DISEÑO
+De las 754 ventas, 710 están 'entregado' en Odoo mientras LogiFleet las tiene como
+'pendiente' (solo hay ~6 despachos creados). O sea: en la enorme mayoría de las ventas
+los dos badges NO van a coincidir, y eso es lo normal, no un error. La UI tiene que
+explicar la diferencia con calma, no gritar alerta.
+
+QUÉ CREAR
+
+1. Un panel de detalle que se abre al hacer click en la FILA de la tabla de Ventas.
+   Los botones de acción existentes deben seguir funcionando sin abrir el detalle.
+   Sheet lateral ancho o Dialog grande, lo que quede mejor con el resto de la app.
+   Título: "#123 — CLIENTE".
+
+2. Cabecera del detalle, siempre visible:
+   - Cliente, destino, vendedor, contacto.
+   - DOS badges claramente distintos y etiquetados, uno al lado del otro:
+       "Despacho LogiFleet: pendiente"   (sales.estado — nuestro proceso interno)
+       "Entrega Odoo: entregado"         (sales.estadoEntrega — lo que dice el albarán)
+     Tienen que leerse como dos cosas separadas. Si un usuario confunde estos dos badges,
+     el diseño está mal. Tooltip en cada uno explicando qué mide.
+     Cuando no coinciden, una línea de texto neutra debajo explicándolo, del tipo
+     "La mercancía ya salió del almacén según Odoo, pero no se registró un despacho en
+     LogiFleet". Informativa, no acusatoria.
+   - Peso y volumen totales, marcando cuál viene de Odoo.
+   - Almacén de origen, y si almacenesMultiples es true, indicarlo acá también.
+
+3. Pestañas dentro del detalle:
+   - "Partidas": las sale_items existentes, reutilizando lo que ya está armado.
+   - "Entregas": lo nuevo, consumiendo useListSaleDeliveries.
+
+4. La pestaña "Entregas", en detalle:
+   - Una tarjeta por albarán, en el orden que ya devuelve el endpoint (activos primero
+     por fecha programada desc, cancelados al final). No reordenes en el cliente.
+   - Cabecera de cada tarjeta: nombre del albarán (CCS/OUT/00307) y badge de estado con
+     color y ETIQUETA EN ESPAÑOL, no el código crudo de Odoo:
+       draft→Borrador (gris) · waiting→En espera (gris) · confirmed→Confirmado (ámbar) ·
+       assigned→Listo (azul) · done→Hecho (verde) · cancel→Cancelado (rojo)
+   - Debajo: almacén de origen, tipo de operación, fecha programada y fecha efectiva.
+   - Tabla de líneas: producto, demanda, entregado, unidad. Cuando entregado < demanda,
+     resaltá la diferencia — es el dato que dice que la entrega quedó incompleta.
+   - Si el albarán es un backorder (backorderDeOdooId no null), mostralo explícitamente:
+     "Orden parcial generada desde otro albarán". Si el albarán original está en la misma
+     lista, referencialo por nombre.
+   - Los albaranes cancelados van atenuados y colapsados por defecto, con un texto que
+     aclare que no cuentan para el estado de entrega. No los escondas del todo: el
+     usuario necesita ver que existieron.
+   - Si almacenesMultiples es true, aviso arriba de la lista: "Esta orden sale de más de
+     un almacén (CCS, LEC) — puede requerir más de un despacho".
+   - Estado vacío honesto: si la venta no tiene albaranes, decí "Esta orden todavía no
+     tiene entregas registradas en Odoo" y ofrecé el botón de sincronizar. Son 13 ventas
+     reales, así que este estado se va a ver.
+   - Skeletons mientras carga; en error, el mensaje real del backend.
+
+5. Un botón "Actualizar entregas" que dispare useSyncOdooDeliveries e invalide las
+   queries. Después de la mutación: removeQueries + invalidateQueries juntos
+   (ver .agents/memory/cache-bust-pattern.md, si no el 304 devuelve lo viejo).
+   Avisá en el botón o cerca que la sincronización recorre todos los albaranes y tarda
+   unos segundos.
+
+RESTRICCIONES
+- Solo UI + consumo de endpoints existentes. NO agregues endpoints, NO toques el schema,
+  NO corras codegen. Si te falta un hook, el problema está en el openapi.yaml de un paso
+  anterior: avisame en vez de parchear.
+- NO toques la lista de Ventas todavía (columna y filtros son el paso 5).
+- Cuidado con el desborde horizontal: las direcciones y los nombres de producto son
+  larguísimos ("[NTS010029] FIBRA OPTICA ASU 6 HILOS G652.D SUMEC SPAN 100 3KM").
+  Todo contenedor con texto largo necesita min-w-0 + truncate y title con el texto
+  completo. Recordá que el DialogContent de este repo es `grid` y sus hijos necesitan
+  grid-cols-[minmax(0,1fr)] para no estirarse — fue el bug del wizard de Nuevo Despacho.
+- Poné data-testid en los elementos clave: tarjeta de albarán, badge de estado, filas
+  de línea, y los dos badges de la cabecera.
+
+VERIFICA
