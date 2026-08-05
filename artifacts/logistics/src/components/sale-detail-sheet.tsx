@@ -5,6 +5,9 @@ import {
   useListSaleDeliveries,
   getListSaleDeliveriesQueryKey,
   useSyncOdooDeliveries,
+  useGetSale,
+  getGetSaleQueryKey,
+  getListSalesQueryKey,
 } from "@workspace/api-client-react";
 import type { Sale, Delivery, DeliveryItem, SaleItem } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -380,8 +383,15 @@ function EntregasTab({
     syncMutation.mutate(undefined, {
       onSuccess: (data) => {
         // Cache-bust pattern: removeQueries + invalidateQueries together
+        // Deliveries list (the tab content)
         queryClient.removeQueries({ queryKey: getListSaleDeliveriesQueryKey(saleId) });
         queryClient.invalidateQueries({ queryKey: getListSaleDeliveriesQueryKey(saleId) });
+        // Individual sale (header badges: estadoEntrega, almacenOrigen, almacenesMultiples)
+        queryClient.removeQueries({ queryKey: getGetSaleQueryKey(saleId) });
+        queryClient.invalidateQueries({ queryKey: getGetSaleQueryKey(saleId) });
+        // Sales list (so the list badge also refreshes when the sheet closes)
+        queryClient.removeQueries({ queryKey: getListSalesQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
         setIsSyncing(false);
         toast({
           title: "Entregas actualizadas",
@@ -500,6 +510,15 @@ interface SaleDetailSheetProps {
 
 export function SaleDetailSheet({ sale, open, onOpenChange }: SaleDetailSheetProps) {
   if (!sale) return null;
+  return <SaleDetailSheetInner sale={sale} open={open} onOpenChange={onOpenChange} />;
+}
+
+function SaleDetailSheetInner({ sale: saleProp, open, onOpenChange }: SaleDetailSheetProps & { sale: NonNullable<SaleDetailSheetProps["sale"]> }) {
+  // Subscribe to the live sale so cache invalidation (after sync) refreshes header badges.
+  const { data: liveSale } = useGetSale(saleProp.id, {
+    query: { queryKey: getGetSaleQueryKey(saleProp.id), staleTime: 0 },
+  });
+  const sale = liveSale ?? saleProp;
 
   const estadoLF = sale.estado;
   const estadoOdoo = sale.estadoEntrega ?? "sin_albaran";

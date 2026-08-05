@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db, salesTable, deliveriesTable, deliveryItemsTable } from "@workspace/db";
 import { ListSaleDeliveriesParams } from "@workspace/api-zod";
 
@@ -46,11 +46,7 @@ router.get("/sales/:id/deliveries", async (req, res): Promise<void> => {
       ? await db
           .select()
           .from(deliveryItemsTable)
-          .where(
-            deliveryIds.length === 1
-              ? eq(deliveryItemsTable.deliveryId, deliveryIds[0]!)
-              : sql`${deliveryItemsTable.deliveryId} = ANY(ARRAY[${sql.join(deliveryIds.map((id) => sql`${id}`), sql`, `)}])`,
-          )
+          .where(inArray(deliveryItemsTable.deliveryId, deliveryIds))
       : [];
 
   const itemsByDeliveryId = new Map<number, typeof allItems>();

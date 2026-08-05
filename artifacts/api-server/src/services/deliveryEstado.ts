@@ -39,7 +39,9 @@ export interface DeliveryForDerivation {
 /**
  * Deriva el almacén de origen de la venta: el del albarán NO cancelado más
  * reciente por fechaProgramada (null last). También reporta si hay albaranes
- * activos de MÁS de un almacén.
+ * (incluidos los cancelados) de MÁS de un almacén: un albarán cancelado en un
+ * almacén y reemitido desde otro (ej. S01344: CCS cancelado → LEC activo)
+ * sigue siendo una señal operativa de "varios almacenes" para el operador.
  *
  * Decisión multi-almacén (ej. real: S01344 con CCS y LEC): guardamos el más
  * reciente en sales.almacenOrigen y un flag booleano sales.almacenesMultiples.
@@ -58,7 +60,10 @@ export function deriveAlmacenOrigen(albaranes: DeliveryForDerivation[]): {
     const tb = b.fechaProgramada ? b.fechaProgramada.getTime() : -Infinity;
     return tb - ta;
   });
-  const distinct = new Set(activos.map((a) => a.almacenOrigen).filter((x) => x !== null));
+  // El flag considera TODOS los albaranes (incluidos cancelados): un albarán
+  // cancelado en un almacén y reemitido desde otro sigue implicando logística
+  // multi-almacén para el operador.
+  const distinct = new Set(albaranes.map((a) => a.almacenOrigen).filter((x) => x !== null));
   return {
     almacenOrigen: sorted[0]!.almacenOrigen,
     almacenesMultiples: distinct.size > 1,
