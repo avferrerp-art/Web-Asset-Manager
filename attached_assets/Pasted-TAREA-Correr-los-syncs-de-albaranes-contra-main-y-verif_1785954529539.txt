@@ -1,0 +1,65 @@
+TAREA — Correr los syncs de albaranes contra main y verificar la vista de detalle
+
+CONTEXTO
+La Task #83 (vista de detalle de venta con pestaña Entregas) está mergeada a main y la UI
+está bien construida. Pero la base de datos de main NO tiene los albaranes: la sync corrió
+en el entorno de la tarea y aplicar el código no trae los datos.
+
+Lo verifiqué en el preview: la venta #736 (Odoo S01344) muestra "Esta orden todavía no
+tiene entregas registradas en Odoo" y el badge dice "Entrega Odoo: Sin albarán", cuando
+debería tener 2 albaranes y estar en 'pendiente' con almacén LEC/Existencias.
+
+Esto ya pasó antes con el catálogo de productos y con los destinos. Está documentado en
+replit.md, en la rutina post-apply: aplicar código no actualiza los datos existentes.
+
+QUÉ HACER
+
+1. Contra la base de datos de MAIN (no la de un entorno de tarea), corré en este orden:
+   - POST /api/odoo/sync-deliveries
+   - POST /api/odoo/backfill-deliveries
+   Mostrame el resultado real de cada uno: albaranes creados, líneas, sin matchear, y la
+   distribución de estadoEntrega. Debería dar ~913 albaranes, 1874 líneas, 63 sin match,
+   y una distribución cercana a: 710 entregado, 14 pendiente, 13 parcial, 13 sin_albaran,
+   4 cancelado.
+
+2. Con los datos ya cargados, ENTREGAME LAS CAPTURAS que quedaron pendientes de la
+   Task #83. Esto es la parte principal de la tarea, no un extra:
+   a) Venta #736 (Odoo S01344): 2 albaranes, el cancelado (CCS/OUT/00307) atenuado y
+      colapsado al final, el activo (LEC/OUT/00611) arriba con badge "Listo" en azul,
+      y el aviso de que la orden sale de más de un almacén.
+   b) La venta de S01285: 4 albaranes, 2 "Hecho" arriba y 2 "Cancelado" abajo.
+   c) El albarán CCS/OUT/00278 desplegado con sus 5 líneas y las cantidades
+      demanda/entregado correctas (8/8, 20/20, 20/20, 200/200, 200/200).
+   d) La venta S00073 — el caso parcial real (3 albaranes 'done' + 1 'assigned'). Quiero
+      ver cómo se lee una entrega incompleta de verdad y si el resaltado de
+      entregado < demanda funciona.
+   e) Una de las 13 ventas sin albaranes, con el estado vacío (esa ya la vi y está bien).
+   f) Los dos badges en una venta pendiente/entregado, que es el caso de 710 de 754.
+   g) Sin scroll horizontal en ninguna de esas vistas, a 1280px y a 768px.
+
+3. Revisá con datos reales estos puntos que hoy no se pueden comprobar, y corregí lo que
+   esté mal EN ESTA MISMA TAREA:
+   - El almacén de origen (LEC/Existencias) debe verse en la cabecera del panel.
+   - El aviso de almacenesMultiples debe aparecer en las ventas que corresponde.
+   - Los estados de albarán deben mostrarse en español con sus colores, no el código
+     crudo de Odoo.
+   - Los backorders deben indicarse, y si el albarán original está en la misma lista,
+     referenciarlo por nombre.
+   - Los nombres de producto son larguísimos ("[NTS010029] FIBRA OPTICA ASU 6 HILOS
+     G652.D SUMEC SPAN 100 3KM"): confirmá que truncan y no desbordan.
+
+RESTRICCIONES
+- NO toques sales.estado. El estado interno lo deriva solo saleEstadoSync desde los
+  despachos. Los albaranes solo escriben estadoEntrega / almacenOrigen /
+  almacenesMultiples.
+- NO agregues endpoints ni cambies el schema. Si algo falla, es un bug de UI o de datos.
+- NO empieces la tarea sugerida de "actualizar automáticamente el estado de la venta
+  cuando todos sus albaranes se completan o cancelan": eso rompe la separación entre
+  estado y estadoEntrega.
+- NO agregues polling automático todavía (es el paso 7).
+
+VERIFICACIÓN FINAL
+Además de las capturas, confirmame con una consulta que ninguna venta cambió su campo
+`estado` durante estas corridas, comparando antes y después.
+
+Al terminar, commiteá y aplicá a main. El push a GitHub lo hago yo desde Tools → Git.

@@ -1,0 +1,80 @@
+# PASO 5 — Lista de Ventas: columna, filtro y avisos
+
+```
+TAREA 5 — Estado de entrega en la lista de Ventas
+
+CONTEXTO
+El detalle de venta con la pestaña Entregas ya está (paso 4). Ahora quiero ver el estado
+de entrega SIN entrar a cada venta, y poder filtrar por él.
+
+Datos reales en la base: 754 ventas, 913 albaranes, 1874 líneas. Distribución de
+estadoEntrega: 712 entregado, 13 pendiente, 12 parcial, 13 sin_albaran, 4 cancelado.
+
+PREREQUISITOS — resolvelos ANTES de tocar la lista, y verificalos:
+- GET /api/sales/736/deliveries devuelve HTTP 500 ("Failed query: select id, delivery_id,
+  …") en cualquier venta con 2+ albaranes. Debería estar arreglado (el filtro con
+  ANY(ARRAY[...]) reemplazado por inArray de drizzle) pero NO está corriendo: confirmá
+  que el cambio está en main y REINICIÁ el workflow del api-server (bundlea al arrancar,
+  no hace hot-reload).
+- sales.almacenesMultiples está en false para la venta #736 (Odoo S01344), que tiene un
+  albarán cancelado en CCS y uno activo en LEC. Antes de "arreglarlo", pensá el
+  significado: si la mercancía sale solo de LEC, es UN viaje, y el aviso "puede requerir
+  más de un despacho" sería falso. Decidí si el flag debe contar solo albaranes activos
+  (y entonces false es correcto) o todos (y hay que cambiar el texto del aviso a algo
+  como "esta orden tuvo movimientos en más de un almacén"). Explicame qué elegiste.
+- Tras "Actualizar entregas", los badges de la cabecera del detalle no se refrescan:
+  se invalida la query de deliveries pero no la de la venta ni la del listado. Arreglalo
+  con removeQueries + invalidateQueries sobre las tres
+  (ver .agents/memory/cache-bust-pattern.md). Esto importa doble en este paso, porque la
+  columna nueva de la lista tiene que refrescarse igual.
+
+QUÉ HACER en artifacts/logistics/src/pages/ventas.tsx
+
+1. Una columna nueva "Entrega" con el badge de sales.estadoEntrega (sin_albaran →
+   "Sin albarán", y el resto en español, con los mismos colores del paso 4).
+   La columna "Estado" existente se renombra a "Despacho" para que quede claro que son
+   dos cosas distintas.
+
+2. Junto al badge de entrega, cuando aplique:
+   - el código del almacén de origen (CCS, LEC) en texto chico, porque es lo primero
+     que hace falta para planificar;
+   - un ícono de aviso si la venta tiene albaranes de más de un almacén.
+
+3. Una segunda fila de filtros rápidos, con el mismo estilo de los que ya existen pero
+   para el estado de entrega: Todas · Sin albarán · Pendiente · Parcial · Entregado ·
+   Cancelado, cada uno con su contador. Los dos grupos de filtros deben combinarse entre
+   sí y con la barra de búsqueda existente.
+
+4. La búsqueda existente (lib/search.ts, insensible a mayúsculas y acentos) debe matchear
+   también el nombre del albarán, para poder buscar "CCS/OUT/00278" o solo "00278".
+
+5. Un indicador de discrepancia entre los dos estados, en LAS DOS DIRECCIONES. Ojo con
+   los números reales, porque el caso dominante no es el que parece:
+   - **pendiente en LogiFleet + entregado en Odoo: son 710 de 754 ventas.** La mercancía
+     ya salió pero LogiFleet nunca registró el despacho. Como son casi todas, NO uses un
+     ícono de alerta rojo por fila: sería ruido puro y taparía todo lo demás. Resolvelo
+     con un tratamiento discreto (atenuar la fila, o un contador arriba del tipo
+     "710 ventas ya entregadas en Odoo sin despacho en LogiFleet") y dejá que el filtro
+     de estadoEntrega haga el trabajo de separarlas.
+   - **despachado en LogiFleet + NO entregado en Odoo:** son poquísimas, y esas SÍ
+     merecen ícono de advertencia con tooltip: significa que creemos que salió algo que
+     Odoo no registra.
+   Las ~40 ventas que de verdad requieren acción logística (14 pendiente + 13 parcial +
+   13 sin_albaran) tienen que ser fáciles de aislar con un click.
+
+RESTRICCIONES
+- Solo UI. No toques el backend, ni el schema, ni corras codegen.
+- No rompas los filtros de estado ni la búsqueda que ya funcionan.
+- No cambies el orden de la lista (más reciente primero) ni los data-testid existentes.
+
+VERIFICACIÓN
+a) Capturas de la lista con las dos columnas y los dos grupos de filtros.
+b) Los contadores de cada filtro de entrega, y que suman el total de ventas.
+c) Que combinar "Despacho: pendiente" + "Entrega: parcial" + búsqueda "maturin" filtra
+   correctamente (mostrame los números).
+d) Buscar "00278" encuentra la venta de S01285.
+e) Cuántas ventas quedaron con el indicador de discrepancia, y verificá a mano que al
+   menos una es una discrepancia real.
+
+Al terminar, commiteá, mergeá a main y pusheá a GitHub.
+```
