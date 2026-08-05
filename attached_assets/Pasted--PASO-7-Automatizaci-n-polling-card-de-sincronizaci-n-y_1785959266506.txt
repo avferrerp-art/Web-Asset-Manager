@@ -1,0 +1,61 @@
+ PASO 7 — Automatización: polling, card de sincronización y alertas
+
+```
+TAREA 7 — Que los albaranes se actualicen solos
+
+CONTEXTO
+Hoy la sync de albaranes solo corre si alguien aprieta el botón. La sync de órdenes ya
+corre por polling cada 5 minutos (startOdooPolling en odooSync.ts) y su estado se muestra
+en la card de Configuración (artifacts/logistics/src/components/odoo-sync-card.tsx).
+Quiero lo mismo para los albaranes.
+
+QUÉ HACER
+
+DEUDA HEREDADA DEL PASO 2 — hay que resolverla acá:
+- El sync NUNCA borra. Si en Odoo se elimina una línea de un albarán (o el albarán
+  entero), la fila local queda para siempre: el UPSERT solo crea y actualiza. Al
+  reconciliar un albarán, borrá los delivery_items cuyo odooMoveId ya no está en
+  su move_ids.
+- Son ~2800 escrituras por corrida (un UPSERT por albarán en loop + uno por línea).
+  Aceptable para un endpoint manual, inaceptable cada 5 minutos: el filtro incremental
+  por write_date tiene que reducirlo de verdad, y conviene batchear los inserts en vez
+  de hacerlos de a uno.
+
+1. Polling automático de albaranes, siguiendo el patrón de startOdooPolling:
+   - Que corra DESPUÉS de la sync de órdenes, nunca antes: un albarán de una orden que
+     todavía no importamos no se puede vincular. El orden es siempre
+     productos → órdenes → albaranes.
+   - Sync incremental por write_date: no releas los 976 albaranes cada 5 minutos.
+     Traé solo los que cambiaron desde la última corrida, con el mismo criterio de
+     odooWriteDate que ya usa el sync de órdenes.
+   - Si los secretos ODOO_* no están configurados, se salta en silencio.
+   - Errores registrados en odoo_sync_state (lastDeliveriesError), nunca tumban el server.
+
+2. Ampliar la card de Configuración con el estado de la sync de albaranes: última corrida,
+   resultado, cuántos se crearon/actualizaron, último error, y botón manual de sincronizar.
+   Mismo estilo que las secciones existentes.
+
+3. Alertas de discrepancia, reutilizando la tabla sync_alerts que ya existe: crear una
+   alerta cuando un albarán pasa a 'cancel' en Odoo y esa venta YA tiene un despacho
+   activo en LogiFleet (estado distinto de 'cancelado'). Es el caso peligroso: un camión
+   asignado a una entrega que Odoo canceló.
+   - El mensaje debe decir qué albarán, qué venta y qué despacho está afectado.
+   - Deduplicá por (ventaId, odooWriteDate) como ya hace odooSync.ts.
+   - Las alertas deben aparecer en la lista que ya muestra la card de Odoo.
+
+RESTRICCIONES
+- NO modifiques automáticamente ningún despacho ni ninguna venta a partir de un albarán.
+  La alerta avisa; la decisión la toma una persona. Es la misma regla que ya sigue el
+  sync de órdenes con las ventas no pendientes.
+- NO cambies el intervalo ni el comportamiento del polling de órdenes ni el de productos.
+
+VERIFICACIÓN
+a) El log de arranque con los tres pollings programados y el orden en que corren.
+b) Una corrida incremental sin cambios en Odoo: pocos registros leídos, cero escrituras.
+   Comparalo con la corrida completa.
+c) El caso de albarán cancelado con despacho activo, con el texto completo de la alerta.
+d) Corré la sync dos veces con la alerta ya creada: NO se duplica.
+e) Captura de la card de Configuración con la sección de albaranes.
+
+Al terminar, commiteá, mergeá a main y pusheá a GitHub.
+```
