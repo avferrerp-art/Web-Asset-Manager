@@ -7,20 +7,9 @@
  */
 
 /**
- * Only manual fields can be edited; Odoo-owned fields are rejected
+ * Catálogo de solo lectura desde Odoo: el único campo editable es notas
  */
 export interface ProductUpdate {
   /** @nullable */
-  pesoKg?: number | null;
-  /** @nullable */
-  largoCm?: number | null;
-  /** @nullable */
-  anchoCm?: number | null;
-  /** @nullable */
-  altoCm?: number | null;
-  apilable?: boolean;
-  fragil?: boolean;
-  /** @nullable */
   notas?: string | null;
-  dimensionesConfirmadas?: boolean;
 }

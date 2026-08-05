@@ -16,9 +16,5 @@ export interface SaleItem {
   productId?: number | null;
   descripcion: string;
   cantidad: number;
-  pesoUnitario: number;
-  largo: number;
-  ancho: number;
-  alto: number;
   createdAt: string;
 }

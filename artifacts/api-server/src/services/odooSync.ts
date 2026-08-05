@@ -257,10 +257,6 @@ interface DesiredItem {
   productId: number | null;
   descripcion: string;
   cantidad: number;
-  pesoUnitario: number;
-  largo: number;
-  ancho: number;
-  alto: number;
 }
 
 interface DesiredSale {
@@ -273,7 +269,6 @@ interface DesiredSale {
   notas: string | null;
   pesoTotalOdoo: number;
   volumenTotalOdoo: number;
-  dimensionesIncompletas: boolean;
   items: DesiredItem[];
 }
 
@@ -308,14 +303,12 @@ function computeDesiredSale(
     : undefined;
 
   // Aggregate items by product (multiple Odoo lines for the same product merge)
-  let dimensionesIncompletas = false;
   const byKey = new Map<string, DesiredItem>();
   for (const line of orderLines) {
     if (!line.product_id) continue;
     const odooProductId = line.product_id[0];
     const catalog = catalogByOdooId.get(odooProductId);
     const qty = Math.max(1, Math.round(line.product_uom_qty ?? 1));
-    if (!catalog || !catalog.dimensionesConfirmadas) dimensionesIncompletas = true;
     const key = itemKey(odooProductId, catalog?.nombre ?? line.product_id[1]);
     const existing = byKey.get(key);
     if (existing) {
@@ -327,10 +320,6 @@ function computeDesiredSale(
       productId: catalog?.id ?? null,
       descripcion: catalog?.nombre ?? line.product_id[1],
       cantidad: qty,
-      pesoUnitario: catalog?.pesoKg ?? 0,
-      largo: catalog?.largoCm ?? 0,
-      ancho: catalog?.anchoCm ?? 0,
-      alto: catalog?.altoCm ?? 0,
     });
   }
 
@@ -347,7 +336,6 @@ function computeDesiredSale(
     notas: order.note ? stripHtml(String(order.note)) : null,
     pesoTotalOdoo: Math.round(peso * 100) / 100,
     volumenTotalOdoo: Math.round(volumen * 10000) / 10000,
-    dimensionesIncompletas,
     items: [...byKey.values()],
   };
 }
@@ -461,13 +449,6 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
     const desired = computeDesiredSale(order, lines, productById, catalogByOdooId, partnerById);
     const destino = desired.destino ?? "Por definir";
 
-    const pesoLocal = desired.items.reduce((s, it) => s + it.cantidad * it.pesoUnitario, 0);
-    const volumenLocal = desired.items.reduce(
-      (s, it) => s + (it.cantidad * it.largo * it.ancho * it.alto) / 1_000_000,
-      0,
-    );
-    const hasLocalData = desired.items.length > 0 && (pesoLocal > 0 || volumenLocal > 0);
-
     if (dryRun) {
       importedRefs.push(order.name);
       continue;
@@ -481,13 +462,11 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
         personaContacto: desired.personaContacto,
         numeroCel: desired.numeroCel,
         tipoMaterial: desired.tipoMaterial,
-        pesoTotal: hasLocalData ? Math.round(pesoLocal * 100) / 100 : desired.pesoTotalOdoo,
-        volumenTotal: hasLocalData
-          ? Math.round(volumenLocal * 10000) / 10000
-          : desired.volumenTotalOdoo,
+        // Totales SIEMPRE desde Odoo; 0 en Odoo significa "sin dato" → null
+        pesoTotal: desired.pesoTotalOdoo > 0 ? desired.pesoTotalOdoo : null,
+        volumenTotal: desired.volumenTotalOdoo > 0 ? desired.volumenTotalOdoo : null,
         pesoTotalOdoo: desired.pesoTotalOdoo,
         volumenTotalOdoo: desired.volumenTotalOdoo,
-        dimensionesIncompletas: desired.dimensionesIncompletas,
         destino,
         estado: "pendiente",
         notas: desired.notas,
@@ -505,10 +484,6 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
             productId: it.productId,
             descripcion: it.descripcion,
             cantidad: it.cantidad,
-            pesoUnitario: it.pesoUnitario,
-            largo: it.largo,
-            ancho: it.ancho,
-            alto: it.alto,
             ventaId,
           })),
         );
@@ -614,10 +589,6 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
               productId: want.productId,
               descripcion: want.descripcion,
               cantidad: want.cantidad,
-              pesoUnitario: want.pesoUnitario,
-              largo: want.largo,
-              ancho: want.ancho,
-              alto: want.alto,
             });
           },
         });
@@ -698,8 +669,9 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
     // Apply item reconciliation
     for (const op of itemOps) await op.run();
 
-    // Recalculate local totals (recalcSales never touches pesoTotalOdoo/volumenTotalOdoo)
-    if (itemOps.length > 0) await recalcSales([row.id]);
+    // Mirror pesoTotal/volumenTotal desde los totales de Odoo (recalcSales
+    // never touches pesoTotalOdoo/volumenTotalOdoo).
+    await recalcSales([row.id]);
 
     updatedRefs.push(order.name);
     logger.info(

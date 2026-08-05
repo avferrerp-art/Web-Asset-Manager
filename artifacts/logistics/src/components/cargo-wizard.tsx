@@ -1,15 +1,12 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState } from "react";
 import {
   useListSales, getListSalesQueryKey,
   useListVehicles, getListVehiclesQueryKey,
   useListSaleItems, getListSaleItemsQueryKey,
-  useCreateSaleItem,
-  useUpdateSaleItem,
-  useDeleteSaleItem,
   useListProducts, getListProductsQueryKey,
   useLinkSaleItemProduct, getListUnlinkedSaleItemsQueryKey,
 } from "@workspace/api-client-react";
-import type { SaleItem, SaleItemInput, Vehicle, Sale } from "@workspace/api-client-react";
+import type { Vehicle, Sale } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -17,14 +14,13 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
   CheckCircle2, ChevronRight, ChevronLeft, Package, ClipboardList, Truck,
-  Plus, Trash2, Edit2, Check, X, Download, Unlink, Search, Loader2,
+  Check, Unlink, Search, Loader2, AlertTriangle,
 } from "lucide-react";
 
 interface Props {
@@ -37,28 +33,9 @@ interface Props {
 
 const STEPS = [
   { label: "Orden", icon: ClipboardList },
-  { label: "Bultos", icon: Package },
+  { label: "Partidas", icon: Package },
   { label: "Flota", icon: Truck },
 ];
-
-interface ItemRow {
-  id?: number;
-  descripcion: string;
-  cantidad: number;
-  pesoUnitario: number;
-  largo: number;
-  ancho: number;
-  alto: number;
-  editing?: boolean;
-}
-
-function newBlankRow(): ItemRow {
-  return { descripcion: "", cantidad: 1, pesoUnitario: 0, largo: 0, ancho: 0, alto: 0, editing: true };
-}
-
-function volM3(item: ItemRow) {
-  return (item.largo * item.ancho * item.alto) / 1_000_000;
-}
 
 function utilColor(pct: number) {
   if (pct > 100) return "bg-red-500";
@@ -72,15 +49,16 @@ function utilLabel(pct: number) {
   return "text-green-600 dark:text-green-400";
 }
 
+function fmtOdoo(value: number | null | undefined, unit: string) {
+  return value != null ? `${value} ${unit}` : "sin dato en Odoo";
+}
+
 export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehicleAssigned }: Props) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
 
   const [step, setStep] = useState(initialSaleId ? 2 : 1);
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(initialSaleId ?? null);
-  const [editingRow, setEditingRow] = useState<ItemRow | null>(null);
-  const [addingNew, setAddingNew] = useState(false);
-  const [newRow, setNewRow] = useState<ItemRow>(newBlankRow());
 
   const { data: salesData, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -103,9 +81,6 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
     }
   );
 
-  const createItem = useCreateSaleItem();
-  const updateItem = useUpdateSaleItem();
-  const deleteItem = useDeleteSaleItem();
   const linkItem = useLinkSaleItemProduct();
 
   // ── Manual product linking for unlinked items ──────────────────────────
@@ -121,6 +96,15 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
       },
     }
   );
+
+  function invalidateItems() {
+    if (selectedSaleId) {
+      queryClient.removeQueries({ queryKey: getListSaleItemsQueryKey(selectedSaleId) });
+      queryClient.invalidateQueries({ queryKey: getListSaleItemsQueryKey(selectedSaleId) });
+    }
+    queryClient.removeQueries({ queryKey: getListSalesQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
+  }
 
   function handleLinkProduct(itemId: number, productId: number) {
     linkItem.mutate({ itemId, data: { productId } }, {
@@ -138,86 +122,20 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
 
   const pendingSales = salesData?.filter(s => s.estado === "pendiente") ?? [];
 
-  const totalPeso = (saleItems ?? []).reduce((s, it) => s + it.cantidad * it.pesoUnitario, 0);
-  const totalVol = (saleItems ?? []).reduce((s, it) => s + it.cantidad * volM3(it), 0);
-
-  function invalidateItems() {
-    if (selectedSaleId) {
-      queryClient.removeQueries({ queryKey: getListSaleItemsQueryKey(selectedSaleId) });
-      queryClient.invalidateQueries({ queryKey: getListSaleItemsQueryKey(selectedSaleId) });
-    }
-    queryClient.removeQueries({ queryKey: getListSalesQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
-  }
+  // Totales de la venta: SIEMPRE los de Odoo (null = sin dato, nunca 0)
+  const totalPeso = selectedSale?.pesoTotal ?? null;
+  const totalVol = selectedSale?.volumenTotal ?? null;
+  const sinPeso = totalPeso == null;
+  const sinVolumen = totalVol == null;
 
   function handleClose() {
     onClose();
     setTimeout(() => {
       setStep(initialSaleId ? 2 : 1);
       setSelectedSaleId(initialSaleId ?? null);
-      setEditingRow(null);
-      setAddingNew(false);
-      setNewRow(newBlankRow());
+      setLinkingItemId(null);
+      setLinkSearch("");
     }, 300);
-  }
-
-  function handleImportTotals() {
-    if (!selectedSale || !selectedSaleId) return;
-    const volCm3 = selectedSale.volumenTotal * 1_000_000;
-    const side = Math.cbrt(volCm3);
-    const input: SaleItemInput = {
-      descripcion: "Carga general (importado)",
-      cantidad: 1,
-      pesoUnitario: selectedSale.pesoTotal,
-      largo: parseFloat(side.toFixed(1)),
-      ancho: parseFloat(side.toFixed(1)),
-      alto: parseFloat(side.toFixed(1)),
-    };
-    createItem.mutate({ saleId: selectedSaleId, data: input }, {
-      onSuccess: () => {
-        invalidateItems();
-        toast({ title: "Totales importados como fila genérica" });
-      },
-    });
-  }
-
-  function handleSaveNewRow() {
-    if (!selectedSaleId || !newRow.descripcion) return;
-    createItem.mutate(
-      { saleId: selectedSaleId, data: { ...newRow } },
-      {
-        onSuccess: () => {
-          invalidateItems();
-          setAddingNew(false);
-          setNewRow(newBlankRow());
-        },
-        onError: () => toast({ title: "Error al guardar el bulto", variant: "destructive" }),
-      }
-    );
-  }
-
-  function handleSaveEdit() {
-    if (!editingRow?.id) return;
-    updateItem.mutate(
-      { itemId: editingRow.id, data: { ...editingRow } },
-      {
-        onSuccess: () => {
-          invalidateItems();
-          setEditingRow(null);
-        },
-        onError: () => toast({ title: "Error al actualizar el bulto", variant: "destructive" }),
-      }
-    );
-  }
-
-  function handleDelete(id: number) {
-    deleteItem.mutate(
-      { itemId: id },
-      {
-        onSuccess: () => invalidateItems(),
-        onError: () => toast({ title: "Error al eliminar el bulto", variant: "destructive" }),
-      }
-    );
   }
 
   const rankedVehicles: Array<{
@@ -228,8 +146,9 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
     canFit: boolean;
   }> = (vehicles ?? [])
     .map(v => {
-      const weightPct = v.capacidadPeso > 0 ? (totalPeso / v.capacidadPeso) * 100 : Infinity;
-      const volPct = v.capacidadVolumen > 0 ? (totalVol / v.capacidadVolumen) * 100 : Infinity;
+      // Dimensión sin dato → no restringe (0%), pero la recomendación se marca incompleta.
+      const weightPct = totalPeso == null ? 0 : v.capacidadPeso > 0 ? (totalPeso / v.capacidadPeso) * 100 : Infinity;
+      const volPct = totalVol == null ? 0 : v.capacidadVolumen > 0 ? (totalVol / v.capacidadVolumen) * 100 : Infinity;
       return {
         vehicle: v,
         weightPct,
@@ -240,7 +159,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
     })
     .sort((a, b) => a.maxPct - b.maxPct);
 
-  const isPending = createItem.isPending || updateItem.isPending || deleteItem.isPending;
+  const sinDatos = sinPeso && sinVolumen;
 
   return (
     <Dialog open={open} onOpenChange={o => !o && handleClose()}>
@@ -317,7 +236,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                             {sale.destino}
                           </div>
                           <div className="text-xs text-muted-foreground whitespace-nowrap">
-                            {sale.pesoTotal} kg · {sale.volumenTotal} m³
+                            {fmtOdoo(sale.pesoTotal, "kg")} · {fmtOdoo(sale.volumenTotal, "m³")}
                           </div>
                         </div>
                       </div>
@@ -335,39 +254,23 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
           </div>
         )}
 
-        {/* ── STEP 2: Item detail ─────────────────────────────────────────── */}
+        {/* ── STEP 2: Partidas (solo lectura + vincular al catálogo) ──────── */}
         {step === 2 && (
           <div className="space-y-4">
             {selectedSale && (
               <div className="bg-muted/60 rounded-md px-3 py-2 text-sm flex flex-wrap gap-x-4 gap-y-1">
                 <span><span className="font-semibold">Cliente:</span> {selectedSale.cliente}</span>
                 <span><span className="font-semibold">Destino:</span> {selectedSale.destino}</span>
-                <span><span className="font-semibold">Peso actual:</span> {selectedSale.pesoTotal} kg</span>
-                <span><span className="font-semibold">Volumen actual:</span> {selectedSale.volumenTotal} m³</span>
+                <span><span className="font-semibold">Peso (Odoo):</span> {fmtOdoo(selectedSale.pesoTotal, "kg")}</span>
+                <span><span className="font-semibold">Volumen (Odoo):</span> {fmtOdoo(selectedSale.volumenTotal, "m³")}</span>
               </div>
             )}
 
             <div className="flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold">Detalle de Bultos</h3>
-              <div className="flex gap-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="gap-1 text-xs h-8"
-                  onClick={handleImportTotals}
-                  disabled={isPending || !selectedSale}
-                >
-                  <Download className="w-3 h-3" /> Importar totales actuales
-                </Button>
-                <Button
-                  size="sm"
-                  className="gap-1 text-xs h-8"
-                  onClick={() => { setAddingNew(true); setNewRow(newBlankRow()); }}
-                  disabled={addingNew}
-                >
-                  <Plus className="w-3 h-3" /> Agregar bulto
-                </Button>
-              </div>
+              <h3 className="text-sm font-semibold">Partidas de la orden</h3>
+              <span className="text-xs text-muted-foreground">
+                El peso y volumen provienen de Odoo; aquí solo puedes vincular partidas al catálogo.
+              </span>
             </div>
 
             <div className="rounded-md border overflow-hidden">
@@ -375,117 +278,45 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                 <TableHeader>
                   <TableRow className="text-xs">
                     <TableHead>Descripción</TableHead>
-                    <TableHead className="text-right">Cant.</TableHead>
-                    <TableHead className="text-right">Largo (cm)</TableHead>
-                    <TableHead className="text-right">Ancho (cm)</TableHead>
-                    <TableHead className="text-right">Alto (cm)</TableHead>
-                    <TableHead className="text-right">Peso U. (kg)</TableHead>
-                    <TableHead className="text-right">Vol. (m³)</TableHead>
-                    <TableHead className="w-[70px]"></TableHead>
+                    <TableHead className="text-right">Cantidad</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoadingItems ? (
-                    <TableRow><TableCell colSpan={8} className="h-12 text-center text-sm text-muted-foreground">Cargando...</TableCell></TableRow>
-                  ) : (saleItems ?? []).length === 0 && !addingNew ? (
+                    <TableRow><TableCell colSpan={2} className="h-12 text-center text-sm text-muted-foreground">Cargando...</TableCell></TableRow>
+                  ) : (saleItems ?? []).length === 0 ? (
                     <TableRow>
-                      <TableCell colSpan={8} className="h-16 text-center text-sm text-muted-foreground">
-                        Sin bultos. Agrega uno o importa los totales de la orden.
+                      <TableCell colSpan={2} className="h-16 text-center text-sm text-muted-foreground">
+                        Esta orden no tiene partidas registradas.
                       </TableCell>
                     </TableRow>
                   ) : (
-                    <>
-                      {(saleItems ?? []).map(item => (
-                        <React.Fragment key={item.id}>
+                    (saleItems ?? []).map(item => (
+                      <React.Fragment key={item.id}>
                         <TableRow className="text-xs">
-                          {editingRow?.id === item.id ? (
-                            <>
-                              <TableCell>
-                                <Input className="h-7 text-xs" value={editingRow.descripcion}
-                                  onChange={e => setEditingRow(r => r ? { ...r, descripcion: e.target.value } : r)} />
-                              </TableCell>
-                              <TableCell>
-                                <Input className="h-7 text-xs w-16 text-right" type="number" min="1" value={editingRow.cantidad}
-                                  onChange={e => setEditingRow(r => r ? { ...r, cantidad: +e.target.value } : r)} />
-                              </TableCell>
-                              <TableCell>
-                                <Input className="h-7 text-xs w-20 text-right" type="number" min="0" value={editingRow.largo}
-                                  onChange={e => setEditingRow(r => r ? { ...r, largo: +e.target.value } : r)} />
-                              </TableCell>
-                              <TableCell>
-                                <Input className="h-7 text-xs w-20 text-right" type="number" min="0" value={editingRow.ancho}
-                                  onChange={e => setEditingRow(r => r ? { ...r, ancho: +e.target.value } : r)} />
-                              </TableCell>
-                              <TableCell>
-                                <Input className="h-7 text-xs w-20 text-right" type="number" min="0" value={editingRow.alto}
-                                  onChange={e => setEditingRow(r => r ? { ...r, alto: +e.target.value } : r)} />
-                              </TableCell>
-                              <TableCell>
-                                <Input className="h-7 text-xs w-20 text-right" type="number" min="0" value={editingRow.pesoUnitario}
-                                  onChange={e => setEditingRow(r => r ? { ...r, pesoUnitario: +e.target.value } : r)} />
-                              </TableCell>
-                              <TableCell className="text-right text-muted-foreground">
-                                {(editingRow.cantidad * volM3(editingRow)).toFixed(3)}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-1">
-                                  <button onClick={handleSaveEdit} disabled={isPending}
-                                    className="p-1 rounded hover:bg-green-500/10 text-green-600">
-                                    <Check className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button onClick={() => setEditingRow(null)}
-                                    className="p-1 rounded hover:bg-destructive/10 text-destructive">
-                                    <X className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </TableCell>
-                            </>
-                          ) : (
-                            <>
-                              <TableCell className="font-medium">
-                                <div className="flex items-center gap-2 flex-wrap">
-                                  <span>{item.descripcion}</span>
-                                  {item.productId == null && (
-                                    <Badge
-                                      variant="outline"
-                                      className="text-purple-500 border-purple-500/50 bg-purple-500/10 text-[10px] gap-1 cursor-pointer"
-                                      data-testid={`badge-item-sin-vincular-${item.id}`}
-                                      onClick={() => {
-                                        setLinkingItemId(linkingItemId === item.id ? null : item.id);
-                                        setLinkSearch("");
-                                      }}
-                                    >
-                                      <Unlink className="w-3 h-3" /> Sin vincular
-                                    </Badge>
-                                  )}
-                                </div>
-                              </TableCell>
-                              <TableCell className="text-right">{item.cantidad}</TableCell>
-                              <TableCell className="text-right">{item.largo}</TableCell>
-                              <TableCell className="text-right">{item.ancho}</TableCell>
-                              <TableCell className="text-right">{item.alto}</TableCell>
-                              <TableCell className="text-right">{item.pesoUnitario}</TableCell>
-                              <TableCell className="text-right">
-                                {(item.cantidad * volM3(item)).toFixed(3)}
-                              </TableCell>
-                              <TableCell>
-                                <div className="flex gap-1">
-                                  <button onClick={() => setEditingRow({ ...item })}
-                                    className="p-1 rounded hover:bg-accent text-muted-foreground hover:text-foreground">
-                                    <Edit2 className="w-3.5 h-3.5" />
-                                  </button>
-                                  <button onClick={() => handleDelete(item.id)} disabled={isPending}
-                                    className="p-1 rounded hover:bg-destructive/10 text-destructive">
-                                    <Trash2 className="w-3.5 h-3.5" />
-                                  </button>
-                                </div>
-                              </TableCell>
-                            </>
-                          )}
+                          <TableCell className="font-medium">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span>{item.descripcion}</span>
+                              {item.productId == null && (
+                                <Badge
+                                  variant="outline"
+                                  className="text-purple-500 border-purple-500/50 bg-purple-500/10 text-[10px] gap-1 cursor-pointer"
+                                  data-testid={`badge-item-sin-vincular-${item.id}`}
+                                  onClick={() => {
+                                    setLinkingItemId(linkingItemId === item.id ? null : item.id);
+                                    setLinkSearch("");
+                                  }}
+                                >
+                                  <Unlink className="w-3 h-3" /> Sin vincular
+                                </Badge>
+                              )}
+                            </div>
+                          </TableCell>
+                          <TableCell className="text-right">{item.cantidad}</TableCell>
                         </TableRow>
                         {item.productId == null && linkingItemId === item.id && (
                           <TableRow className="bg-purple-500/5">
-                            <TableCell colSpan={8} className="py-2">
+                            <TableCell colSpan={2} className="py-2">
                               <div className="space-y-2">
                                 <div className="relative">
                                   <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
@@ -512,9 +343,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                                           <div className="font-medium truncate">{p.nombre}</div>
                                           <div className="text-muted-foreground">
                                             {p.odooRef ?? "sin ref."}
-                                            {p.dimensionesConfirmadas
-                                              ? ` · ${p.pesoKg ?? 0} kg · ${p.largoCm ?? 0}×${p.anchoCm ?? 0}×${p.altoCm ?? 0} cm`
-                                              : " · sin dimensiones confirmadas"}
+                                            {p.pesoOdoo > 0 ? ` · ${p.pesoOdoo} kg (Odoo)` : " · sin peso en Odoo"}
                                           </div>
                                         </div>
                                         <Button
@@ -534,71 +363,32 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                             </TableCell>
                           </TableRow>
                         )}
-                        </React.Fragment>
-                      ))}
-
-                      {addingNew && (
-                        <TableRow className="text-xs bg-primary/5">
-                          <TableCell>
-                            <Input className="h-7 text-xs" placeholder="Descripción" value={newRow.descripcion}
-                              onChange={e => setNewRow(r => ({ ...r, descripcion: e.target.value }))} />
-                          </TableCell>
-                          <TableCell>
-                            <Input className="h-7 text-xs w-16 text-right" type="number" min="1" value={newRow.cantidad}
-                              onChange={e => setNewRow(r => ({ ...r, cantidad: +e.target.value }))} />
-                          </TableCell>
-                          <TableCell>
-                            <Input className="h-7 text-xs w-20 text-right" type="number" min="0" value={newRow.largo}
-                              onChange={e => setNewRow(r => ({ ...r, largo: +e.target.value }))} />
-                          </TableCell>
-                          <TableCell>
-                            <Input className="h-7 text-xs w-20 text-right" type="number" min="0" value={newRow.ancho}
-                              onChange={e => setNewRow(r => ({ ...r, ancho: +e.target.value }))} />
-                          </TableCell>
-                          <TableCell>
-                            <Input className="h-7 text-xs w-20 text-right" type="number" min="0" value={newRow.alto}
-                              onChange={e => setNewRow(r => ({ ...r, alto: +e.target.value }))} />
-                          </TableCell>
-                          <TableCell>
-                            <Input className="h-7 text-xs w-20 text-right" type="number" min="0" value={newRow.pesoUnitario}
-                              onChange={e => setNewRow(r => ({ ...r, pesoUnitario: +e.target.value }))} />
-                          </TableCell>
-                          <TableCell className="text-right text-muted-foreground">
-                            {(newRow.cantidad * volM3(newRow)).toFixed(3)}
-                          </TableCell>
-                          <TableCell>
-                            <div className="flex gap-1">
-                              <button onClick={handleSaveNewRow} disabled={isPending || !newRow.descripcion}
-                                className="p-1 rounded hover:bg-green-500/10 text-green-600 disabled:opacity-40">
-                                <Check className="w-3.5 h-3.5" />
-                              </button>
-                              <button onClick={() => setAddingNew(false)}
-                                className="p-1 rounded hover:bg-destructive/10 text-destructive">
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </>
+                      </React.Fragment>
+                    ))
                   )}
                 </TableBody>
               </Table>
             </div>
 
-            {/* Running totals */}
-            {(saleItems ?? []).length > 0 && (
-              <div className="grid grid-cols-2 gap-3">
-                <div className="bg-muted/50 rounded-md px-4 py-2.5 border border-border/50">
-                  <div className="text-xs text-muted-foreground">Peso total calculado</div>
-                  <div className="text-lg font-bold">{totalPeso.toFixed(2)} <span className="text-sm font-normal text-muted-foreground">kg</span></div>
-                </div>
-                <div className="bg-muted/50 rounded-md px-4 py-2.5 border border-border/50">
-                  <div className="text-xs text-muted-foreground">Volumen total calculado</div>
-                  <div className="text-lg font-bold">{totalVol.toFixed(4)} <span className="text-sm font-normal text-muted-foreground">m³</span></div>
+            {/* Totales de Odoo */}
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-muted/50 rounded-md px-4 py-2.5 border border-border/50">
+                <div className="text-xs text-muted-foreground">Peso total (Odoo)</div>
+                <div className="text-lg font-bold" data-testid="text-wizard-peso">
+                  {totalPeso != null
+                    ? <>{totalPeso} <span className="text-sm font-normal text-muted-foreground">kg</span></>
+                    : <span className="text-sm font-medium text-yellow-600 dark:text-yellow-400">sin dato en Odoo</span>}
                 </div>
               </div>
-            )}
+              <div className="bg-muted/50 rounded-md px-4 py-2.5 border border-border/50">
+                <div className="text-xs text-muted-foreground">Volumen total (Odoo)</div>
+                <div className="text-lg font-bold" data-testid="text-wizard-volumen">
+                  {totalVol != null
+                    ? <>{totalVol} <span className="text-sm font-normal text-muted-foreground">m³</span></>
+                    : <span className="text-sm font-medium text-yellow-600 dark:text-yellow-400">sin dato en Odoo</span>}
+                </div>
+              </div>
+            </div>
 
             <div className="flex justify-between pt-2">
               {!initialSaleId && (
@@ -608,60 +398,65 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
               )}
               <div className="flex-1" />
               <Button
-                disabled={(saleItems ?? []).length === 0}
+                disabled={sinDatos}
                 onClick={() => setStep(3)}
                 className="gap-1"
+                data-testid="button-wizard-flota"
               >
                 Ver Compatibilidad <ChevronRight className="w-4 h-4" />
               </Button>
             </div>
+            {sinDatos && (
+              <div className="flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/40 rounded-md px-3 py-2" data-testid="warning-wizard-sin-datos">
+                <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                Esta venta no tiene peso ni volumen en Odoo: no se puede recomendar un vehículo.
+                Corrige los datos del artículo en Odoo, o usa el Calculador de Carga para simular con valores manuales.
+              </div>
+            )}
           </div>
         )}
 
         {/* ── STEP 3: Fleet compatibility ─────────────────────────────────── */}
         {step === 3 && (
           <div className="space-y-4">
-            <div className="bg-muted/60 rounded-md px-3 py-2 text-sm flex flex-wrap gap-x-4 gap-y-1">
-              <span><span className="font-semibold">Carga planificada:</span> {totalPeso.toFixed(2)} kg · {totalVol.toFixed(4)} m³</span>
-              <span><span className="font-semibold">Bultos:</span> {(saleItems ?? []).length} tipo(s)</span>
-            </div>
-
-            <h3 className="text-sm font-semibold">Vehículos disponibles — ordenados por ajuste</h3>
-
-            {rankedVehicles.length === 0 ? (
-              <div className="py-8 text-center text-muted-foreground border border-dashed rounded-lg">
-                Sin vehículos registrados en la flota.
+            {(sinPeso || sinVolumen) && !sinDatos && (
+              <div className="flex items-start gap-2 text-xs bg-yellow-500/10 border border-yellow-500/40 rounded-md px-3 py-2" data-testid="warning-wizard-incompleta">
+                <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Recomendación incompleta:</strong> la venta no tiene {sinVolumen ? "volumen" : "peso"} en Odoo,
+                  así que la compatibilidad considera solo {sinVolumen ? "el peso" : "el volumen"}. Verifica que la carga
+                  quepa físicamente antes de despachar.
+                </span>
+              </div>
+            )}
+            {(vehicles ?? []).length === 0 ? (
+              <div className="py-12 text-center text-muted-foreground border border-dashed border-border rounded-lg">
+                No hay vehículos registrados en la flota.
               </div>
             ) : (
-              <div className="space-y-3 max-h-[400px] overflow-y-auto pr-1">
-                {rankedVehicles.map(({ vehicle, weightPct, volPct, maxPct, canFit }) => {
-                  const wPct = Math.min(weightPct, 120);
-                  const vPct = Math.min(volPct, 120);
+              <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
+                {rankedVehicles.map(({ vehicle, weightPct, volPct, canFit }, idx) => {
+                  const wPct = Number.isFinite(weightPct) ? weightPct : 100;
+                  const vPct = Number.isFinite(volPct) ? volPct : 100;
                   return (
                     <div
                       key={vehicle.id}
-                      className={`rounded-lg border p-4 space-y-3 transition-colors ${
-                        canFit
-                          ? "border-green-500/30 bg-green-500/5"
-                          : "border-border bg-muted/20 opacity-75"
-                      }`}
+                      className={`rounded-lg border p-4 space-y-3 ${
+                        canFit && idx === 0 ? "border-primary bg-primary/5" : "border-border bg-card"
+                      } ${!canFit ? "opacity-60" : ""}`}
                     >
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="font-semibold text-sm flex items-center gap-2">
-                            <Truck className="w-4 h-4" />
-                            {vehicle.modelo}
-                            {vehicle.placa && <span className="text-xs font-normal text-muted-foreground">({vehicle.placa})</span>}
-                          </div>
-                          <div className="text-xs text-muted-foreground mt-0.5">
-                            Capacidad: {vehicle.capacidadPeso} kg · {vehicle.capacidadVolumen} m³
-                            {vehicle.tipo === "tercero" && " · [Tercero]"}
-                          </div>
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="font-semibold text-sm truncate">{vehicle.modelo}</span>
+                          <span className="text-xs text-muted-foreground shrink-0">{vehicle.placa}</span>
+                          {canFit && idx === 0 && (
+                            <Badge className="text-[10px] shrink-0">SUGERIDO</Badge>
+                          )}
                         </div>
                         {canFit && onVehicleAssigned && selectedSaleId && (
                           <Button
                             size="sm"
-                            className="shrink-0 gap-1 text-xs"
+                            className="h-7 text-xs gap-1 shrink-0"
                             onClick={() => {
                               onVehicleAssigned(selectedSaleId, vehicle.id);
                               handleClose();
@@ -670,23 +465,20 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                             <Check className="w-3 h-3" /> Asignar este vehículo
                           </Button>
                         )}
-                        {!canFit && (
-                          <Badge variant="outline" className="text-xs text-destructive border-destructive/40 shrink-0">
-                            No cabe
-                          </Badge>
-                        )}
                       </div>
 
                       {/* Weight bar */}
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Peso: {totalPeso.toFixed(1)} / {vehicle.capacidadPeso} kg</span>
-                          <span className={`font-semibold ${utilLabel(weightPct)}`}>{weightPct.toFixed(0)}%</span>
+                          <span className="text-muted-foreground">
+                            Peso: {sinPeso ? "sin dato en Odoo — no considerado" : `${totalPeso!.toFixed(1)} / ${vehicle.capacidadPeso} kg`}
+                          </span>
+                          {!sinPeso && <span className={`font-semibold ${utilLabel(weightPct)}`}>{weightPct.toFixed(0)}%</span>}
                         </div>
                         <div className="h-2 bg-muted rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full transition-all ${utilColor(weightPct)}`}
-                            style={{ width: `${Math.min(wPct, 100)}%` }}
+                            className={`h-full rounded-full transition-all ${sinPeso ? "bg-muted-foreground/30" : utilColor(weightPct)}`}
+                            style={{ width: `${sinPeso ? 0 : Math.min(wPct, 100)}%` }}
                           />
                         </div>
                       </div>
@@ -694,13 +486,15 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                       {/* Volume bar */}
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
-                          <span className="text-muted-foreground">Volumen: {totalVol.toFixed(4)} / {vehicle.capacidadVolumen} m³</span>
-                          <span className={`font-semibold ${utilLabel(volPct)}`}>{volPct.toFixed(0)}%</span>
+                          <span className="text-muted-foreground">
+                            Volumen: {sinVolumen ? "sin dato en Odoo — no considerado" : `${totalVol!.toFixed(4)} / ${vehicle.capacidadVolumen} m³`}
+                          </span>
+                          {!sinVolumen && <span className={`font-semibold ${utilLabel(volPct)}`}>{volPct.toFixed(0)}%</span>}
                         </div>
                         <div className="h-2 bg-muted rounded-full overflow-hidden">
                           <div
-                            className={`h-full rounded-full transition-all ${utilColor(volPct)}`}
-                            style={{ width: `${Math.min(vPct, 100)}%` }}
+                            className={`h-full rounded-full transition-all ${sinVolumen ? "bg-muted-foreground/30" : utilColor(volPct)}`}
+                            style={{ width: `${sinVolumen ? 0 : Math.min(vPct, 100)}%` }}
                           />
                         </div>
                       </div>
@@ -712,7 +506,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
 
             <div className="flex justify-between pt-2">
               <Button variant="outline" onClick={() => setStep(2)} className="gap-1">
-                <ChevronLeft className="w-4 h-4" /> Editar Bultos
+                <ChevronLeft className="w-4 h-4" /> Ver Partidas
               </Button>
               <Button variant="ghost" onClick={handleClose}>
                 Cerrar

@@ -8,5 +8,5 @@
 
 export type ListProductsParams = {
 search?: string;
-soloSinDimensiones?: boolean;
+sinPesoOdoo?: boolean;
 };

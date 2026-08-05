@@ -164,16 +164,16 @@ export async function recordProductSyncError(message: string): Promise<void> {
 
 export async function getProductStats(): Promise<{
   total: number;
-  confirmados: number;
-  pendientes: number;
+  conPesoOdoo: number;
+  sinPesoOdoo: number;
 }> {
   const [row] = await db
     .select({
       total: sql<number>`count(*)::int`,
-      confirmados: sql<number>`count(*) filter (where ${productsTable.dimensionesConfirmadas})::int`,
+      conPesoOdoo: sql<number>`count(*) filter (where ${productsTable.pesoOdoo} > 0)::int`,
     })
     .from(productsTable);
   const total = row?.total ?? 0;
-  const confirmados = row?.confirmados ?? 0;
-  return { total, confirmados, pendientes: total - confirmados };
+  const conPesoOdoo = row?.conPesoOdoo ?? 0;
+  return { total, conPesoOdoo, sinPesoOdoo: total - conPesoOdoo };
 }

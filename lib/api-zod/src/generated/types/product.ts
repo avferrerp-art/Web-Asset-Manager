@@ -21,22 +21,8 @@ export interface Product {
   activo: boolean;
   /** @nullable */
   lastSyncAt?: string | null;
-  /**
-     * Peso real medido manualmente (kg)
-     * @nullable
-     */
-  pesoKg?: number | null;
-  /** @nullable */
-  largoCm?: number | null;
-  /** @nullable */
-  anchoCm?: number | null;
-  /** @nullable */
-  altoCm?: number | null;
-  apilable: boolean;
-  fragil: boolean;
   /** @nullable */
   notas?: string | null;
-  dimensionesConfirmadas: boolean;
   createdAt: string;
   updatedAt: string;
 }

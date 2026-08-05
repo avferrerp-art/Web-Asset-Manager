@@ -9,8 +9,9 @@ export const salesTable = pgTable("sales", {
   personaContacto: text("persona_contacto"),
   numeroCel: text("numero_cel"),
   tipoMaterial: text("tipo_material"),
-  volumenTotal: real("volumen_total").notNull(),
-  pesoTotal: real("peso_total").notNull(),
+  // null = "sin dato en Odoo" (nunca representar sin-dato con 0)
+  volumenTotal: real("volumen_total"),
+  pesoTotal: real("peso_total"),
   // Totales originales importados de Odoo (nunca los pisa el cálculo local)
   pesoTotalOdoo: real("peso_total_odoo"),
   volumenTotalOdoo: real("volumen_total_odoo"),

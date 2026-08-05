@@ -268,8 +268,8 @@ export const ListSalesResponseItem = zod.object({
   "personaContacto": zod.string().nullish(),
   "numeroCel": zod.string().nullish(),
   "tipoMaterial": zod.string().nullish(),
-  "volumenTotal": zod.number(),
-  "pesoTotal": zod.number(),
+  "volumenTotal": zod.number().nullish().describe('Volumen total (m³) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)'),
+  "pesoTotal": zod.number().nullish().describe('Peso total (kg) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)'),
   "destino": zod.string(),
   "estado": zod.string().describe('pendiente | despachado | entregado | cancelado'),
   "notas": zod.string().nullish(),
@@ -277,7 +277,6 @@ export const ListSalesResponseItem = zod.object({
   "odooId": zod.number().nullish(),
   "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
-  "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
   "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
   "almacenesMultiples": zod.boolean().optional().describe('true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén'),
@@ -296,8 +295,8 @@ export const CreateSaleBody = zod.object({
   "personaContacto": zod.string().optional(),
   "numeroCel": zod.string().optional(),
   "tipoMaterial": zod.string().optional(),
-  "volumenTotal": zod.number(),
-  "pesoTotal": zod.number(),
+  "volumenTotal": zod.number().nullish(),
+  "pesoTotal": zod.number().nullish(),
   "destino": zod.string(),
   "estado": zod.string().optional(),
   "notas": zod.string().optional()
@@ -310,8 +309,8 @@ export const CreateSaleResponse = zod.object({
   "personaContacto": zod.string().nullish(),
   "numeroCel": zod.string().nullish(),
   "tipoMaterial": zod.string().nullish(),
-  "volumenTotal": zod.number(),
-  "pesoTotal": zod.number(),
+  "volumenTotal": zod.number().nullish().describe('Volumen total (m³) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)'),
+  "pesoTotal": zod.number().nullish().describe('Peso total (kg) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)'),
   "destino": zod.string(),
   "estado": zod.string().describe('pendiente | despachado | entregado | cancelado'),
   "notas": zod.string().nullish(),
@@ -319,7 +318,6 @@ export const CreateSaleResponse = zod.object({
   "odooId": zod.number().nullish(),
   "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
-  "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
   "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
   "almacenesMultiples": zod.boolean().optional().describe('true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén'),
@@ -342,8 +340,8 @@ export const GetSaleResponse = zod.object({
   "personaContacto": zod.string().nullish(),
   "numeroCel": zod.string().nullish(),
   "tipoMaterial": zod.string().nullish(),
-  "volumenTotal": zod.number(),
-  "pesoTotal": zod.number(),
+  "volumenTotal": zod.number().nullish().describe('Volumen total (m³) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)'),
+  "pesoTotal": zod.number().nullish().describe('Peso total (kg) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)'),
   "destino": zod.string(),
   "estado": zod.string().describe('pendiente | despachado | entregado | cancelado'),
   "notas": zod.string().nullish(),
@@ -351,7 +349,6 @@ export const GetSaleResponse = zod.object({
   "odooId": zod.number().nullish(),
   "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
-  "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
   "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
   "almacenesMultiples": zod.boolean().optional().describe('true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén'),
@@ -373,8 +370,8 @@ export const UpdateSaleBody = zod.object({
   "personaContacto": zod.string().optional(),
   "numeroCel": zod.string().optional(),
   "tipoMaterial": zod.string().optional(),
-  "volumenTotal": zod.number().optional(),
-  "pesoTotal": zod.number().optional(),
+  "volumenTotal": zod.number().nullish(),
+  "pesoTotal": zod.number().nullish(),
   "destino": zod.string().optional(),
   "estado": zod.string().optional(),
   "notas": zod.string().optional()
@@ -387,8 +384,8 @@ export const UpdateSaleResponse = zod.object({
   "personaContacto": zod.string().nullish(),
   "numeroCel": zod.string().nullish(),
   "tipoMaterial": zod.string().nullish(),
-  "volumenTotal": zod.number(),
-  "pesoTotal": zod.number(),
+  "volumenTotal": zod.number().nullish().describe('Volumen total (m³) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)'),
+  "pesoTotal": zod.number().nullish().describe('Peso total (kg) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)'),
   "destino": zod.string(),
   "estado": zod.string().describe('pendiente | despachado | entregado | cancelado'),
   "notas": zod.string().nullish(),
@@ -396,7 +393,6 @@ export const UpdateSaleResponse = zod.object({
   "odooId": zod.number().nullish(),
   "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
-  "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
   "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
   "almacenesMultiples": zod.boolean().optional().describe('true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén'),
@@ -428,10 +424,6 @@ export const ListSaleItemsResponseItem = zod.object({
   "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
-  "pesoUnitario": zod.number(),
-  "largo": zod.number(),
-  "ancho": zod.number(),
-  "alto": zod.number(),
   "createdAt": zod.string()
 })
 export const ListSaleItemsResponse = zod.array(ListSaleItemsResponseItem)
@@ -447,11 +439,7 @@ export const CreateSaleItemParams = zod.object({
 export const CreateSaleItemBody = zod.object({
   "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (opcional)'),
   "descripcion": zod.string(),
-  "cantidad": zod.number().optional(),
-  "pesoUnitario": zod.number().optional(),
-  "largo": zod.number().optional(),
-  "ancho": zod.number().optional(),
-  "alto": zod.number().optional()
+  "cantidad": zod.number().optional()
 })
 
 export const CreateSaleItemResponse = zod.object({
@@ -460,10 +448,6 @@ export const CreateSaleItemResponse = zod.object({
   "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
-  "pesoUnitario": zod.number(),
-  "largo": zod.number(),
-  "ancho": zod.number(),
-  "alto": zod.number(),
   "createdAt": zod.string()
 })
 
@@ -516,11 +500,7 @@ export const UpdateSaleItemParams = zod.object({
 export const UpdateSaleItemBody = zod.object({
   "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (opcional)'),
   "descripcion": zod.string(),
-  "cantidad": zod.number().optional(),
-  "pesoUnitario": zod.number().optional(),
-  "largo": zod.number().optional(),
-  "ancho": zod.number().optional(),
-  "alto": zod.number().optional()
+  "cantidad": zod.number().optional()
 })
 
 export const UpdateSaleItemResponse = zod.object({
@@ -529,10 +509,6 @@ export const UpdateSaleItemResponse = zod.object({
   "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
-  "pesoUnitario": zod.number(),
-  "largo": zod.number(),
-  "ancho": zod.number(),
-  "alto": zod.number(),
   "createdAt": zod.string()
 })
 
@@ -561,7 +537,7 @@ export const ListUnlinkedSaleItemsResponse = zod.array(ListUnlinkedSaleItemsResp
 
 
 /**
- * @summary Manually link a sale item to a catalog product (copies confirmed dimensions and recalculates sale totals)
+ * @summary Manually link a sale item to a catalog product (association only; totals always come from Odoo)
  */
 export const LinkSaleItemProductParams = zod.object({
   "itemId": zod.coerce.number()
@@ -577,10 +553,6 @@ export const LinkSaleItemProductResponse = zod.object({
   "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
-  "pesoUnitario": zod.number(),
-  "largo": zod.number(),
-  "ancho": zod.number(),
-  "alto": zod.number(),
   "createdAt": zod.string()
 })
 
@@ -717,11 +689,11 @@ export const ResolveOdooAlertResponse = zod.object({
 
 
 /**
- * @summary List products with optional search and missing-dimensions filter
+ * @summary List products with optional search and missing-Odoo-weight filter
  */
 export const ListProductsQueryParams = zod.object({
   "search": zod.coerce.string().optional(),
-  "soloSinDimensiones": zod.coerce.boolean().optional()
+  "sinPesoOdoo": zod.coerce.boolean().optional()
 })
 
 export const ListProductsResponseItem = zod.object({
@@ -735,14 +707,7 @@ export const ListProductsResponseItem = zod.object({
   "volumenOdoo": zod.number(),
   "activo": zod.boolean(),
   "lastSyncAt": zod.string().nullish(),
-  "pesoKg": zod.number().nullish().describe('Peso real medido manualmente (kg)'),
-  "largoCm": zod.number().nullish(),
-  "anchoCm": zod.number().nullish(),
-  "altoCm": zod.number().nullish(),
-  "apilable": zod.boolean(),
-  "fragil": zod.boolean(),
   "notas": zod.string().nullish(),
-  "dimensionesConfirmadas": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -750,12 +715,12 @@ export const ListProductsResponse = zod.array(ListProductsResponseItem)
 
 
 /**
- * @summary Counts of products with confirmed dimensions
+ * @summary Counts of products with/without weight data in Odoo
  */
 export const GetProductStatsResponse = zod.object({
   "total": zod.number(),
-  "confirmados": zod.number(),
-  "pendientes": zod.number()
+  "conPesoOdoo": zod.number(),
+  "sinPesoOdoo": zod.number()
 })
 
 
@@ -777,14 +742,7 @@ export const GetProductResponse = zod.object({
   "volumenOdoo": zod.number(),
   "activo": zod.boolean(),
   "lastSyncAt": zod.string().nullish(),
-  "pesoKg": zod.number().nullish().describe('Peso real medido manualmente (kg)'),
-  "largoCm": zod.number().nullish(),
-  "anchoCm": zod.number().nullish(),
-  "altoCm": zod.number().nullish(),
-  "apilable": zod.boolean(),
-  "fragil": zod.boolean(),
   "notas": zod.string().nullish(),
-  "dimensionesConfirmadas": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -798,15 +756,8 @@ export const UpdateProductParams = zod.object({
 })
 
 export const UpdateProductBody = zod.object({
-  "pesoKg": zod.number().nullish(),
-  "largoCm": zod.number().nullish(),
-  "anchoCm": zod.number().nullish(),
-  "altoCm": zod.number().nullish(),
-  "apilable": zod.boolean().optional(),
-  "fragil": zod.boolean().optional(),
-  "notas": zod.string().nullish(),
-  "dimensionesConfirmadas": zod.boolean().optional()
-}).describe('Only manual fields can be edited; Odoo-owned fields are rejected')
+  "notas": zod.string().nullish()
+}).describe('Catálogo de solo lectura desde Odoo: el único campo editable es notas')
 
 export const UpdateProductResponse = zod.object({
   "id": zod.number(),
@@ -819,14 +770,7 @@ export const UpdateProductResponse = zod.object({
   "volumenOdoo": zod.number(),
   "activo": zod.boolean(),
   "lastSyncAt": zod.string().nullish(),
-  "pesoKg": zod.number().nullish().describe('Peso real medido manualmente (kg)'),
-  "largoCm": zod.number().nullish(),
-  "anchoCm": zod.number().nullish(),
-  "altoCm": zod.number().nullish(),
-  "apilable": zod.boolean(),
-  "fragil": zod.boolean(),
   "notas": zod.string().nullish(),
-  "dimensionesConfirmadas": zod.boolean(),
   "createdAt": zod.string(),
   "updatedAt": zod.string()
 })
@@ -944,10 +888,6 @@ export const GetDispatchResponse = zod.object({
   "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
-  "pesoUnitario": zod.number(),
-  "largo": zod.number(),
-  "ancho": zod.number(),
-  "alto": zod.number(),
   "createdAt": zod.string()
 })).optional().describe('Line items of the linked sale order'),
   "routePoints": zod.array(zod.object({
@@ -1305,10 +1245,6 @@ export const GetDriverDispatchResponse = zod.object({
   "productId": zod.number().nullish().describe('Producto del catálogo LogiFleet vinculado (null para bultos manuales)'),
   "descripcion": zod.string(),
   "cantidad": zod.number(),
-  "pesoUnitario": zod.number(),
-  "largo": zod.number(),
-  "ancho": zod.number(),
-  "alto": zod.number(),
   "createdAt": zod.string()
 })).optional().describe('Line items of the linked sale order'),
   "routePoints": zod.array(zod.object({

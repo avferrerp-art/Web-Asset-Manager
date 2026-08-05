@@ -205,8 +205,6 @@ function PartidaTab({ saleId }: { saleId: number }) {
           <TableRow>
             <TableHead>Descripción</TableHead>
             <TableHead className="text-right">Cant.</TableHead>
-            <TableHead className="text-right">Peso unit. (kg)</TableHead>
-            <TableHead className="text-right">Peso total (kg)</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -218,8 +216,6 @@ function PartidaTab({ saleId }: { saleId: number }) {
                 </span>
               </TableCell>
               <TableCell className="text-right">{item.cantidad}</TableCell>
-              <TableCell className="text-right">{item.pesoUnitario}</TableCell>
-              <TableCell className="text-right">{(item.cantidad * item.pesoUnitario).toFixed(2)}</TableCell>
             </TableRow>
           ))}
         </TableBody>
@@ -563,17 +559,11 @@ function SaleDetailSheetInner({ sale: saleProp, open, onOpenChange }: SaleDetail
             )}
 
             <span className="font-medium text-foreground/70">Carga</span>
-            <span>
-              {sale.pesoTotalOdoo != null
-                ? `${sale.pesoTotalOdoo} kg`
-                : `${sale.pesoTotal} kg`}{" "}
-              ·{" "}
-              {sale.volumenTotalOdoo != null
-                ? `${sale.volumenTotalOdoo} m³`
-                : `${sale.volumenTotal} m³`}
-              {sale.pesoTotalOdoo != null && (
-                <span className="ml-1 text-purple-400 text-[10px]">(Odoo)</span>
-              )}
+            <span data-testid="text-carga-detalle">
+              {sale.pesoTotal != null ? `${sale.pesoTotal} kg` : "sin dato en Odoo"}
+              {" · "}
+              {sale.volumenTotal != null ? `${sale.volumenTotal} m³` : "sin dato en Odoo"}
+              <span className="ml-1 text-purple-400 text-[10px]">(Odoo)</span>
             </span>
 
             {sale.almacenOrigen && (

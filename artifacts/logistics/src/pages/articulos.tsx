@@ -13,32 +13,19 @@ import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
 import {
   Boxes, Search, RefreshCw, Check, ArrowLeft, Edit2,
-  CheckCircle2, AlertTriangle, Loader2,
+  Scale, AlertTriangle, Loader2, StickyNote,
 } from "lucide-react";
-
-interface EditDraft {
-  id: number;
-  pesoKg: number | null;
-  largoCm: number | null;
-  anchoCm: number | null;
-  altoCm: number | null;
-}
-
-function volumenCalculado(p: { largoCm?: number | null; anchoCm?: number | null; altoCm?: number | null }): number | null {
-  if (!p.largoCm || !p.anchoCm || !p.altoCm) return null;
-  return (p.largoCm * p.anchoCm * p.altoCm) / 1_000_000;
-}
 
 export default function Articulos() {
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
-  const [soloSinDimensiones, setSoloSinDimensiones] = useState(false);
-  const [editing, setEditing] = useState<EditDraft | null>(null);
+  const [sinPesoOdoo, setSinPesoOdoo] = useState(false);
+  const [editingNotas, setEditingNotas] = useState<{ id: number; notas: string } | null>(null);
 
   const listParams = {
     ...(search.trim() ? { search: search.trim() } : {}),
-    ...(soloSinDimensiones ? { soloSinDimensiones: true } : {}),
+    ...(sinPesoOdoo ? { sinPesoOdoo: true } : {}),
   };
   const { data: products, isLoading } = useListProducts(listParams, {
     query: { queryKey: getListProductsQueryKey(listParams) },
@@ -57,23 +44,15 @@ export default function Articulos() {
     queryClient.invalidateQueries({ queryKey: getGetProductStatsQueryKey() });
   }
 
-  function handleSave() {
-    if (!editing) return;
+  function handleSaveNotas() {
+    if (!editingNotas) return;
     updateProduct.mutate(
-      {
-        id: editing.id,
-        data: {
-          pesoKg: editing.pesoKg,
-          largoCm: editing.largoCm,
-          anchoCm: editing.anchoCm,
-          altoCm: editing.altoCm,
-        },
-      },
+      { id: editingNotas.id, data: { notas: editingNotas.notas.trim() || null } },
       {
         onSuccess: () => {
           bustCache();
-          setEditing(null);
-          toast({ title: "Artículo actualizado" });
+          setEditingNotas(null);
+          toast({ title: "Notas guardadas" });
         },
         onError: (err) => {
           toast({ title: "Error al guardar", description: String(err), variant: "destructive" });
@@ -88,7 +67,7 @@ export default function Articulos() {
         bustCache();
         toast({
           title: "Sincronización completada",
-          description: `${result.total} artículos procesados (${result.created} nuevos, ${result.updated} actualizados). Los datos manuales se conservaron.`,
+          description: `${result.total} artículos procesados (${result.created} nuevos, ${result.updated} actualizados).`,
         });
       },
       onError: (err) => {
@@ -101,23 +80,6 @@ export default function Articulos() {
     });
   }
 
-  const numInput = (
-    value: number | null,
-    onChange: (v: number | null) => void,
-    placeholder: string,
-    width = "w-20",
-  ) => (
-    <Input
-      type="number"
-      min={0}
-      step="0.1"
-      placeholder={placeholder}
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value === "" ? null : +e.target.value)}
-      className={`h-7 text-xs ${width} text-right`}
-    />
-  );
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -125,7 +87,7 @@ export default function Articulos() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Artículos</h1>
           <p className="text-muted-foreground">
-            Catálogo sincronizado desde Odoo. El peso y las dimensiones medidas se guardan aquí y nunca se pierden.
+            Catálogo de consulta sincronizado desde Odoo. El peso y el volumen provienen de Odoo; si faltan, se corrigen allí.
           </p>
         </div>
         <Button onClick={handleSync} disabled={syncProducts.isPending} className="gap-2" data-testid="button-sync-products">
@@ -138,10 +100,10 @@ export default function Articulos() {
 
       {/* Stats + filters */}
       <div className="flex items-center gap-3 flex-wrap">
-        <div className="bg-card border border-border rounded-full px-4 py-1.5 text-sm flex items-center gap-2" data-testid="text-confirmed-counter">
-          <CheckCircle2 className="w-3.5 h-3.5 text-green-500" />
-          <span className="font-semibold">{stats?.confirmados ?? 0} de {stats?.total ?? 0}</span>
-          <span className="text-muted-foreground">artículos con dimensiones confirmadas</span>
+        <div className="bg-card border border-border rounded-full px-4 py-1.5 text-sm flex items-center gap-2" data-testid="text-peso-counter">
+          <Scale className="w-3.5 h-3.5 text-green-500" />
+          <span className="font-semibold">{stats?.conPesoOdoo ?? 0} de {stats?.total ?? 0}</span>
+          <span className="text-muted-foreground">artículos con peso en Odoo</span>
         </div>
         <div className="relative flex-1 min-w-[220px] max-w-sm">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -154,15 +116,15 @@ export default function Articulos() {
           />
         </div>
         <Button
-          variant={soloSinDimensiones ? "default" : "outline"}
+          variant={sinPesoOdoo ? "default" : "outline"}
           size="sm"
-          onClick={() => setSoloSinDimensiones(v => !v)}
+          onClick={() => setSinPesoOdoo(v => !v)}
           className="gap-2"
-          data-testid="button-filter-sin-dimensiones"
+          data-testid="button-filter-sin-peso"
         >
           <AlertTriangle className="w-3.5 h-3.5" />
-          Solo sin dimensiones
-          {soloSinDimensiones && stats ? ` (${stats.pendientes})` : ""}
+          Sin peso en Odoo
+          {sinPesoOdoo && stats ? ` (${stats.sinPesoOdoo})` : ""}
         </Button>
       </div>
 
@@ -174,8 +136,8 @@ export default function Articulos() {
           ) : (products?.length ?? 0) === 0 ? (
             <div className="text-center py-12 text-muted-foreground">
               <Boxes className="w-8 h-8 mx-auto mb-2 opacity-50" />
-              {soloSinDimensiones
-                ? "Todos los artículos tienen dimensiones confirmadas."
+              {sinPesoOdoo
+                ? "Todos los artículos tienen peso registrado en Odoo."
                 : "Sin artículos. Pulsa \u201CSincronizar con Odoo\u201D para importar el catálogo."}
             </div>
           ) : (
@@ -186,96 +148,75 @@ export default function Articulos() {
                     <th className="px-4 py-2 font-medium">Referencia</th>
                     <th className="px-4 py-2 font-medium">Nombre</th>
                     <th className="px-4 py-2 font-medium">Categoría</th>
-                    <th className="px-4 py-2 font-medium text-right">Peso (kg)</th>
-                    <th className="px-4 py-2 font-medium text-center">L × A × Al (cm)</th>
-                    <th className="px-4 py-2 font-medium text-right">Vol. (m³)</th>
-                    <th className="px-4 py-2 font-medium text-center">Estado</th>
-                    <th className="px-4 py-2 w-[80px]"></th>
+                    <th className="px-4 py-2 font-medium text-right">Peso Odoo (kg)</th>
+                    <th className="px-4 py-2 font-medium text-right">Vol. Odoo (m³)</th>
+                    <th className="px-4 py-2 font-medium">Notas</th>
+                    <th className="px-4 py-2 w-[60px]"></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {products?.map((p: Product) =>
-                    editing?.id === p.id ? (
-                      <tr key={p.id} className="border-b border-border bg-muted/20" data-testid={`row-product-edit-${p.id}`}>
-                        <td className="px-4 py-2 text-muted-foreground">{p.odooRef ?? "—"}</td>
-                        <td className="px-4 py-2 font-medium">{p.nombre}</td>
-                        <td className="px-4 py-2 text-muted-foreground">{p.categoria ?? "—"}</td>
-                        <td className="px-2 py-1.5 text-right">
-                          {numInput(editing.pesoKg, v => setEditing({ ...editing, pesoKg: v }), String(p.pesoOdoo || 0))}
-                        </td>
-                        <td className="px-2 py-1.5">
-                          <div className="flex items-center gap-1 justify-center">
-                            {numInput(editing.largoCm, v => setEditing({ ...editing, largoCm: v }), "L", "w-16")}
-                            <span className="text-muted-foreground">×</span>
-                            {numInput(editing.anchoCm, v => setEditing({ ...editing, anchoCm: v }), "A", "w-16")}
-                            <span className="text-muted-foreground">×</span>
-                            {numInput(editing.altoCm, v => setEditing({ ...editing, altoCm: v }), "Al", "w-16")}
-                          </div>
-                        </td>
-                        <td className="px-2 py-1.5 text-right text-muted-foreground text-xs">
-                          {volumenCalculado(editing)?.toFixed(4) ?? "—"}
-                        </td>
-                        <td className="px-2 py-1.5"></td>
-                        <td className="px-2 py-1.5">
-                          <div className="flex gap-1 justify-end">
-                            <Button size="icon" className="h-6 w-6" onClick={handleSave} disabled={updateProduct.isPending} data-testid={`button-save-product-${p.id}`}>
-                              <Check className="w-3 h-3" />
-                            </Button>
-                            <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditing(null)}>
-                              <ArrowLeft className="w-3 h-3" />
-                            </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ) : (
-                      <tr key={p.id} className="border-b border-border/50 hover:bg-muted/10" data-testid={`row-product-${p.id}`}>
-                        <td className="px-4 py-2.5 text-muted-foreground">{p.odooRef ?? "—"}</td>
-                        <td className="px-4 py-2.5 font-medium">{p.nombre}</td>
-                        <td className="px-4 py-2.5 text-muted-foreground">{p.categoria ?? "—"}</td>
-                        <td className="px-4 py-2.5 text-right">
-                          {p.pesoKg != null
-                            ? <span className="font-medium">{p.pesoKg}</span>
-                            : <span className="text-muted-foreground">{p.pesoOdoo || "—"}</span>}
-                        </td>
-                        <td className="px-4 py-2.5 text-center text-muted-foreground">
-                          {p.largoCm && p.anchoCm && p.altoCm
-                            ? `${p.largoCm} × ${p.anchoCm} × ${p.altoCm}`
-                            : "—"}
-                        </td>
-                        <td className="px-4 py-2.5 text-right text-muted-foreground">
-                          {volumenCalculado(p)?.toFixed(4) ?? "—"}
-                        </td>
-                        <td className="px-4 py-2.5 text-center">
-                          {p.dimensionesConfirmadas ? (
-                            <Badge className="bg-green-500/15 text-green-500 border-green-500/30 gap-1" variant="outline">
-                              <CheckCircle2 className="w-3 h-3" /> Confirmado
-                            </Badge>
-                          ) : (
+                  {products?.map((p: Product) => (
+                    <tr key={p.id} className="border-b border-border/50 hover:bg-muted/10" data-testid={`row-product-${p.id}`}>
+                      <td className="px-4 py-2.5 text-muted-foreground">{p.odooRef ?? "—"}</td>
+                      <td className="px-4 py-2.5 font-medium">{p.nombre}</td>
+                      <td className="px-4 py-2.5 text-muted-foreground">{p.categoria ?? "—"}</td>
+                      <td className="px-4 py-2.5 text-right" data-testid={`text-peso-${p.id}`}>
+                        {p.pesoOdoo > 0
+                          ? <span className="font-medium">{p.pesoOdoo}</span>
+                          : (
                             <Badge className="bg-yellow-500/15 text-yellow-500 border-yellow-500/30 gap-1" variant="outline">
-                              <AlertTriangle className="w-3 h-3" /> Sin medir
+                              <AlertTriangle className="w-3 h-3" /> sin dato en Odoo
                             </Badge>
                           )}
-                        </td>
-                        <td className="px-4 py-2.5">
-                          <div className="flex justify-end">
+                      </td>
+                      <td className="px-4 py-2.5 text-right" data-testid={`text-volumen-${p.id}`}>
+                        {p.volumenOdoo > 0
+                          ? <span className="text-muted-foreground">{p.volumenOdoo}</span>
+                          : <span className="text-muted-foreground/60 text-xs">sin dato en Odoo</span>}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {editingNotas?.id === p.id ? (
+                          <Input
+                            autoFocus
+                            value={editingNotas.notas}
+                            onChange={(e) => setEditingNotas({ id: p.id, notas: e.target.value })}
+                            onKeyDown={(e) => { if (e.key === "Enter") handleSaveNotas(); if (e.key === "Escape") setEditingNotas(null); }}
+                            className="h-7 text-xs"
+                            data-testid={`input-notas-${p.id}`}
+                          />
+                        ) : p.notas ? (
+                          <span className="text-muted-foreground text-xs flex items-center gap-1">
+                            <StickyNote className="w-3 h-3 shrink-0" /> {p.notas}
+                          </span>
+                        ) : (
+                          <span className="text-muted-foreground/40 text-xs">—</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        <div className="flex gap-1 justify-end">
+                          {editingNotas?.id === p.id ? (
+                            <>
+                              <Button size="icon" className="h-6 w-6" onClick={handleSaveNotas} disabled={updateProduct.isPending} data-testid={`button-save-notas-${p.id}`}>
+                                <Check className="w-3 h-3" />
+                              </Button>
+                              <Button size="icon" variant="ghost" className="h-6 w-6" onClick={() => setEditingNotas(null)}>
+                                <ArrowLeft className="w-3 h-3" />
+                              </Button>
+                            </>
+                          ) : (
                             <Button
                               variant="ghost" size="icon" className="h-7 w-7"
-                              onClick={() => setEditing({
-                                id: p.id,
-                                pesoKg: p.pesoKg ?? null,
-                                largoCm: p.largoCm ?? null,
-                                anchoCm: p.anchoCm ?? null,
-                                altoCm: p.altoCm ?? null,
-                              })}
-                              data-testid={`button-edit-product-${p.id}`}
+                              onClick={() => setEditingNotas({ id: p.id, notas: p.notas ?? "" })}
+                              title="Editar notas"
+                              data-testid={`button-edit-notas-${p.id}`}
                             >
                               <Edit2 className="w-3.5 h-3.5" />
                             </Button>
-                          </div>
-                        </td>
-                      </tr>
-                    ),
-                  )}
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>

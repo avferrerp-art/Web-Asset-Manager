@@ -205,7 +205,9 @@ export default function PreDespacho() {
     setSelectedSale(sale);
     const bestVehicle = overrideVehicleId
       ? vehicles?.find(v => v.id === overrideVehicleId)
-      : vehicles?.find(v => v.capacidadPeso >= sale.pesoTotal && v.capacidadVolumen >= sale.volumenTotal);
+      : vehicles?.find(v =>
+          v.capacidadPeso >= (sale.pesoTotal ?? 0) &&
+          v.capacidadVolumen >= (sale.volumenTotal ?? 0));
     const today = new Date();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
@@ -330,8 +332,8 @@ export default function PreDespacho() {
                   </TableCell>
                   <TableCell>{sale.cliente}</TableCell>
                   <TableCell>{sale.destino}</TableCell>
-                  <TableCell>{sale.pesoTotal} kg</TableCell>
-                  <TableCell>{sale.volumenTotal} m³</TableCell>
+                  <TableCell>{sale.pesoTotal != null ? `${sale.pesoTotal} kg` : <span className="text-muted-foreground italic text-xs">sin dato</span>}</TableCell>
+                  <TableCell>{sale.volumenTotal != null ? `${sale.volumenTotal} m³` : <span className="text-muted-foreground italic text-xs">sin dato</span>}</TableCell>
                   <TableCell>
                     <div className="flex gap-2">
                       <Button
@@ -370,8 +372,8 @@ export default function PreDespacho() {
             <div className="bg-muted p-3 rounded-md flex gap-4 text-sm flex-wrap">
               <div><span className="font-semibold">Cliente:</span> {selectedSale.cliente}</div>
               <div><span className="font-semibold">Destino:</span> {selectedSale.destino}</div>
-              <div><span className="font-semibold">Peso:</span> {selectedSale.pesoTotal} kg</div>
-              <div><span className="font-semibold">Volumen:</span> {selectedSale.volumenTotal} m³</div>
+              <div><span className="font-semibold">Peso:</span> {selectedSale.pesoTotal != null ? `${selectedSale.pesoTotal} kg` : "sin dato en Odoo"}</div>
+              <div><span className="font-semibold">Volumen:</span> {selectedSale.volumenTotal != null ? `${selectedSale.volumenTotal} m³` : "sin dato en Odoo"}</div>
             </div>
           )}
 

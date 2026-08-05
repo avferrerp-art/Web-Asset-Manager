@@ -13,6 +13,7 @@ import * as odooWriteDateSyncAlerts from "./0001_odoo_write_date_sync_alerts";
 import * as deliveries from "./0002_deliveries";
 import * as syncStateDeliveries from "./0003_sync_state_deliveries";
 import * as salesEstadoEntrega from "./0004_sales_estado_entrega";
+import * as salesTotalesNullable from "./0005_sales_totales_nullable";
 
 export interface Migration {
   name: string;
@@ -25,4 +26,5 @@ export const migrations: Migration[] = [
   deliveries,
   syncStateDeliveries,
   salesEstadoEntrega,
+  salesTotalesNullable,
 ];

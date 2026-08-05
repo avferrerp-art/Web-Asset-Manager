@@ -177,10 +177,14 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     res.status(400).json({ error: "El vehículo indicado no existe" });
     return;
   }
-  if (vehicle.capacidadPeso < sale.pesoTotal || vehicle.capacidadVolumen < sale.volumenTotal) {
+  // null = sin dato en Odoo → no bloquea el despacho (no se puede comparar lo que no se conoce)
+  if (
+    vehicle.capacidadPeso < (sale.pesoTotal ?? 0) ||
+    vehicle.capacidadVolumen < (sale.volumenTotal ?? 0)
+  ) {
     res.status(400).json({
       error: "vehicle_capacity_exceeded",
-      message: `El vehículo ${vehicle.modelo} (capacidad ${vehicle.capacidadPeso}kg / ${vehicle.capacidadVolumen}m³) no alcanza para la carga de esta venta (${sale.pesoTotal}kg / ${sale.volumenTotal}m³).`,
+      message: `El vehículo ${vehicle.modelo} (capacidad ${vehicle.capacidadPeso}kg / ${vehicle.capacidadVolumen}m³) no alcanza para la carga de esta venta (${sale.pesoTotal ?? "sin dato"}kg / ${sale.volumenTotal ?? "sin dato"}m³).`,
     });
     return;
   }

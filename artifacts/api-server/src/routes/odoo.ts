@@ -172,7 +172,6 @@ router.post("/odoo/backfill-products", async (req, res): Promise<void> => {
       ok: true,
       examined: result.examined,
       linked: result.linked,
-      dimensionsUpdated: result.dimensionsUpdated,
       unmatched: result.unmatched,
       salesRecalculated: result.salesRecalculated,
       error: null,

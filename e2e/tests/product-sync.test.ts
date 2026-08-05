@@ -4,7 +4,7 @@
  * The Odoo client is fully mocked (no real Odoo connection); the DB is the
  * real dev Postgres (DATABASE_URL). Covers:
  *  1. Running the sync twice does not duplicate products (upsert by odooId).
- *  2. Manually edited fields (pesoKg/largoCm/anchoCm/altoCm, etc.) are NEVER
+ *  2. The manually edited field (`notas`, the only editable field) is NEVER
  *     overwritten by a re-sync — the golden rule.
  *  3. The sync only requests products of type 'product' or 'consu'.
  *
@@ -96,23 +96,14 @@ describe("Odoo product sync", () => {
     expect(rows).toHaveLength(2); // one row per odooId, no duplicates
   });
 
-  it("re-sync NEVER overwrites manually measured fields (golden rule)", async () => {
+  it("re-sync NEVER overwrites manually edited notas (golden rule)", async () => {
     mockProductBatch([odooRecord(ODOO_IDS[0]!)]);
     await syncOdooProducts();
 
-    // Team manually measures the product.
+    // Team annotates the product (notas is the only editable field).
     await db
       .update(productsTable)
-      .set({
-        pesoKg: 7.77,
-        largoCm: 30,
-        anchoCm: 20,
-        altoCm: 10,
-        apilable: false,
-        fragil: true,
-        notas: "medido a mano",
-        dimensionesConfirmadas: true,
-      })
+      .set({ notas: "nota manual" })
       .where(eq(productsTable.odooId, ODOO_IDS[0]!));
 
     // Odoo changes its own fields; re-sync.
@@ -130,14 +121,7 @@ describe("Odoo product sync", () => {
     expect(row!.nombre).toBe("Nombre Actualizado Odoo");
     expect(row!.pesoOdoo).toBe(99);
     expect(row!.volumenOdoo).toBe(9);
-    // …manual fields untouched.
-    expect(row!.pesoKg).toBeCloseTo(7.77, 5);
-    expect(row!.largoCm).toBe(30);
-    expect(row!.anchoCm).toBe(20);
-    expect(row!.altoCm).toBe(10);
-    expect(row!.apilable).toBe(false);
-    expect(row!.fragil).toBe(true);
-    expect(row!.notas).toBe("medido a mano");
-    expect(row!.dimensionesConfirmadas).toBe(true);
+    // …manual field untouched.
+    expect(row!.notas).toBe("nota manual");
   });
 });

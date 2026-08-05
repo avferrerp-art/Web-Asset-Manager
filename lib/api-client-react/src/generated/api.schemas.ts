@@ -208,49 +208,24 @@ export interface Product {
   activo: boolean;
   /** @nullable */
   lastSyncAt?: string | null;
-  /**
-     * Peso real medido manualmente (kg)
-     * @nullable
-     */
-  pesoKg?: number | null;
-  /** @nullable */
-  largoCm?: number | null;
-  /** @nullable */
-  anchoCm?: number | null;
-  /** @nullable */
-  altoCm?: number | null;
-  apilable: boolean;
-  fragil: boolean;
   /** @nullable */
   notas?: string | null;
-  dimensionesConfirmadas: boolean;
   createdAt: string;
   updatedAt: string;
 }
 
 /**
- * Only manual fields can be edited; Odoo-owned fields are rejected
+ * Catálogo de solo lectura desde Odoo: el único campo editable es notas
  */
 export interface ProductUpdate {
   /** @nullable */
-  pesoKg?: number | null;
-  /** @nullable */
-  largoCm?: number | null;
-  /** @nullable */
-  anchoCm?: number | null;
-  /** @nullable */
-  altoCm?: number | null;
-  apilable?: boolean;
-  fragil?: boolean;
-  /** @nullable */
   notas?: string | null;
-  dimensionesConfirmadas?: boolean;
 }
 
 export interface ProductStats {
   total: number;
-  confirmados: number;
-  pendientes: number;
+  conPesoOdoo: number;
+  sinPesoOdoo: number;
 }
 
 export interface DeliveryItem {
@@ -387,8 +362,16 @@ export interface Sale {
   numeroCel?: string | null;
   /** @nullable */
   tipoMaterial?: string | null;
-  volumenTotal: number;
-  pesoTotal: number;
+  /**
+     * Volumen total (m³) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)
+     * @nullable
+     */
+  volumenTotal?: number | null;
+  /**
+     * Peso total (kg) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)
+     * @nullable
+     */
+  pesoTotal?: number | null;
   destino: string;
   /** pendiente | despachado | entregado | cancelado */
   estado: string;
@@ -411,8 +394,6 @@ export interface Sale {
      * @nullable
      */
   volumenTotalOdoo?: number | null;
-  /** true si alguna partida proviene de un producto sin dimensiones confirmadas */
-  dimensionesIncompletas?: boolean;
   /** Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado */
   estadoEntrega: string;
   /**
@@ -433,8 +414,10 @@ export interface SaleInput {
   personaContacto?: string;
   numeroCel?: string;
   tipoMaterial?: string;
-  volumenTotal: number;
-  pesoTotal: number;
+  /** @nullable */
+  volumenTotal?: number | null;
+  /** @nullable */
+  pesoTotal?: number | null;
   destino: string;
   estado?: string;
   notas?: string;
@@ -446,8 +429,10 @@ export interface SaleUpdate {
   personaContacto?: string;
   numeroCel?: string;
   tipoMaterial?: string;
-  volumenTotal?: number;
-  pesoTotal?: number;
+  /** @nullable */
+  volumenTotal?: number | null;
+  /** @nullable */
+  pesoTotal?: number | null;
   destino?: string;
   estado?: string;
   notas?: string;
@@ -463,10 +448,6 @@ export interface SaleItem {
   productId?: number | null;
   descripcion: string;
   cantidad: number;
-  pesoUnitario: number;
-  largo: number;
-  ancho: number;
-  alto: number;
   createdAt: string;
 }
 
@@ -478,10 +459,6 @@ export interface SaleItemInput {
   productId?: number | null;
   descripcion: string;
   cantidad?: number;
-  pesoUnitario?: number;
-  largo?: number;
-  ancho?: number;
-  alto?: number;
 }
 
 export interface UnlinkedSaleItem {
@@ -883,7 +860,7 @@ export type ResolveOdooAlert200 = {
 
 export type ListProductsParams = {
 search?: string;
-soloSinDimensiones?: boolean;
+sinPesoOdoo?: boolean;
 };
 
 export type ListDispatchesParams = {

@@ -31,7 +31,7 @@ tags:
   - name: driver
     description: Driver mobile app endpoints (authenticated driver scope)
   - name: products
-    description: Product catalog synced from Odoo with manual dimensions
+    description: Product catalog synced from Odoo (read-only except notas)
 
 paths:
   /healthz:
@@ -509,7 +509,7 @@ paths:
     post:
       operationId: linkSaleItemProduct
       tags: [sales]
-      summary: Manually link a sale item to a catalog product (copies confirmed dimensions and recalculates sale totals)
+      summary: Manually link a sale item to a catalog product (association only; totals always come from Odoo)
       parameters:
         - name: itemId
           in: path
@@ -701,14 +701,14 @@ paths:
     get:
       operationId: listProducts
       tags: [products]
-      summary: List products with optional search and missing-dimensions filter
+      summary: List products with optional search and missing-Odoo-weight filter
       parameters:
         - name: search
           in: query
           required: false
           schema:
             type: string
-        - name: soloSinDimensiones
+        - name: sinPesoOdoo
           in: query
           required: false
           schema:
@@ -727,7 +727,7 @@ paths:
     get:
       operationId: getProductStats
       tags: [products]
-      summary: Counts of products with confirmed dimensions
+      summary: Counts of products with/without weight data in Odoo
       responses:
         "200":
           description: OK
@@ -1850,7 +1850,7 @@ components:
 
     Product:
       type: object
-      required: [id, odooId, nombre, pesoOdoo, volumenOdoo, activo, apilable, fragil, dimensionesConfirmadas, createdAt, updatedAt]
+      required: [id, odooId, nombre, pesoOdoo, volumenOdoo, activo, createdAt, updatedAt]
       properties:
         id:
           type: integer
@@ -1872,23 +1872,8 @@ components:
           type: boolean
         lastSyncAt:
           type: ["string", "null"]
-        pesoKg:
-          type: ["number", "null"]
-          description: Peso real medido manualmente (kg)
-        largoCm:
-          type: ["number", "null"]
-        anchoCm:
-          type: ["number", "null"]
-        altoCm:
-          type: ["number", "null"]
-        apilable:
-          type: boolean
-        fragil:
-          type: boolean
         notas:
           type: ["string", "null"]
-        dimensionesConfirmadas:
-          type: boolean
         createdAt:
           type: string
         updatedAt:
@@ -1896,35 +1881,21 @@ components:
 
     ProductUpdate:
       type: object
-      description: Only manual fields can be edited; Odoo-owned fields are rejected
+      description: "Catálogo de solo lectura desde Odoo: el único campo editable es notas"
       additionalProperties: false
       properties:
-        pesoKg:
-          type: ["number", "null"]
-        largoCm:
-          type: ["number", "null"]
-        anchoCm:
-          type: ["number", "null"]
-        altoCm:
-          type: ["number", "null"]
-        apilable:
-          type: boolean
-        fragil:
-          type: boolean
         notas:
           type: ["string", "null"]
-        dimensionesConfirmadas:
-          type: boolean
 
     ProductStats:
       type: object
-      required: [total, confirmados, pendientes]
+      required: [total, conPesoOdoo, sinPesoOdoo]
       properties:
         total:
           type: integer
-        confirmados:
+        conPesoOdoo:
           type: integer
-        pendientes:
+        sinPesoOdoo:
           type: integer
 
     # --- DELIVERIES ---
@@ -2077,7 +2048,7 @@ components:
 
     Sale:
       type: object
-      required: [id, cliente, volumenTotal, pesoTotal, destino, estado, estadoEntrega, createdAt]
+      required: [id, cliente, destino, estado, estadoEntrega, createdAt]
       properties:
         id:
           type: integer
@@ -2092,9 +2063,11 @@ components:
         tipoMaterial:
           type: ["string", "null"]
         volumenTotal:
-          type: number
+          type: ["number", "null"]
+          description: "Volumen total (m³) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)"
         pesoTotal:
-          type: number
+          type: ["number", "null"]
+          description: "Peso total (kg) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)"
         destino:
           type: string
         estado:
@@ -2113,9 +2086,6 @@ components:
         volumenTotalOdoo:
           type: ["number", "null"]
           description: "Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)"
-        dimensionesIncompletas:
-          type: boolean
-          description: "true si alguna partida proviene de un producto sin dimensiones confirmadas"
         estadoEntrega:
           type: string
           description: "Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado"
@@ -2135,7 +2105,7 @@ components:
 
     SaleInput:
       type: object
-      required: [cliente, volumenTotal, pesoTotal, destino]
+      required: [cliente, destino]
       properties:
         cliente:
           type: string
@@ -2148,9 +2118,9 @@ components:
         tipoMaterial:
           type: string
         volumenTotal:
-          type: number
+          type: ["number", "null"]
         pesoTotal:
-          type: number
+          type: ["number", "null"]
         destino:
           type: string
         estado:
@@ -2172,9 +2142,9 @@ components:
         tipoMaterial:
           type: string
         volumenTotal:
-          type: number
+          type: ["number", "null"]
         pesoTotal:
-          type: number
+          type: ["number", "null"]
         destino:
           type: string
         estado:
@@ -2185,7 +2155,7 @@ components:
     # --- SALE ITEMS ---
     SaleItem:
       type: object
-      required: [id, ventaId, descripcion, cantidad, pesoUnitario, largo, ancho, alto, createdAt]
+      required: [id, ventaId, descripcion, cantidad, createdAt]
       properties:
         id:
           type: integer
@@ -2198,14 +2168,6 @@ components:
           type: string
         cantidad:
           type: integer
-        pesoUnitario:
-          type: number
-        largo:
-          type: number
-        ancho:
-          type: number
-        alto:
-          type: number
         createdAt:
           type: string
 
@@ -2220,14 +2182,6 @@ components:
           type: string
         cantidad:
           type: integer
-        pesoUnitario:
-          type: number
-        largo:
-          type: number
-        ancho:
-          type: number
-        alto:
-          type: number
 
     UnlinkedSaleItem:
       type: object

@@ -1891,7 +1891,7 @@ export const getLinkSaleItemProductUrl = (itemId: number,) => {
 }
 
 /**
- * @summary Manually link a sale item to a catalog product (copies confirmed dimensions and recalculates sale totals)
+ * @summary Manually link a sale item to a catalog product (association only; totals always come from Odoo)
  */
 export const linkSaleItemProduct = async (itemId: number,
     linkSaleItemInput: LinkSaleItemInput, options?: RequestInit): Promise<SaleItem> => {
@@ -1940,7 +1940,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type LinkSaleItemProductMutationError = ErrorType<void>
 
     /**
- * @summary Manually link a sale item to a catalog product (copies confirmed dimensions and recalculates sale totals)
+ * @summary Manually link a sale item to a catalog product (association only; totals always come from Odoo)
  */
 export const useLinkSaleItemProduct = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof linkSaleItemProduct>>, TError,{itemId: number;data: BodyType<LinkSaleItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -2557,7 +2557,7 @@ export const getListProductsUrl = (params?: ListProductsParams,) => {
 }
 
 /**
- * @summary List products with optional search and missing-dimensions filter
+ * @summary List products with optional search and missing-Odoo-weight filter
  */
 export const listProducts = async (params?: ListProductsParams, options?: RequestInit): Promise<Product[]> => {
 
@@ -2604,7 +2604,7 @@ export type ListProductsQueryError = ErrorType<unknown>
 
 
 /**
- * @summary List products with optional search and missing-dimensions filter
+ * @summary List products with optional search and missing-Odoo-weight filter
  */
 
 export function useListProducts<TData = Awaited<ReturnType<typeof listProducts>>, TError = ErrorType<unknown>>(
@@ -2634,7 +2634,7 @@ export const getGetProductStatsUrl = () => {
 }
 
 /**
- * @summary Counts of products with confirmed dimensions
+ * @summary Counts of products with/without weight data in Odoo
  */
 export const getProductStats = async ( options?: RequestInit): Promise<ProductStats> => {
 
@@ -2681,7 +2681,7 @@ export type GetProductStatsQueryError = ErrorType<unknown>
 
 
 /**
- * @summary Counts of products with confirmed dimensions
+ * @summary Counts of products with/without weight data in Odoo
  */
 
 export function useGetProductStats<TData = Awaited<ReturnType<typeof getProductStats>>, TError = ErrorType<unknown>>(

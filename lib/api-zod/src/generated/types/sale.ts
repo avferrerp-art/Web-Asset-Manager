@@ -17,8 +17,16 @@ export interface Sale {
   numeroCel?: string | null;
   /** @nullable */
   tipoMaterial?: string | null;
-  volumenTotal: number;
-  pesoTotal: number;
+  /**
+     * Volumen total (m³) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)
+     * @nullable
+     */
+  volumenTotal?: number | null;
+  /**
+     * Peso total (kg) desde Odoo; null = sin dato en Odoo (nunca 0 como sin-dato)
+     * @nullable
+     */
+  pesoTotal?: number | null;
   destino: string;
   /** pendiente | despachado | entregado | cancelado */
   estado: string;
@@ -41,8 +49,6 @@ export interface Sale {
      * @nullable
      */
   volumenTotalOdoo?: number | null;
-  /** true si alguna partida proviene de un producto sin dimensiones confirmadas */
-  dimensionesIncompletas?: boolean;
   /** Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado */
   estadoEntrega: string;
   /**

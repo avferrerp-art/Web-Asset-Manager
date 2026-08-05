@@ -35,8 +35,9 @@ const saleSchema = z.object({
   numeroCel: z.string().optional(),
   tipoMaterial: z.string().optional(),
   destino: z.string().min(1, "Requerido"),
-  pesoTotal: z.coerce.number().min(0),
-  volumenTotal: z.coerce.number().min(0),
+  // Vacío = sin dato (null); nunca representar sin-dato con 0
+  pesoTotal: z.union([z.literal(""), z.coerce.number().min(0)]).optional(),
+  volumenTotal: z.union([z.literal(""), z.coerce.number().min(0)]).optional(),
   estado: z.string().default("pendiente"),
   notas: z.string().optional()
 });
@@ -159,8 +160,8 @@ export default function Ventas() {
       numeroCel: "",
       tipoMaterial: "",
       destino: "",
-      pesoTotal: 0,
-      volumenTotal: 0,
+      pesoTotal: "",
+      volumenTotal: "",
       estado: "pendiente",
       notas: ""
     }
@@ -208,8 +209,14 @@ export default function Ventas() {
   };
 
   const onSubmit = (values: z.infer<typeof saleSchema>) => {
+    // Campo vacío = sin dato → null (nunca 0)
+    const data = {
+      ...values,
+      pesoTotal: values.pesoTotal === "" || values.pesoTotal == null ? null : values.pesoTotal,
+      volumenTotal: values.volumenTotal === "" || values.volumenTotal == null ? null : values.volumenTotal,
+    };
     if (editingSale) {
-      updateMutation.mutate({ id: editingSale.id, data: values }, {
+      updateMutation.mutate({ id: editingSale.id, data }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
           setIsDialogOpen(false);
@@ -217,7 +224,7 @@ export default function Ventas() {
         }
       });
     } else {
-      createMutation.mutate({ data: values }, {
+      createMutation.mutate({ data }, {
         onSuccess: () => {
           queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
           setIsDialogOpen(false);
@@ -238,8 +245,8 @@ export default function Ventas() {
       numeroCel: sale.numeroCel || "",
       tipoMaterial: sale.tipoMaterial || "",
       destino: sale.destino,
-      pesoTotal: sale.pesoTotal,
-      volumenTotal: sale.volumenTotal,
+      pesoTotal: sale.pesoTotal ?? "",
+      volumenTotal: sale.volumenTotal ?? "",
       estado: sale.estado,
       notas: sale.notas || ""
     });
@@ -638,17 +645,16 @@ export default function Ventas() {
                     )}
                   </TableCell>
                   <TableCell>
-                    <div className="text-sm">{sale.pesoTotal} kg</div>
-                    <div className="text-sm text-muted-foreground">{sale.volumenTotal} m³</div>
-                    {sale.dimensionesIncompletas && (
-                      <Badge
-                        variant="outline"
-                        className="mt-1 text-yellow-500 border-yellow-500/50 text-[10px] gap-1"
-                        data-testid={`badge-dimensiones-incompletas-${sale.id}`}
-                      >
-                        <AlertTriangle className="w-3 h-3" /> Dimensiones incompletas
-                      </Badge>
-                    )}
+                    <div className="text-sm" data-testid={`text-peso-${sale.id}`}>
+                      {sale.pesoTotal != null
+                        ? `${sale.pesoTotal} kg`
+                        : <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span>}
+                    </div>
+                    <div className="text-sm text-muted-foreground" data-testid={`text-volumen-${sale.id}`}>
+                      {sale.volumenTotal != null
+                        ? `${sale.volumenTotal} m³`
+                        : <span className="italic text-xs">sin dato en Odoo</span>}
+                    </div>
                     {salesWithUnlinked.has(sale.id) && (
                       <Badge
                         variant="outline"

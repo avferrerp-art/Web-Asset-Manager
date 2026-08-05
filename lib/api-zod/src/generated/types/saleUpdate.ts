@@ -12,8 +12,10 @@ export interface SaleUpdate {
   personaContacto?: string;
   numeroCel?: string;
   tipoMaterial?: string;
-  volumenTotal?: number;
-  pesoTotal?: number;
+  /** @nullable */
+  volumenTotal?: number | null;
+  /** @nullable */
+  pesoTotal?: number | null;
   destino?: string;
   estado?: string;
   notas?: string;

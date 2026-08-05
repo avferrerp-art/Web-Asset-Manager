@@ -8,6 +8,6 @@
 
 export interface ProductStats {
   total: number;
-  confirmados: number;
-  pendientes: number;
+  conPesoOdoo: number;
+  sinPesoOdoo: number;
 }

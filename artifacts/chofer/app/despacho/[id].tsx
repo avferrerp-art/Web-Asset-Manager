@@ -239,12 +239,9 @@ export default function DespachoDetailScreen() {
                             {item.descripcion}
                           </Text>
                           <Text style={[styles.saleItemMeta, { color: colors.mutedForeground }]}>
-                            Cant: {item.cantidad} · {item.pesoUnitario} kg/u
+                            Cant: {item.cantidad}
                           </Text>
                         </View>
-                        <Text style={[styles.saleItemDims, { color: colors.mutedForeground }]}>
-                          {item.largo}×{item.ancho}×{item.alto} m
-                        </Text>
                       </View>
                     ))}
                   </>
@@ -491,7 +488,6 @@ const styles = StyleSheet.create({
   saleItemMain: { flex: 1 },
   saleItemDesc: { fontSize: 14, fontFamily: "Inter_500Medium" },
   saleItemMeta: { fontSize: 12, fontFamily: "Inter_400Regular", marginTop: 2 },
-  saleItemDims: { fontSize: 11, fontFamily: "Inter_400Regular" },
   routeRow: {
     flexDirection: "row",
     alignItems: "center",
