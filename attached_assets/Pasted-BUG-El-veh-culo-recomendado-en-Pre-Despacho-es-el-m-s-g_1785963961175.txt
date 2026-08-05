@@ -1,0 +1,74 @@
+BUG — El vehículo recomendado en Pre-Despacho es el más grande, no el más ajustado
+
+SÍNTOMA
+Al crear un despacho, el vehículo preseleccionado es el de mayor capacidad. Con la venta
+#762 (0.96 kg) preselecciona el Foton TM2 de 2000 kg en vez de la Silverado de 950 kg.
+Mandar una carga chica en el camión grande desperdicia combustible — es el mismo problema
+que ya corregimos una vez en la Calculadora de Carga.
+
+CAUSA RAÍZ
+La lógica correcta existe y está testeada en artifacts/logistics/src/lib/fleet.ts
+(classifyFleet / suggestedVehicle: ordena por utilización DESCENDENTE, así el primero es
+el más ajustado; descarta capacidades en 0 para no dividir por cero). Solo la usa
+carga.tsx. Los otros tres lugares que asignan vehículo la reimplementaron mal:
+
+1. artifacts/logistics/src/components/nuevo-despacho-wizard.tsx (~línea 204):
+   usa `vehicles?.find(v => v.capacidadPeso >= peso && v.capacidadVolumen >= volumen)`.
+   `.find()` devuelve el PRIMERO que quepa, y GET /vehicles viene ordenado
+   alfabéticamente por modelo — o sea, arbitrario. Y el fallback
+   `?? vehicles?.[0]?.id` agarra el primero de la lista sin criterio alguno.
+2. artifacts/logistics/src/components/cargo-wizard.tsx (~línea 158):
+   `.sort((a, b) => a.maxPct - b.maxPct)` — ascendente, o sea el más vacío primero.
+   fleet.ts hace `b.maxPct - a.maxPct`. Este es literalmente el bug de la Tarea 1
+   reaparecido en otro archivo.
+3. artifacts/api-server/src/routes/vehicles.ts, POST /vehicles/recommend:
+   fórmula de "waste" duplicada, sin guarda contra capacidad 0 (divide por cero → NaN →
+   orden roto), y con peso 0 todos los vehículos empatan. Además está MUERTO: grepeé todo
+   el repo y ningún frontend lo llama.
+
+QUÉ HACER
+
+1. fleet.ts es la única fuente de verdad. Todo lugar que sugiera o preseleccione un
+   vehículo tiene que llamar a `suggestedVehicle` / `classifyFleet`, sin excepciones y
+   sin reimplementar la comparación.
+
+2. nuevo-despacho-wizard.tsx: reemplazá el `.find()` por `suggestedVehicle(vehicles, peso,
+   volumen)`. Eliminá el fallback `?? vehicles?.[0]?.id`: si no hay vehículo compatible,
+   NO preselecciones nada y mostrá el aviso de que ninguno soporta la carga. Conservá el
+   comportamiento que ya está bien: cuando el peso es "sin dato en Odoo" no se
+   preselecciona nada (un 0 silencioso sugeriría el camión más chico).
+
+3. cargo-wizard.tsx: eliminá el cálculo propio de weightPct/volPct/maxPct y el sort, y usá
+   classifyFleet. Conservá el texto "sin dato en Odoo — no considerado" que ya muestra,
+   que está bien.
+
+4. POST /vehicles/recommend: está muerto. Eliminalo, junto con su entrada en
+   lib/api-spec/openapi.yaml, y corré el codegen. Si preferís conservarlo, entonces tiene
+   que devolver exactamente el mismo orden que fleet.ts — pero eso implica compartir la
+   lógica entre frontend y api-server, y no vale la pena por un endpoint que nadie usa.
+   Decime qué elegiste.
+
+5. Donde se muestre el vehículo sugerido, que se vea POR QUÉ: el badge "⭐ SUGERIDO" con
+   el porcentaje de utilización, igual que en la Calculadora. Un usuario tiene que poder
+   entender la sugerencia sin confiar a ciegas.
+
+RESTRICCIONES
+- NO cambies la lógica de lib/fleet.ts: está bien y tiene tests. El trabajo es hacer que
+  los demás la usen.
+- NO toques albaranes, estadoEntrega, sales.estado ni la estimación de costos.
+- NO reintroduzcas dimensiones manuales.
+
+VERIFICACIÓN — capturas del navegador, con la app abierta
+a) Venta #762 (0.96 kg) en el wizard de Nuevo Despacho: debe preseleccionar la Silverado
+   (950 kg), NO el Foton TM2 (2000 kg). Quiero la captura del select.
+b) Una venta pesada que la Silverado no soporte: debe subir al vehículo más chico que sí
+   la soporte, no al más grande de la flota.
+c) Una venta cuyo peso supere a toda la flota: ningún vehículo preseleccionado y aviso
+   visible.
+d) Una venta con "sin dato en Odoo": ningún vehículo preseleccionado.
+e) Lo mismo en el cargo-wizard: el primero de la lista es el más ajustado, no el más vacío.
+f) Agregá un test en e2e/tests/carga-calculadora.test.ts que falle si alguien vuelve a
+   ordenar ascendente — este bug ya volvió una vez, que la próxima la agarre la suite.
+
+Antes de decir que está listo, abrí el wizard con la venta #762 y mirá qué vehículo quedó
+seleccionado.
