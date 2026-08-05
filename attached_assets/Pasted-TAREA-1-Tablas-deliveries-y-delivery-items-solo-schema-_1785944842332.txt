@@ -1,0 +1,80 @@
+TAREA 1 — Tablas deliveries y delivery_items (solo schema, sin sync ni UI)
+
+CONTEXTO
+Voy a integrar los albaranes de Odoo (stock.picking + stock.move) en LogiFleet.
+El descubrimiento ya está hecho y verificado: LEÉ docs/odoo-albaranes-hallazgos.md
+antes de empezar. Los datos que importan para esta tarea:
+
+- Odoo 19.0 Enterprise.
+- stock.move: demanda = `product_uom_qty`, cantidad entregada = `quantity`.
+  `quantity_done` NO existe. Las líneas se leen por `move_ids`.
+- stock.picking: `sale_id` es el vínculo primario a la venta (poblado en 30/30
+  de la muestra); `origin` es respaldo y puede venir false o con texto no-venta.
+  NO existe `group_id`.
+- `stock.location` NO tiene campo `code`: el código de almacén ("CCS", "LEC")
+  se deriva del prefijo de location_id[1] ("CCS/Existencias" → "CCS").
+- Odoo devuelve `false` (no null) en campos vacíos, y las fechas son strings
+  UTC sin zona ("2026-08-03 13:42:05").
+
+Leé .agents/memory/db-migrations-boot.md. Regla del repo: un cambio de schema NO es
+solo tocar lib/db/src/schema/ — hay que agregar una migración numerada e idempotente
+en lib/db/src/migrations/, registrarla en su index.ts, y reiniciar el workflow del
+api-server. `drizzle-kit push` solo no sobrevive a los merges a main (el UNIQUE de
+products ya se perdió dos veces así).
+
+QUÉ CREAR
+
+1. lib/db/src/schema/deliveries.ts — tabla `deliveries`, una fila por albarán:
+   - id serial pk
+   - ventaId int NOT NULL → FK sales(id) ON DELETE CASCADE
+   - odooId int NOT NULL UNIQUE        (id del stock.picking)
+   - nombre text NOT NULL              ("CCS/OUT/00307")
+   - estado text NOT NULL              (state crudo: draft|waiting|confirmed|assigned|done|cancel)
+   - tipoOperacion text                ("Caracas: Órdenes de entrega")
+   - almacenOrigen text                ("CCS/Existencias", el location_id[1] completo)
+   - almacenCodigo text                ("CCS", derivado del prefijo)
+   - fechaProgramada timestamptz
+   - fechaEfectiva timestamptz         (date_done — nullable, viene false si no está entregado)
+   - documentoOrigen text              (origin — NULLABLE)
+   - backorderDeOdooId int             (backorder_id — nullable)
+   - odooWriteDate text                (write_date crudo, para sync incremental)
+   - lastSyncAt timestamptz
+   - createdAt timestamptz NOT NULL default now()
+
+2. lib/db/src/schema/delivery_items.ts — tabla `delivery_items`, una fila por stock.move:
+   - id serial pk
+   - deliveryId int NOT NULL → FK deliveries(id) ON DELETE CASCADE
+   - productId int → FK products(id) ON DELETE SET NULL
+   - odooMoveId int NOT NULL UNIQUE
+   - descripcion text NOT NULL         ("[NTS010029] FIBRA OPTICA ASU 6 HILOS...")
+   - cantidadDemanda real NOT NULL default 0     (product_uom_qty)
+   - cantidadEntregada real NOT NULL default 0   (quantity)
+   - uom text
+   - estado text
+
+3. Exportá ambas en lib/db/src/schema/index.ts.
+
+4. Una migración numerada nueva (la última es 0001_odoo_write_date_sync_alerts) con el
+   DDL de las dos tablas, escrito de forma idempotente: CREATE TABLE IF NOT EXISTS,
+   índices IF NOT EXISTS, constraints con guarda. Registrala en migrations/index.ts.
+
+5. Índices: deliveries(ventaId), deliveries(estado), delivery_items(deliveryId),
+   delivery_items(productId).
+
+6. Agregá las dos tablas a verifySchema() en lib/db/src/verifySchema.ts, incluyendo
+   los UNIQUE de deliveries.odooId y delivery_items.odooMoveId.
+
+RESTRICCIONES
+- NO toques la tabla sales todavía (estadoEntrega y almacenOrigen son de otra tarea).
+- NO escribas el servicio de sync, ni endpoints, ni UI, ni toques odooClient.ts.
+- NO corras codegen: todavía no hay cambios en openapi.yaml.
+
+VERIFICACIÓN
+Reiniciá el workflow del api-server y mostrame:
+a) El log de arranque con la migración aplicada y "Schema verification passed",
+   sin ningún SCHEMA MISMATCH.
+b) Una consulta a information_schema confirmando que las dos tablas existen con todas
+   sus columnas, sus FKs y sus UNIQUE.
+c) Que un segundo reinicio NO vuelve a aplicar la migración.
+
+Al terminar, commiteá y mergeá a main.
