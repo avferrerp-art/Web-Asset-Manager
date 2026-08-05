@@ -11,10 +11,11 @@
 import * as baseline from "./0000_baseline";
 import * as odooWriteDateSyncAlerts from "./0001_odoo_write_date_sync_alerts";
 import * as deliveries from "./0002_deliveries";
+import * as syncStateDeliveries from "./0003_sync_state_deliveries";
 
 export interface Migration {
   name: string;
   sql: string;
 }
 
-export const migrations: Migration[] = [baseline, odooWriteDateSyncAlerts, deliveries];
+export const migrations: Migration[] = [baseline, odooWriteDateSyncAlerts, deliveries, syncStateDeliveries];

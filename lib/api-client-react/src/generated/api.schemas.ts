@@ -242,6 +242,95 @@ export interface ProductStats {
   pendientes: number;
 }
 
+export interface DeliveryItem {
+  id: number;
+  deliveryId: number;
+  /**
+     * Linked product in local catalog, null when not matched
+     * @nullable
+     */
+  productId?: number | null;
+  /** stock.move id in Odoo */
+  odooMoveId: number;
+  descripcion: string;
+  /** product_uom_qty (demand quantity) */
+  cantidadDemanda: number;
+  /** quantity (delivered quantity, Odoo 19) */
+  cantidadEntregada: number;
+  /** @nullable */
+  uom?: string | null;
+  /** @nullable */
+  estado?: string | null;
+}
+
+export interface Delivery {
+  id: number;
+  ventaId: number;
+  /** stock.picking id in Odoo */
+  odooId: number;
+  /** Albarán reference (e.g. CCS/OUT/00307) */
+  nombre: string;
+  /** draft | waiting | confirmed | assigned | done | cancel */
+  estado: string;
+  /**
+     * picking_type_id name (e.g. Caracas Ordenes de entrega)
+     * @nullable
+     */
+  tipoOperacion?: string | null;
+  /**
+     * location_id full name (e.g. CCS/Existencias)
+     * @nullable
+     */
+  almacenOrigen?: string | null;
+  /**
+     * Prefix derived from almacenOrigen (e.g. CCS)
+     * @nullable
+     */
+  almacenCodigo?: string | null;
+  /**
+     * scheduled_date as ISO datetime
+     * @nullable
+     */
+  fechaProgramada?: string | null;
+  /**
+     * date_done as ISO datetime, null if not yet delivered
+     * @nullable
+     */
+  fechaEfectiva?: string | null;
+  /**
+     * origin field from Odoo
+     * @nullable
+     */
+  documentoOrigen?: string | null;
+  /**
+     * backorder_id odooId of the original picking this is a backorder of
+     * @nullable
+     */
+  backorderDeOdooId?: number | null;
+  /** @nullable */
+  odooWriteDate?: string | null;
+  /** @nullable */
+  lastSyncAt?: string | null;
+  createdAt: string;
+  items: DeliveryItem[];
+}
+
+export interface DeliverySyncResult {
+  ok: boolean;
+  /** New delivery rows inserted */
+  created: number;
+  /** Existing delivery rows updated (idempotent re-run) */
+  updated: number;
+  /** Total delivery item rows upserted */
+  itemsUpserted: number;
+  /** Pickings skipped because no matching sale was found */
+  unmatched: number;
+  /** Total outgoing pickings fetched from Odoo */
+  total: number;
+  /** @nullable */
+  error?: string | null;
+}
+
 export interface ProductSyncResult {
   ok: boolean;
   created: number;

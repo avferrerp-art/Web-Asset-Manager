@@ -13,6 +13,12 @@ export const odooSyncStateTable = pgTable("odoo_sync_state", {
   lastProductsError: text("last_products_error"),
   productsCreatedCount: integer("products_created_count").notNull().default(0),
   productsUpdatedCount: integer("products_updated_count").notNull().default(0),
+  // --- Sync de albaranes (independiente) ---
+  lastDeliveriesSyncAt: timestamp("last_deliveries_sync_at", { withTimezone: true }),
+  lastDeliveriesResult: text("last_deliveries_result"),
+  lastDeliveriesError: text("last_deliveries_error"),
+  deliveriesCreatedCount: integer("deliveries_created_count").notNull().default(0),
+  deliveriesUpdatedCount: integer("deliveries_updated_count").notNull().default(0),
   updatedAt: timestamp("updated_at", { withTimezone: true })
     .notNull()
     .defaultNow()

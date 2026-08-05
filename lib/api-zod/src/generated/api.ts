@@ -453,6 +453,44 @@ export const CreateSaleItemResponse = zod.object({
 
 
 /**
+ * @summary List albaranes (Odoo deliveries) for a sale, with items embedded, non-cancelled first then by fechaProgramada desc
+ */
+export const ListSaleDeliveriesParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ListSaleDeliveriesResponseItem = zod.object({
+  "id": zod.number(),
+  "ventaId": zod.number(),
+  "odooId": zod.number().describe('stock.picking id in Odoo'),
+  "nombre": zod.string().describe('Albarán reference (e.g. CCS\/OUT\/00307)'),
+  "estado": zod.string().describe('draft | waiting | confirmed | assigned | done | cancel'),
+  "tipoOperacion": zod.string().nullish().describe('picking_type_id name (e.g. Caracas Ordenes de entrega)'),
+  "almacenOrigen": zod.string().nullish().describe('location_id full name (e.g. CCS\/Existencias)'),
+  "almacenCodigo": zod.string().nullish().describe('Prefix derived from almacenOrigen (e.g. CCS)'),
+  "fechaProgramada": zod.string().nullish().describe('scheduled_date as ISO datetime'),
+  "fechaEfectiva": zod.string().nullish().describe('date_done as ISO datetime, null if not yet delivered'),
+  "documentoOrigen": zod.string().nullish().describe('origin field from Odoo'),
+  "backorderDeOdooId": zod.number().nullish().describe('backorder_id odooId of the original picking this is a backorder of'),
+  "odooWriteDate": zod.string().nullish(),
+  "lastSyncAt": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "items": zod.array(zod.object({
+  "id": zod.number(),
+  "deliveryId": zod.number(),
+  "productId": zod.number().nullish().describe('Linked product in local catalog, null when not matched'),
+  "odooMoveId": zod.number().describe('stock.move id in Odoo'),
+  "descripcion": zod.string(),
+  "cantidadDemanda": zod.number().describe('product_uom_qty (demand quantity)'),
+  "cantidadEntregada": zod.number().describe('quantity (delivered quantity, Odoo 19)'),
+  "uom": zod.string().nullish(),
+  "estado": zod.string().nullish()
+}))
+})
+export const ListSaleDeliveriesResponse = zod.array(ListSaleDeliveriesResponseItem)
+
+
+/**
  * @summary Update a sale item
  */
 export const UpdateSaleItemParams = zod.object({
@@ -588,6 +626,20 @@ export const SyncOdooProductsResponse = zod.object({
   "created": zod.number(),
   "updated": zod.number(),
   "total": zod.number(),
+  "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary Sync albaranes (stock.picking outgoing) from Odoo into the deliveries table
+ */
+export const SyncOdooDeliveriesResponse = zod.object({
+  "ok": zod.boolean(),
+  "created": zod.number().describe('New delivery rows inserted'),
+  "updated": zod.number().describe('Existing delivery rows updated (idempotent re-run)'),
+  "itemsUpserted": zod.number().describe('Total delivery item rows upserted'),
+  "unmatched": zod.number().describe('Pickings skipped because no matching sale was found'),
+  "total": zod.number().describe('Total outgoing pickings fetched from Odoo'),
   "error": zod.string().nullish()
 })
 

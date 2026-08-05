@@ -23,6 +23,8 @@ import type {
   ActiveDispatch,
   CostEstimate,
   DashboardSummary,
+  Delivery,
+  DeliverySyncResult,
   Dispatch,
   DispatchCostEstimateInput,
   DispatchDetail,
@@ -1584,6 +1586,83 @@ export const useCreateSaleItem = <TError = ErrorType<unknown>,
       return useMutation(getCreateSaleItemMutationOptions(options));
     }
 
+export const getListSaleDeliveriesUrl = (id: number,) => {
+
+
+
+
+  return `/api/sales/${id}/deliveries`
+}
+
+/**
+ * @summary List albaranes (Odoo deliveries) for a sale, with items embedded, non-cancelled first then by fechaProgramada desc
+ */
+export const listSaleDeliveries = async (id: number, options?: RequestInit): Promise<Delivery[]> => {
+
+  return customFetch<Delivery[]>(getListSaleDeliveriesUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListSaleDeliveriesQueryKey = (id: number,) => {
+    return [
+    `/api/sales/${id}/deliveries`
+    ] as const;
+    }
+
+
+export const getListSaleDeliveriesQueryOptions = <TData = Awaited<ReturnType<typeof listSaleDeliveries>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSaleDeliveries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListSaleDeliveriesQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listSaleDeliveries>>> = ({ signal }) => listSaleDeliveries(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listSaleDeliveries>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListSaleDeliveriesQueryResult = NonNullable<Awaited<ReturnType<typeof listSaleDeliveries>>>
+export type ListSaleDeliveriesQueryError = ErrorType<void>
+
+
+/**
+ * @summary List albaranes (Odoo deliveries) for a sale, with items embedded, non-cancelled first then by fechaProgramada desc
+ */
+
+export function useListSaleDeliveries<TData = Awaited<ReturnType<typeof listSaleDeliveries>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listSaleDeliveries>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListSaleDeliveriesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
 export const getUpdateSaleItemUrl = (itemId: number,) => {
 
 
@@ -2165,6 +2244,76 @@ export const useSyncOdooProducts = <TError = ErrorType<ProductSyncResult>,
         TContext
       > => {
       return useMutation(getSyncOdooProductsMutationOptions(options));
+    }
+
+export const getSyncOdooDeliveriesUrl = () => {
+
+
+
+
+  return `/api/odoo/sync-deliveries`
+}
+
+/**
+ * @summary Sync albaranes (stock.picking outgoing) from Odoo into the deliveries table
+ */
+export const syncOdooDeliveries = async ( options?: RequestInit): Promise<DeliverySyncResult> => {
+
+  return customFetch<DeliverySyncResult>(getSyncOdooDeliveriesUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getSyncOdooDeliveriesMutationOptions = <TError = ErrorType<DeliverySyncResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooDeliveries>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof syncOdooDeliveries>>, TError,void, TContext> => {
+
+const mutationKey = ['syncOdooDeliveries'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof syncOdooDeliveries>>, void> = () => {
+
+
+          return  syncOdooDeliveries(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SyncOdooDeliveriesMutationResult = NonNullable<Awaited<ReturnType<typeof syncOdooDeliveries>>>
+
+    export type SyncOdooDeliveriesMutationError = ErrorType<DeliverySyncResult>
+
+    /**
+ * @summary Sync albaranes (stock.picking outgoing) from Odoo into the deliveries table
+ */
+export const useSyncOdooDeliveries = <TError = ErrorType<DeliverySyncResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooDeliveries>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof syncOdooDeliveries>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getSyncOdooDeliveriesMutationOptions(options));
     }
 
 export const getListOdooAlertsUrl = (params?: ListOdooAlertsParams,) => {

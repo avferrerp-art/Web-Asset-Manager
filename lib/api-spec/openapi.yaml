@@ -424,6 +424,29 @@ paths:
               schema:
                 $ref: "#/components/schemas/SaleItem"
 
+  /sales/{id}/deliveries:
+    get:
+      operationId: listSaleDeliveries
+      tags: [sales]
+      summary: List albaranes (Odoo deliveries) for a sale, with items embedded, non-cancelled first then by fechaProgramada desc
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of deliveries for the sale
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Delivery"
+        "404":
+          description: Sale not found
+
   /sales/items/{itemId}:
     patch:
       operationId: updateSaleItem
@@ -586,6 +609,25 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProductSyncResult"
+
+  /odoo/sync-deliveries:
+    post:
+      operationId: syncOdooDeliveries
+      tags: [odoo]
+      summary: Sync albaranes (stock.picking outgoing) from Odoo into the deliveries table
+      responses:
+        "200":
+          description: Sync completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySyncResult"
+        "400":
+          description: Sync failed (missing config or connection error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySyncResult"
 
   /odoo/alerts:
     get:
@@ -1854,6 +1896,107 @@ components:
           type: integer
         pendientes:
           type: integer
+
+    # --- DELIVERIES ---
+    DeliveryItem:
+      type: object
+      required: [id, deliveryId, odooMoveId, descripcion, cantidadDemanda, cantidadEntregada]
+      properties:
+        id:
+          type: integer
+        deliveryId:
+          type: integer
+        productId:
+          type: ["integer", "null"]
+          description: Linked product in local catalog, null when not matched
+        odooMoveId:
+          type: integer
+          description: stock.move id in Odoo
+        descripcion:
+          type: string
+        cantidadDemanda:
+          type: number
+          description: product_uom_qty (demand quantity)
+        cantidadEntregada:
+          type: number
+          description: quantity (delivered quantity, Odoo 19)
+        uom:
+          type: ["string", "null"]
+        estado:
+          type: ["string", "null"]
+
+    Delivery:
+      type: object
+      required: [id, ventaId, odooId, nombre, estado, items, createdAt]
+      properties:
+        id:
+          type: integer
+        ventaId:
+          type: integer
+        odooId:
+          type: integer
+          description: stock.picking id in Odoo
+        nombre:
+          type: string
+          description: Albarán reference (e.g. CCS/OUT/00307)
+        estado:
+          type: string
+          description: "draft | waiting | confirmed | assigned | done | cancel"
+        tipoOperacion:
+          type: ["string", "null"]
+          description: "picking_type_id name (e.g. Caracas Ordenes de entrega)"
+        almacenOrigen:
+          type: ["string", "null"]
+          description: "location_id full name (e.g. CCS/Existencias)"
+        almacenCodigo:
+          type: ["string", "null"]
+          description: "Prefix derived from almacenOrigen (e.g. CCS)"
+        fechaProgramada:
+          type: ["string", "null"]
+          description: "scheduled_date as ISO datetime"
+        fechaEfectiva:
+          type: ["string", "null"]
+          description: "date_done as ISO datetime, null if not yet delivered"
+        documentoOrigen:
+          type: ["string", "null"]
+          description: "origin field from Odoo"
+        backorderDeOdooId:
+          type: ["integer", "null"]
+          description: "backorder_id odooId of the original picking this is a backorder of"
+        odooWriteDate:
+          type: ["string", "null"]
+        lastSyncAt:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/DeliveryItem"
+
+    DeliverySyncResult:
+      type: object
+      required: [ok, created, updated, itemsUpserted, unmatched, total]
+      properties:
+        ok:
+          type: boolean
+        created:
+          type: integer
+          description: New delivery rows inserted
+        updated:
+          type: integer
+          description: Existing delivery rows updated (idempotent re-run)
+        itemsUpserted:
+          type: integer
+          description: Total delivery item rows upserted
+        unmatched:
+          type: integer
+          description: Pickings skipped because no matching sale was found
+        total:
+          type: integer
+          description: Total outgoing pickings fetched from Odoo
+        error:
+          type: ["string", "null"]
 
     ProductSyncResult:
       type: object

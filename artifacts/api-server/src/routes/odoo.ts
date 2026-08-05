@@ -8,6 +8,10 @@ import {
   syncOdooOrders,
   testOdooConnection,
 } from "../services/odooSync";
+import {
+  syncDeliveries,
+  recordDeliverySyncError,
+} from "../services/deliverySync";
 import { backfillSaleItemProducts } from "../services/productBackfill";
 import { backfillDestinos } from "../services/destinoBackfill";
 
@@ -115,6 +119,34 @@ router.post("/odoo/alerts/:id/resolve", async (req, res): Promise<void> => {
     return;
   }
   res.json({ ok: true, id: updated.id });
+});
+
+router.post("/odoo/sync-deliveries", async (req, res): Promise<void> => {
+  try {
+    const result = await syncDeliveries();
+    res.json({
+      ok: true,
+      created: result.created,
+      updated: result.updated,
+      itemsUpserted: result.itemsUpserted,
+      unmatched: result.unmatched,
+      total: result.total,
+      error: null,
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    req.log.error({ err }, "Delivery sync failed");
+    await recordDeliverySyncError(message).catch(() => {});
+    res.status(err instanceof OdooError ? 400 : 500).json({
+      ok: false,
+      created: 0,
+      updated: 0,
+      itemsUpserted: 0,
+      unmatched: 0,
+      total: 0,
+      error: message,
+    });
+  }
 });
 
 router.post("/odoo/backfill-products", async (req, res): Promise<void> => {
