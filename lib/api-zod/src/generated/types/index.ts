@@ -10,6 +10,8 @@ export * from './activeDispatch';
 export * from './costEstimate';
 export * from './dashboardSummary';
 export * from './delivery';
+export * from './deliveryBackfillResult';
+export * from './deliveryBackfillResultDistribution';
 export * from './deliveryItem';
 export * from './deliverySyncResult';
 export * from './dispatch';

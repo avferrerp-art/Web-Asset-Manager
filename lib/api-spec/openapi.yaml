@@ -629,6 +629,25 @@ paths:
               schema:
                 $ref: "#/components/schemas/DeliverySyncResult"
 
+  /odoo/backfill-deliveries:
+    post:
+      operationId: backfillOdooDeliveries
+      tags: [odoo]
+      summary: Recompute estadoEntrega and almacenOrigen for ALL imported sales from albaranes already in DB (no Odoo calls)
+      responses:
+        "200":
+          description: Backfill completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliveryBackfillResult"
+        "500":
+          description: Backfill failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliveryBackfillResult"
+
   /odoo/alerts:
     get:
       operationId: listOdooAlerts
@@ -1998,6 +2017,26 @@ components:
         error:
           type: ["string", "null"]
 
+    DeliveryBackfillResult:
+      type: object
+      required: [ok, examined, updated, distribution]
+      properties:
+        ok:
+          type: boolean
+        examined:
+          type: integer
+          description: Sales examined
+        updated:
+          type: integer
+          description: Sales whose estadoEntrega/almacenOrigen changed
+        distribution:
+          type: object
+          description: Count of sales per estadoEntrega after the backfill
+          additionalProperties:
+            type: integer
+        error:
+          type: ["string", "null"]
+
     ProductSyncResult:
       type: object
       required: [ok, created, updated, total]
@@ -2015,7 +2054,7 @@ components:
 
     Sale:
       type: object
-      required: [id, cliente, volumenTotal, pesoTotal, destino, estado, createdAt]
+      required: [id, cliente, volumenTotal, pesoTotal, destino, estado, estadoEntrega, createdAt]
       properties:
         id:
           type: integer
@@ -2054,6 +2093,15 @@ components:
         dimensionesIncompletas:
           type: boolean
           description: "true si alguna partida proviene de un producto sin dimensiones confirmadas"
+        estadoEntrega:
+          type: string
+          description: "Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado"
+        almacenOrigen:
+          type: ["string", "null"]
+          description: "Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos"
+        almacenesMultiples:
+          type: boolean
+          description: "true cuando los albaranes activos provienen de más de un almacén"
         createdAt:
           type: string
 

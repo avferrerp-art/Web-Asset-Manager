@@ -331,6 +331,23 @@ export interface DeliverySyncResult {
   error?: string | null;
 }
 
+/**
+ * Count of sales per estadoEntrega after the backfill
+ */
+export type DeliveryBackfillResultDistribution = {[key: string]: number};
+
+export interface DeliveryBackfillResult {
+  ok: boolean;
+  /** Sales examined */
+  examined: number;
+  /** Sales whose estadoEntrega/almacenOrigen changed */
+  updated: number;
+  /** Count of sales per estadoEntrega after the backfill */
+  distribution: DeliveryBackfillResultDistribution;
+  /** @nullable */
+  error?: string | null;
+}
+
 export interface ProductSyncResult {
   ok: boolean;
   created: number;
@@ -377,6 +394,15 @@ export interface Sale {
   volumenTotalOdoo?: number | null;
   /** true si alguna partida proviene de un producto sin dimensiones confirmadas */
   dimensionesIncompletas?: boolean;
+  /** Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado */
+  estadoEntrega: string;
+  /**
+     * Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos
+     * @nullable
+     */
+  almacenOrigen?: string | null;
+  /** true cuando los albaranes activos provienen de más de un almacén */
+  almacenesMultiples?: boolean;
   createdAt: string;
 }
 

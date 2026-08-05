@@ -278,6 +278,9 @@ export const ListSalesResponseItem = zod.object({
   "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
+  "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
+  "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
+  "almacenesMultiples": zod.boolean().optional().describe('true cuando los albaranes activos provienen de más de un almacén'),
   "createdAt": zod.string()
 })
 export const ListSalesResponse = zod.array(ListSalesResponseItem)
@@ -316,6 +319,9 @@ export const CreateSaleResponse = zod.object({
   "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
+  "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
+  "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
+  "almacenesMultiples": zod.boolean().optional().describe('true cuando los albaranes activos provienen de más de un almacén'),
   "createdAt": zod.string()
 })
 
@@ -344,6 +350,9 @@ export const GetSaleResponse = zod.object({
   "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
+  "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
+  "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
+  "almacenesMultiples": zod.boolean().optional().describe('true cuando los albaranes activos provienen de más de un almacén'),
   "createdAt": zod.string()
 })
 
@@ -385,6 +394,9 @@ export const UpdateSaleResponse = zod.object({
   "pesoTotalOdoo": zod.number().nullish().describe('Peso total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "volumenTotalOdoo": zod.number().nullish().describe('Volumen total importado originalmente desde Odoo (no lo pisa el cálculo local)'),
   "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
+  "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
+  "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
+  "almacenesMultiples": zod.boolean().optional().describe('true cuando los albaranes activos provienen de más de un almacén'),
   "createdAt": zod.string()
 })
 
@@ -640,6 +652,18 @@ export const SyncOdooDeliveriesResponse = zod.object({
   "itemsUpserted": zod.number().describe('Total delivery item rows upserted'),
   "unmatched": zod.number().describe('Pickings skipped because no matching sale was found'),
   "total": zod.number().describe('Total outgoing pickings fetched from Odoo'),
+  "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary Recompute estadoEntrega and almacenOrigen for ALL imported sales from albaranes already in DB (no Odoo calls)
+ */
+export const BackfillOdooDeliveriesResponse = zod.object({
+  "ok": zod.boolean(),
+  "examined": zod.number().describe('Sales examined'),
+  "updated": zod.number().describe('Sales whose estadoEntrega\/almacenOrigen changed'),
+  "distribution": zod.record(zod.string(), zod.number()).describe('Count of sales per estadoEntrega after the backfill'),
   "error": zod.string().nullish()
 })
 

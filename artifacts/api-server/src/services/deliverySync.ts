@@ -15,6 +15,7 @@ import {
   type OdooConfig,
 } from "../lib/odooClient";
 import { logger } from "../lib/logger";
+import { recomputeDeliveryDerivedState } from "./deliveryEstado";
 
 export interface DeliverySyncResult {
   created: number;
@@ -396,6 +397,10 @@ export async function syncDeliveries(): Promise<DeliverySyncResult> {
     unmatched,
     total: pickings.length,
   };
+
+  // ── Derive estadoEntrega / almacenOrigen for all sales touched this run ──
+  const touchedSaleIds = [...new Set(matched.map((m) => m.saleId))];
+  await recomputeDeliveryDerivedState(touchedSaleIds);
 
   await recordDeliverySyncResult(syncResult);
   logger.info({ syncResult }, "Sync de albaranes completado");

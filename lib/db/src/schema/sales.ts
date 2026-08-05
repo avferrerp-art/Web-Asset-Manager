@@ -18,6 +18,14 @@ export const salesTable = pgTable("sales", {
   dimensionesIncompletas: boolean("dimensiones_incompletas").notNull().default(false),
   destino: text("destino").notNull(),
   estado: text("estado").notNull().default("pendiente"),
+  // Estado de entrega derivado de los albaranes de Odoo (deliveries).
+  // SEPARADO de `estado` (interno, derivado de despachos por saleEstadoSync).
+  // sin_albaran | pendiente | parcial | entregado | cancelado
+  estadoEntrega: text("estado_entrega").notNull().default("sin_albaran"),
+  // Almacén del albarán NO cancelado más reciente por fecha_programada; null si no hay activos
+  almacenOrigen: text("almacen_origen"),
+  // true cuando los albaranes activos provienen de más de un almacén (ej: S01344 CCS+LEC)
+  almacenesMultiples: boolean("almacenes_multiples").notNull().default(false),
   notas: text("notas"),
   odooRef: text("odoo_ref").unique(),
   odooId: integer("odoo_id").unique(),

@@ -14,6 +14,7 @@ import {
 } from "../services/deliverySync";
 import { backfillSaleItemProducts } from "../services/productBackfill";
 import { backfillDestinos } from "../services/destinoBackfill";
+import { recomputeDeliveryDerivedState } from "../services/deliveryEstado";
 
 const router: IRouter = Router();
 
@@ -170,6 +171,23 @@ router.post("/odoo/backfill-products", async (req, res): Promise<void> => {
       linked: 0,
       unmatched: 0,
       salesFlagUpdated: 0,
+      error: message,
+    });
+  }
+});
+
+router.post("/odoo/backfill-deliveries", async (req, res): Promise<void> => {
+  try {
+    const result = await recomputeDeliveryDerivedState();
+    res.json({ ok: true, ...result, error: null });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    req.log.error({ err }, "Delivery backfill failed");
+    res.status(500).json({
+      ok: false,
+      examined: 0,
+      updated: 0,
+      distribution: {},
       error: message,
     });
   }

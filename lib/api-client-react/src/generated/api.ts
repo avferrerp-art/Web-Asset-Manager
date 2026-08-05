@@ -24,6 +24,7 @@ import type {
   CostEstimate,
   DashboardSummary,
   Delivery,
+  DeliveryBackfillResult,
   DeliverySyncResult,
   Dispatch,
   DispatchCostEstimateInput,
@@ -2314,6 +2315,76 @@ export const useSyncOdooDeliveries = <TError = ErrorType<DeliverySyncResult>,
         TContext
       > => {
       return useMutation(getSyncOdooDeliveriesMutationOptions(options));
+    }
+
+export const getBackfillOdooDeliveriesUrl = () => {
+
+
+
+
+  return `/api/odoo/backfill-deliveries`
+}
+
+/**
+ * @summary Recompute estadoEntrega and almacenOrigen for ALL imported sales from albaranes already in DB (no Odoo calls)
+ */
+export const backfillOdooDeliveries = async ( options?: RequestInit): Promise<DeliveryBackfillResult> => {
+
+  return customFetch<DeliveryBackfillResult>(getBackfillOdooDeliveriesUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getBackfillOdooDeliveriesMutationOptions = <TError = ErrorType<DeliveryBackfillResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof backfillOdooDeliveries>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof backfillOdooDeliveries>>, TError,void, TContext> => {
+
+const mutationKey = ['backfillOdooDeliveries'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof backfillOdooDeliveries>>, void> = () => {
+
+
+          return  backfillOdooDeliveries(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BackfillOdooDeliveriesMutationResult = NonNullable<Awaited<ReturnType<typeof backfillOdooDeliveries>>>
+
+    export type BackfillOdooDeliveriesMutationError = ErrorType<DeliveryBackfillResult>
+
+    /**
+ * @summary Recompute estadoEntrega and almacenOrigen for ALL imported sales from albaranes already in DB (no Odoo calls)
+ */
+export const useBackfillOdooDeliveries = <TError = ErrorType<DeliveryBackfillResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof backfillOdooDeliveries>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof backfillOdooDeliveries>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getBackfillOdooDeliveriesMutationOptions(options));
     }
 
 export const getListOdooAlertsUrl = (params?: ListOdooAlertsParams,) => {
