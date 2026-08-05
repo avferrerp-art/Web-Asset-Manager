@@ -1,0 +1,61 @@
+## PASO 0 — Descubrimiento de campos en Odoo (sin escribir código de producción)
+
+> Este paso existe por una razón concreta: ya nos pasó una vez que un campo (`mobile` en `res.partner`) no existía en esta instancia, el código reintentaba con menos campos y las 727 órdenes quedaron con el destino mal. Los nombres de campos de `stock.move` cambiaron entre versiones de Odoo (`quantity_done` → `quantity`). Averiguarlo antes cuesta 10 minutos; averiguarlo después cuesta un backfill.
+
+```
+TAREA 0 — Descubrimiento: qué expone esta instancia de Odoo sobre albaranes
+
+NO escribas código de producción en este paso. No toques lib/db, ni openapi.yaml,
+ni el frontend. El entregable es un documento.
+
+CONTEXTO
+LogiFleet ya sincroniza órdenes de venta desde Odoo (artifacts/api-server/src/services/odooSync.ts,
+cliente JSON-RPC en src/lib/odooClient.ts, secretos ODOO_URL / ODOO_DB / ODOO_USERNAME / ODOO_API_KEY).
+Ahora quiero integrar los albaranes (entregas): el modelo stock.picking y sus líneas stock.move.
+
+Leé antes .agents/memory/odoo-partner-reads.md y .agents/memory/run-server-code-standalone.md.
+Los nombres de campos de estos modelos CAMBIAN entre versiones de Odoo, así que no asumas
+ninguno: verificá todo contra la instancia real con fields_get.
+
+QUÉ HACER
+Escribí un script temporal (no lo dejes en el repo) que se conecte a Odoo con el patrón de
+build.mjs descrito en run-server-code-standalone.md y responda, con datos reales:
+
+1. Versión de Odoo (llamada `common.version`).
+2. fields_get de `stock.picking`: listame qué campos de estos existen y cuáles NO —
+   name, state, scheduled_date, date_done, origin, partner_id, picking_type_id,
+   location_id, location_dest_id, backorder_id, sale_id, group_id, write_date, company_id.
+   Decime también cómo se llama el campo que apunta a las líneas
+   (move_ids / move_ids_without_package / move_lines).
+3. Los valores posibles del campo `state` de stock.picking (selection), con sus etiquetas.
+4. fields_get de `stock.move`: cuáles de estos existen — product_id, product_uom_qty,
+   quantity, quantity_done, product_uom, state, picking_id, sale_line_id.
+   ESTE ES EL PUNTO CRÍTICO: necesito saber cómo se llama en ESTA instancia el campo
+   "cantidad realmente entregada" (en Odoo ≤16 es quantity_done, en 17+ es quantity).
+5. fields_get de `stock.warehouse` y de `stock.location`: qué campos hay para sacar
+   el nombre y el código del almacén (name, code, partner_id, complete_name).
+6. Datos reales de muestra (leé y pegá el JSON crudo, sin interpretarlo):
+   - Los albaranes de la orden S01344 (debería devolver 2: CCS/OUT/00307 cancelado
+     y LEC/OUT/00611 en Listo).
+   - Los albaranes de la orden S01285 (debería devolver 4: 2 cancelados y 2 hechos).
+   - El detalle completo de CCS/OUT/00278 con TODAS sus líneas stock.move
+     (debería tener 5 productos: FIBRA OPTICA ASU 6 HI, MANGA DOMO 24C, CAJA NAP 16
+     PUERTOS, PREFORMADO NETSO 7 y HERRAJE DE SUJECION).
+7. Cómo se vincula el albarán con la orden de venta EN ESTA INSTANCIA: ¿existe el campo
+   `sale_id` en stock.picking? Si existe, ¿viene poblado? ¿Y el campo `origin` trae
+   exactamente "S01285" o trae texto adicional / varias órdenes separadas por coma?
+   Probá con al menos 20 albaranes y decime cuántos matchean exacto contra un
+   sales.odooRef de nuestra DB y cuántos no.
+8. Volumen total: ¿cuántos stock.picking hay con picking_type de salida
+   (picking_type_id.code = 'outgoing') asociados a órdenes que ya tenemos importadas?
+   Necesito el número para dimensionar la paginación.
+
+ENTREGABLE
+Un archivo `docs/odoo-albaranes-hallazgos.md` con: la tabla de campos que existen y los
+que no, el nombre exacto del campo de cantidad entregada, el JSON de muestra de los tres
+casos, la conclusión sobre cómo vincular albarán→venta, y el conteo de volumen.
+No agregues nada más al repo. Si algún dato no lo podés obtener, escribilo como
+"NO VERIFICADO" en vez de asumirlo.
+```
+
+---
