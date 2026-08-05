@@ -26,8 +26,9 @@ import {
 import { Badge } from "@/components/ui/badge";
 import {
   CheckCircle2, ChevronRight, Route as RouteIcon, Truck, Users, CalendarClock, PackageCheck,
-  AlertTriangle, MapPin, RefreshCw, ExternalLink,
+  AlertTriangle, MapPin, RefreshCw, ExternalLink, Warehouse, Info,
 } from "lucide-react";
+import { almacenCiudad, ciudadCoincide } from "@/lib/almacenes";
 
 function fmtDateShort(s: string) {
   return new Date(s).toLocaleDateString("es-VE", {
@@ -201,11 +202,20 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
         v.capacidadPeso >= sale.pesoTotal &&
         v.capacidadVolumen >= sale.volumenTotal
     );
-    const matchingRoute = routes?.find(
-      (r) =>
-        r.destino.toLowerCase().includes(sale.destino.toLowerCase()) ||
-        sale.destino.toLowerCase().includes(r.destino.toLowerCase())
-    );
+    // Preferir una ruta cuyo origen coincida con la ciudad del almacén de la
+    // venta (sugerencia; el usuario puede cambiarla). Si no hay almacén mapeado
+    // o ninguna ruta coincide, comportamiento original: match por destino.
+    const ciudadAlmacen = almacenCiudad(sale.almacenOrigen);
+    const destinoMatch = (r: any) =>
+      r.destino.toLowerCase().includes(sale.destino.toLowerCase()) ||
+      sale.destino.toLowerCase().includes(r.destino.toLowerCase());
+    const rutasDesdeAlmacen = ciudadAlmacen
+      ? (routes ?? []).filter((r) => ciudadCoincide(r.origen, ciudadAlmacen))
+      : [];
+    const matchingRoute =
+      rutasDesdeAlmacen.find(destinoMatch) ??
+      rutasDesdeAlmacen[0] ??
+      routes?.find(destinoMatch);
     setAssignment((prev) => ({
       ...prev,
       vehiculoId: bestVehicle?.id ?? vehicles?.[0]?.id ?? 0,
@@ -417,6 +427,28 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                 ))}
               </div>
             )}
+            {/* Avisos informativos (no bloqueantes) sobre la orden elegida */}
+            {selectedSale?.estadoEntrega === "cancelado" && (
+              <div data-testid="wizard-aviso-cancelado" className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>
+                  <span className="font-semibold">Odoo registra esta venta como cancelada.</span>{" "}
+                  Verifica con administración antes de despachar. Puedes continuar si es intencional.
+                </span>
+              </div>
+            )}
+            {selectedSale?.estadoEntrega === "entregado" && (
+              <div data-testid="wizard-aviso-entregado" className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+                <Info className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>Odoo ya registra esta venta como entregada. Puedes continuar si aun así necesitas el despacho.</span>
+              </div>
+            )}
+            {selectedSale?.almacenesMultiples && (
+              <div data-testid="wizard-aviso-multialmacen" className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-600 dark:text-amber-400">
+                <Warehouse className="w-4 h-4 mt-0.5 shrink-0" />
+                <span>La mercancía de esta venta sale de más de un almacén; puede necesitar más de un viaje.</span>
+              </div>
+            )}
             <div className="flex justify-end pt-2">
               <Button
                 data-testid="wizard-next-1"
@@ -440,6 +472,19 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
               <span><span className="font-semibold">Peso:</span> {selectedSale?.pesoTotal} kg</span>
               <span><span className="font-semibold">Volumen:</span> {selectedSale?.volumenTotal} m³</span>
             </div>
+
+            {/* Almacén de origen de la venta */}
+            {selectedSale?.almacenOrigen && (
+              <div data-testid="wizard-almacen-origen" className="flex items-center gap-2 rounded-md border border-primary/30 bg-primary/10 px-3 py-2 text-sm">
+                <Warehouse className="w-4 h-4 text-primary shrink-0" />
+                <span>
+                  <span className="font-semibold">Almacén de origen:</span> {selectedSale.almacenOrigen}
+                  {almacenCiudad(selectedSale.almacenOrigen) && (
+                    <span className="text-muted-foreground"> ({almacenCiudad(selectedSale.almacenOrigen)})</span>
+                  )}
+                </span>
+              </div>
+            )}
 
             {/* Route */}
             <div className="space-y-1.5">
@@ -465,6 +510,21 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+              {(() => {
+                const ciudadAlmacen = almacenCiudad(selectedSale?.almacenOrigen);
+                if (!ciudadAlmacen || !selectedRoute) return null;
+                if (ciudadCoincide(selectedRoute.origen, ciudadAlmacen)) return null;
+                return (
+                  <div data-testid="wizard-aviso-origen-distinto" className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-600 dark:text-amber-400">
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      Esta ruta sale de <span className="font-semibold">{selectedRoute.origen}</span> pero la
+                      mercancía está en <span className="font-semibold">{selectedSale?.almacenOrigen} ({ciudadAlmacen})</span>.
+                      Puedes continuar si es intencional.
+                    </span>
+                  </div>
+                );
+              })()}
               {selectedRoute && (selectedRoute.tolls?.length ?? 0) > 0 && (
                 <p className="text-xs text-muted-foreground pl-1">
                   {selectedRoute.tolls?.length ?? 0} caseta(s)
