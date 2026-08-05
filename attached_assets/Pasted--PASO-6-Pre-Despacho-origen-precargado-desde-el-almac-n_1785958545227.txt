@@ -1,0 +1,49 @@
+# PASO 6 — Pre-Despacho: origen precargado desde el almacén
+
+```
+TAREA 6 — Usar el almacén de origen del albarán al planificar el despacho
+
+CONTEXTO
+Acá la integración deja de ser informativa y empieza a ahorrar trabajo. Cada venta ya
+tiene almacenOrigen (CCS/Existencias, LEC/Existencias) derivado de su albarán activo.
+Las rutas (toll_routes) tienen un campo `origen` de texto libre. Hoy, al crear un
+despacho, el usuario elige la ruta a mano sin saber de qué almacén sale la mercancía —
+y en esta operación sale de almacenes distintos según la orden.
+
+QUÉ HACER
+
+1. Un mapeo almacén → origen de ruta, simple y visible, sin módulo nuevo: una constante
+   compartida en el frontend que traduzca el código de almacén a la ciudad que se usa en
+   el campo origen de las rutas (CCS → Caracas, LEC → Lechería). En un solo archivo,
+   comentada, fácil de ampliar. Si aparece un código desconocido, no rompas nada:
+   comportate como hoy y logueá el código.
+
+2. En artifacts/logistics/src/components/nuevo-despacho-wizard.tsx, una vez elegida
+   la orden:
+   - Mostrá el almacén de origen de esa venta en el paso de asignación, bien visible.
+   - Preseleccioná la primera ruta cuyo `origen` coincida con la ciudad mapeada, si
+     existe. El usuario siempre puede cambiarla: es una sugerencia, no una imposición.
+   - Si elige una ruta cuyo origen NO coincide con el almacén, aviso no bloqueante:
+     "Esta ruta sale de Caracas pero la mercancía está en LEC/Existencias (Lechería)".
+
+3. Avisos adicionales en el paso de selección de orden, cuando corresponda:
+   - estadoEntrega 'entregado' → avisá que Odoo ya la registra como entregada.
+   - estadoEntrega 'cancelado' → avisá con más énfasis.
+   - albaranes activos de más de un almacén → avisá que puede necesitar más de un viaje.
+   Ninguno debe impedir crear el despacho. Son información, no validación.
+
+RESTRICCIONES
+- Solo UI y una constante de mapeo. NO crees una tabla de almacenes, NO toques el schema,
+  NO agregues endpoints.
+- NO cambies la lógica de estimación de costos ni la selección de vehículo.
+- NO toques computeRouteCostBreakdown ni leas route.distanciaKm crudo
+  (ver .agents/memory/route-cost-breakdown.md).
+- El flujo actual tiene que seguir funcionando igual para las ventas sin almacenOrigen.
+
+VERIFICACIÓN
+a) Una venta con almacén LEC: mostrame que preselecciona una ruta que sale de Lechería
+   (o que no preselecciona nada si no existe ninguna, sin romperse).
+b) Cambiá la ruta a una que salga de Caracas y mostrame el aviso de discrepancia.
+c) Una venta sin almacenOrigen: el wizard se comporta exactamente como antes.
+d) Creá un despacho completo de punta a punta y confirmá que la estimación de costos no
+   cambió respecto de antes de esta tarea.
