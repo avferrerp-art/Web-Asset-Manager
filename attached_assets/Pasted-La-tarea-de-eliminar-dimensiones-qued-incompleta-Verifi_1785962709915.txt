@@ -1,0 +1,53 @@
+La tarea de eliminar dimensiones quedó incompleta. Verifiqué en el preview y en la API:
+
+PROBLEMA 1 — La lista de Ventas sigue leyendo las columnas locales viejas.
+La venta #741 (Odoo S01370) tiene pesoTotalOdoo 33.46 y volumenTotalOdoo 0.71, y en
+pantalla muestra "0 kg / 0 m³". Hay 452 ventas en esa situación: peso real en Odoo,
+cero en pantalla. La afirmación de que "473 ventas muestran peso" no es cierta en la
+lista de Ventas: siguen siendo 25, igual que antes del cambio.
+Causa: sales.pesoTotal y sales.volumenTotal quedaron con los valores viejos y la UI los
+sigue leyendo. Nadie los migró a los totales de Odoo.
+
+PROBLEMA 2 — "Sin dato en Odoo" no aparece en ningún lado.
+Conté el texto renderizado de la lista de Ventas: 0 apariciones de "sin dato",
+730 de "0 kg" y 742 de "0 m³". Era el punto más importante de la tarea anterior.
+
+PROBLEMA 3 — Mi instrucción anterior de "usar null en vez de 0" era inaplicable.
+Odoo devuelve 0, no null, cuando un producto no tiene peso o volumen cargado. Así que
+la convención tiene que ser explícita: en el contexto de LogiFleet, un total de Odoo
+igual a 0 significa "sin dato", no "pesa cero". Nadie despacha una carga de 0 kg.
+
+QUÉ HACER
+
+1. Migrar los datos existentes: recalcular sales.pesoTotal y sales.volumenTotal para las
+   755 ventas, copiándolos desde pesoTotalOdoo / volumenTotalOdoo. Hacelo con un endpoint
+   idempotente o reutilizando el backfill que ya existe, no con SQL suelto a mano — tiene
+   que poder volver a correrse después de cada merge, como el resto de la rutina.
+   Y confirmá que ese recálculo NUNCA escribe pesoTotalOdoo ni volumenTotalOdoo.
+
+2. Definir un helper único y compartido en el frontend, del tipo
+   `formatCarga(peso, volumen)`, que devuelva "sin dato en Odoo" cuando el valor es 0,
+   null o undefined, y el número formateado cuando hay dato. Que TODA la UI lo use: lista
+   de Ventas, panel de detalle, Calculadora de Carga, wizard de Pre-Despacho, wizard de
+   carga y la app del chofer. No quiero cada pantalla resolviéndolo a su manera.
+
+3. En la Calculadora de Carga, una venta sin peso NO puede producir una recomendación de
+   vehículo silenciosa: si el peso es 0/sin dato, no sugieras el camión más chico —
+   avisá que no se puede recomendar por peso. Si falta solo el volumen, recomendá por
+   peso con el aviso de incompleto que ya existe.
+
+RESTRICCIONES
+- NO toques albaranes, ni estadoEntrega, ni sales.estado.
+- NO reintroduzcas las dimensiones manuales.
+- pesoTotalOdoo y volumenTotalOdoo son la fuente de verdad y nada los sobrescribe.
+
+VERIFICACIÓN — mostrame capturas del navegador, no consultas SQL
+a) La venta #741 (S01370) en la lista de Ventas mostrando 33.46 kg y 0.71 m³.
+b) Una venta sin peso en Odoo mostrando "sin dato en Odoo" en la lista.
+c) El conteo real: cuántas ventas muestran peso y cuántas volumen en la lista. Deberían
+   ser 473 y 237.
+d) La Calculadora con una venta sin peso: qué muestra y qué recomienda.
+e) Confirmame con una consulta que ninguna fila cambió pesoTotalOdoo ni volumenTotalOdoo.
+
+Antes de decir que está listo, abrí la app y mirá la pantalla. La vez anterior el reporte
+decía "473 ventas muestran peso" y en la pantalla decían 0.
