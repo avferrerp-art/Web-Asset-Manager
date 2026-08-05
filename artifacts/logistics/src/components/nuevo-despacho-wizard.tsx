@@ -29,6 +29,7 @@ import {
   AlertTriangle, MapPin, RefreshCw, ExternalLink, Warehouse, Info,
 } from "lucide-react";
 import { almacenCiudad, ciudadCoincide } from "@/lib/almacenes";
+import { formatCarga, sinDatoCarga } from "@/lib/carga";
 
 function fmtDateShort(s: string) {
   return new Date(s).toLocaleDateString("es-VE", {
@@ -197,11 +198,15 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
 
   function handleSelectSale(sale: any) {
     setSelectedSale(sale);
-    const bestVehicle = vehicles?.find(
-      (v) =>
-        v.capacidadPeso >= (sale.pesoTotal ?? 0) &&
-        v.capacidadVolumen >= (sale.volumenTotal ?? 0)
-    );
+    // Sin peso en Odoo no hay compatibilidad confiable: no preseleccionar
+    // vehículo por capacidad (un 0 silencioso sugeriría el más chico).
+    const bestVehicle = sinDatoCarga(sale.pesoTotal)
+      ? undefined
+      : vehicles?.find(
+          (v) =>
+            v.capacidadPeso >= (sale.pesoTotal ?? 0) &&
+            v.capacidadVolumen >= (sale.volumenTotal ?? 0)
+        );
     // Preferir una ruta cuyo origen coincida con la ciudad del almacén de la
     // venta (sugerencia; el usuario puede cambiarla). Si no hay almacén mapeado
     // o ninguna ruta coincide, comportamiento original: match por destino.
@@ -415,7 +420,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                             {sale.destino}
                           </div>
                           <div className="text-xs text-muted-foreground whitespace-nowrap">
-                            {sale.pesoTotal != null ? `${sale.pesoTotal} kg` : "sin dato"} · {sale.volumenTotal != null ? `${sale.volumenTotal} m³` : "sin dato"}
+                            {formatCarga(sale.pesoTotal, "kg")} · {formatCarga(sale.volumenTotal, "m³")}
                           </div>
                         </div>
                       </div>
@@ -469,8 +474,8 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
             <div className="bg-muted/60 rounded-md px-3 py-2 text-sm flex flex-wrap gap-x-4 gap-y-1">
               <span><span className="font-semibold">Cliente:</span> {selectedSale?.cliente}</span>
               <span><span className="font-semibold">Destino:</span> {selectedSale?.destino}</span>
-              <span><span className="font-semibold">Peso:</span> {selectedSale?.pesoTotal != null ? `${selectedSale.pesoTotal} kg` : "sin dato en Odoo"}</span>
-              <span><span className="font-semibold">Volumen:</span> {selectedSale?.volumenTotal != null ? `${selectedSale.volumenTotal} m³` : "sin dato en Odoo"}</span>
+              <span><span className="font-semibold">Peso:</span> {formatCarga(selectedSale?.pesoTotal, "kg")}</span>
+              <span><span className="font-semibold">Volumen:</span> {formatCarga(selectedSale?.volumenTotal, "m³")}</span>
             </div>
 
             {/* Almacén de origen de la venta */}
@@ -792,8 +797,8 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                 </div>
                 <div><span className="text-muted-foreground">Cliente:</span> {selectedSale?.cliente}</div>
                 <div><span className="text-muted-foreground">Destino:</span> {selectedSale?.destino}</div>
-                <div><span className="text-muted-foreground">Peso:</span> {selectedSale?.pesoTotal != null ? `${selectedSale.pesoTotal} kg` : "sin dato en Odoo"}</div>
-                <div><span className="text-muted-foreground">Volumen:</span> {selectedSale?.volumenTotal != null ? `${selectedSale.volumenTotal} m³` : "sin dato en Odoo"}</div>
+                <div><span className="text-muted-foreground">Peso:</span> {formatCarga(selectedSale?.pesoTotal, "kg")}</div>
+                <div><span className="text-muted-foreground">Volumen:</span> {formatCarga(selectedSale?.volumenTotal, "m³")}</div>
               </div>
               <div className="bg-muted/60 rounded-lg p-3 space-y-1 text-sm">
                 <div className="font-semibold text-xs text-muted-foreground uppercase tracking-wide mb-2">

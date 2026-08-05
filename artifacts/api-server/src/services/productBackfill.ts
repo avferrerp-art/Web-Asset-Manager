@@ -73,7 +73,6 @@ export async function backfillSaleItemProducts(): Promise<BackfillResult> {
 
   let linked = 0;
   let unmatched = 0;
-  const touched = new Set<number>();
 
   for (const item of nullItems) {
     const match = /^\[([^\]]+)\]/.exec(item.descripcion.trim());
@@ -84,10 +83,12 @@ export async function backfillSaleItemProducts(): Promise<BackfillResult> {
       .set({ productId: product.id })
       .where(eq(saleItemsTable.id, item.id));
     linked++;
-    touched.add(item.ventaId);
   }
 
-  const salesRecalculated = await recalcSales([...touched]);
+  // Recalcular TODAS las ventas (no solo las tocadas): garantiza que la
+  // migración de totales (Odoo 0/null → null) sea repetible tras cada merge.
+  const allSaleIds = (await db.select({ id: salesTable.id }).from(salesTable)).map((s) => s.id);
+  const salesRecalculated = await recalcSales(allSaleIds);
 
   return {
     examined: nullItems.length,

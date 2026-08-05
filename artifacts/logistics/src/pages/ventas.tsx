@@ -27,6 +27,7 @@ import { CargoWizard } from "@/components/cargo-wizard";
 import { SaleDetailSheet } from "@/components/sale-detail-sheet";
 import { Search } from "lucide-react";
 import { matchesSearch } from "@/lib/search";
+import { formatCarga, sinDatoCarga } from "@/lib/carga";
 
 const saleSchema = z.object({
   cliente: z.string().min(1, "Requerido"),
@@ -646,14 +647,14 @@ export default function Ventas() {
                   </TableCell>
                   <TableCell>
                     <div className="text-sm" data-testid={`text-peso-${sale.id}`}>
-                      {sale.pesoTotal != null
-                        ? `${sale.pesoTotal} kg`
-                        : <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span>}
+                      {sinDatoCarga(sale.pesoTotal)
+                        ? <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span>
+                        : formatCarga(sale.pesoTotal, "kg")}
                     </div>
                     <div className="text-sm text-muted-foreground" data-testid={`text-volumen-${sale.id}`}>
-                      {sale.volumenTotal != null
-                        ? `${sale.volumenTotal} m³`
-                        : <span className="italic text-xs">sin dato en Odoo</span>}
+                      {sinDatoCarga(sale.volumenTotal)
+                        ? <span className="italic text-xs">sin dato en Odoo</span>
+                        : formatCarga(sale.volumenTotal, "m³")}
                     </div>
                     {salesWithUnlinked.has(sale.id) && (
                       <Badge

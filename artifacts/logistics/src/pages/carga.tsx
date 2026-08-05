@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { classifyFleet } from "@/lib/fleet";
+import { formatCarga, sinDatoCarga } from "@/lib/carga";
 import {
   CheckCircle2, ChevronRight, PackageOpen, Truck,
   ArrowLeft, AlertTriangle, Search,
@@ -23,13 +24,6 @@ function utilizationBg(pct: number) {
   if (pct > 100) return "bg-red-500";
   if (pct > 85) return "bg-yellow-400";
   return "bg-green-500";
-}
-
-/** "sin dato" | number formatted */
-function fmt(value: number | null | undefined, unit: string) {
-  return value != null
-    ? `${value} ${unit}`
-    : "sin dato en Odoo";
 }
 
 export default function Carga() {
@@ -56,8 +50,8 @@ export default function Carga() {
 
   function handleSelectSale(sale: Sale) {
     setSelectedSaleId(sale.id);
-    setPesoManual(sale.pesoTotal != null ? String(sale.pesoTotal) : "");
-    setVolumenManual(sale.volumenTotal != null ? String(sale.volumenTotal) : "");
+    setPesoManual(!sinDatoCarga(sale.pesoTotal) ? String(sale.pesoTotal) : "");
+    setVolumenManual(!sinDatoCarga(sale.volumenTotal) ? String(sale.volumenTotal) : "");
   }
 
   function handleReset() {
@@ -71,17 +65,17 @@ export default function Carga() {
 
   const sinPeso = peso == null;
   const sinVolumen = volumen == null;
-  // Recomendación incompleta: falta volumen (se recomienda solo por peso) o falta peso.
+  // Recomendación incompleta: falta volumen (se recomienda solo por peso).
   const recomendacionIncompleta = !sinPeso && sinVolumen;
 
-  // Si falta el volumen, clasificar solo por peso (volumen 0 no restringe).
-  const { fit: fitVehicles, unfit: unfitVehicles } = classifyFleet(
-    vehicles ?? [],
-    peso ?? 0,
-    volumen ?? 0,
-  );
+  // Sin peso NO se recomienda vehículo: pasar 0 a la clasificación sugeriría
+  // silenciosamente el camión más chico. Si solo falta volumen, se clasifica
+  // por peso (volumen 0 no restringe) con el aviso de recomendación incompleta.
+  const puedeCalcular = !sinPeso;
 
-  const puedeCalcular = !sinPeso || !sinVolumen;
+  const { fit: fitVehicles, unfit: unfitVehicles } = puedeCalcular
+    ? classifyFleet(vehicles ?? [], peso ?? 0, volumen ?? 0)
+    : { fit: [], unfit: [] };
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -146,14 +140,14 @@ export default function Carga() {
                         <td className="px-4 py-3">{sale.cliente}</td>
                         <td className="px-4 py-3 text-muted-foreground">{sale.destino}</td>
                         <td className="px-4 py-3">
-                          {sale.pesoTotal != null
-                            ? `${sale.pesoTotal} kg`
-                            : <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span>}
+                          {sinDatoCarga(sale.pesoTotal)
+                            ? <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span>
+                            : formatCarga(sale.pesoTotal, "kg")}
                         </td>
                         <td className="px-4 py-3">
-                          {sale.volumenTotal != null
-                            ? `${sale.volumenTotal} m³`
-                            : <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span>}
+                          {sinDatoCarga(sale.volumenTotal)
+                            ? <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span>
+                            : formatCarga(sale.volumenTotal, "m³")}
                         </td>
                         <td className="px-4 py-3">
                           <Badge variant="outline" className="capitalize text-xs">{sale.estado}</Badge>
@@ -184,7 +178,7 @@ export default function Carga() {
             <div>
               <span className="text-muted-foreground">Odoo:</span>{" "}
               <span className="font-medium" data-testid="text-odoo-totales">
-                {fmt(selectedSale.pesoTotal, "kg")} · {fmt(selectedSale.volumenTotal, "m³")}
+                {formatCarga(selectedSale.pesoTotal, "kg")} · {formatCarga(selectedSale.volumenTotal, "m³")}
               </span>
             </div>
           </div>
@@ -224,7 +218,7 @@ export default function Carga() {
           </Card>
 
           {/* Warnings */}
-          {!puedeCalcular && (
+          {sinPeso && sinVolumen && (
             <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-sin-datos">
               <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
               <span>
@@ -244,11 +238,11 @@ export default function Carga() {
             </div>
           )}
           {sinPeso && !sinVolumen && (
-            <div className="flex items-start gap-2 text-sm bg-yellow-500/10 border border-yellow-500/40 rounded-md px-4 py-3" data-testid="warning-sin-peso">
-              <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+            <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-sin-peso">
+              <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
               <span>
-                <strong>Recomendación incompleta:</strong> la venta no tiene peso en Odoo, así que la
-                recomendación considera <strong>solo el volumen</strong>.
+                <strong>No se puede recomendar por peso:</strong> la venta no tiene peso en Odoo.
+                Escribe un peso manual para simular, o corrige los datos del artículo en Odoo.
               </span>
             </div>
           )}

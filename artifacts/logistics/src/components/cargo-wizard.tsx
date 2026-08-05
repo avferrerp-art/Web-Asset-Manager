@@ -49,9 +49,7 @@ function utilLabel(pct: number) {
   return "text-green-600 dark:text-green-400";
 }
 
-function fmtOdoo(value: number | null | undefined, unit: string) {
-  return value != null ? `${value} ${unit}` : "sin dato en Odoo";
-}
+import { formatCarga, sinDatoCarga } from "@/lib/carga";
 
 export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehicleAssigned }: Props) {
   const queryClient = useQueryClient();
@@ -123,8 +121,8 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
   const pendingSales = salesData?.filter(s => s.estado === "pendiente") ?? [];
 
   // Totales de la venta: SIEMPRE los de Odoo (null = sin dato, nunca 0)
-  const totalPeso = selectedSale?.pesoTotal ?? null;
-  const totalVol = selectedSale?.volumenTotal ?? null;
+  const totalPeso = sinDatoCarga(selectedSale?.pesoTotal) ? null : selectedSale!.pesoTotal!;
+  const totalVol = sinDatoCarga(selectedSale?.volumenTotal) ? null : selectedSale!.volumenTotal!;
   const sinPeso = totalPeso == null;
   const sinVolumen = totalVol == null;
 
@@ -236,7 +234,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                             {sale.destino}
                           </div>
                           <div className="text-xs text-muted-foreground whitespace-nowrap">
-                            {fmtOdoo(sale.pesoTotal, "kg")} · {fmtOdoo(sale.volumenTotal, "m³")}
+                            {formatCarga(sale.pesoTotal, "kg")} · {formatCarga(sale.volumenTotal, "m³")}
                           </div>
                         </div>
                       </div>
@@ -261,8 +259,8 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
               <div className="bg-muted/60 rounded-md px-3 py-2 text-sm flex flex-wrap gap-x-4 gap-y-1">
                 <span><span className="font-semibold">Cliente:</span> {selectedSale.cliente}</span>
                 <span><span className="font-semibold">Destino:</span> {selectedSale.destino}</span>
-                <span><span className="font-semibold">Peso (Odoo):</span> {fmtOdoo(selectedSale.pesoTotal, "kg")}</span>
-                <span><span className="font-semibold">Volumen (Odoo):</span> {fmtOdoo(selectedSale.volumenTotal, "m³")}</span>
+                <span><span className="font-semibold">Peso (Odoo):</span> {formatCarga(selectedSale.pesoTotal, "kg")}</span>
+                <span><span className="font-semibold">Volumen (Odoo):</span> {formatCarga(selectedSale.volumenTotal, "m³")}</span>
               </div>
             )}
 

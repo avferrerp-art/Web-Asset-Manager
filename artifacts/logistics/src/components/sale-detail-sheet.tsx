@@ -45,6 +45,7 @@ import {
   Package,
 } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { formatCarga } from "@/lib/carga";
 
 /* ─── Helpers ─── */
 
@@ -560,9 +561,9 @@ function SaleDetailSheetInner({ sale: saleProp, open, onOpenChange }: SaleDetail
 
             <span className="font-medium text-foreground/70">Carga</span>
             <span data-testid="text-carga-detalle">
-              {sale.pesoTotal != null ? `${sale.pesoTotal} kg` : "sin dato en Odoo"}
+              {formatCarga(sale.pesoTotal, "kg")}
               {" · "}
-              {sale.volumenTotal != null ? `${sale.volumenTotal} m³` : "sin dato en Odoo"}
+              {formatCarga(sale.volumenTotal, "m³")}
               <span className="ml-1 text-purple-400 text-[10px]">(Odoo)</span>
             </span>
 

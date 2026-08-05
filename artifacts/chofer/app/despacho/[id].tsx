@@ -1,4 +1,5 @@
 import { Feather } from "@expo/vector-icons";
+import { formatCarga, sinDatoCarga } from "@/lib/carga";
 import { Stack, useLocalSearchParams } from "expo-router";
 import { useQueryClient } from "@tanstack/react-query";
 import React from "react";
@@ -193,7 +194,7 @@ export default function DespachoDetailScreen() {
               )}
             </View>
 
-            {(d.pesoTotal != null || d.volumenTotal != null) && (
+            {(
               <View
                 style={[
                   styles.card,
@@ -208,24 +209,20 @@ export default function DespachoDetailScreen() {
                   Carga
                 </Text>
                 <View style={styles.loadGrid}>
-                  {d.pesoTotal != null && (
-                    <View style={[styles.loadItem, { backgroundColor: colors.background, borderRadius: colors.radius }]}>
-                      <Feather name="package" size={20} color={colors.primary} />
-                      <Text style={[styles.loadValue, { color: colors.foreground }]}>
-                        {d.pesoTotal.toLocaleString("es-DO")} kg
-                      </Text>
-                      <Text style={[styles.loadLabel, { color: colors.mutedForeground }]}>Peso total</Text>
-                    </View>
-                  )}
-                  {d.volumenTotal != null && (
-                    <View style={[styles.loadItem, { backgroundColor: colors.background, borderRadius: colors.radius }]}>
-                      <Feather name="box" size={20} color={colors.primary} />
-                      <Text style={[styles.loadValue, { color: colors.foreground }]}>
-                        {d.volumenTotal.toLocaleString("es-DO")} m³
-                      </Text>
-                      <Text style={[styles.loadLabel, { color: colors.mutedForeground }]}>Volumen total</Text>
-                    </View>
-                  )}
+                  <View style={[styles.loadItem, { backgroundColor: colors.background, borderRadius: colors.radius }]}>
+                    <Feather name="package" size={20} color={sinDatoCarga(d.pesoTotal) ? colors.mutedForeground : colors.primary} />
+                    <Text style={[styles.loadValue, sinDatoCarga(d.pesoTotal) ? { color: colors.mutedForeground, fontSize: 13, fontStyle: "italic" } : { color: colors.foreground }]}>
+                      {formatCarga(d.pesoTotal, "kg")}
+                    </Text>
+                    <Text style={[styles.loadLabel, { color: colors.mutedForeground }]}>Peso total</Text>
+                  </View>
+                  <View style={[styles.loadItem, { backgroundColor: colors.background, borderRadius: colors.radius }]}>
+                    <Feather name="box" size={20} color={sinDatoCarga(d.volumenTotal) ? colors.mutedForeground : colors.primary} />
+                    <Text style={[styles.loadValue, sinDatoCarga(d.volumenTotal) ? { color: colors.mutedForeground, fontSize: 13, fontStyle: "italic" } : { color: colors.foreground }]}>
+                      {formatCarga(d.volumenTotal, "m³")}
+                    </Text>
+                    <Text style={[styles.loadLabel, { color: colors.mutedForeground }]}>Volumen total</Text>
+                  </View>
                 </View>
                 {d.saleItems && d.saleItems.length > 0 && (
                   <>
