@@ -1,0 +1,86 @@
+TAREA 3 — Derivar estadoEntrega y almacén de origen en las ventas
+
+CONTEXTO
+Ya existen las tablas deliveries/delivery_items y su sync (pasos 1 y 2). En la DB hay
+913 albaranes y 1874 líneas, todas vinculadas al catálogo. El servicio es
+artifacts/api-server/src/services/deliverySync.ts, con la función exportada
+`syncDeliveries()`. Ahora quiero que cada venta muestre de un vistazo cómo va su
+entrega real en Odoo.
+
+La próxima migración libre es la 0004 (0002 y 0003 ya están aplicadas y registradas).
+
+REGLA DE ORO DE ESTE PASO
+`sales.estado` (pendiente | despachado | entregado | cancelado) es el estado INTERNO de
+LogiFleet y lo deriva exclusivamente saleEstadoSync.ts a partir de los despachos.
+NO lo toques, no lo pises, no lo mezcles. El estado del albarán va en un campo NUEVO
+y separado. Son dos cosas distintas: una venta puede estar "despachada" por nosotros y
+su albarán todavía sin validar en Odoo, y eso es información útil, no un conflicto.
+
+QUÉ HACER
+
+1. Agregá a la tabla sales dos columnas nuevas, con la migración 0004 idempotente
+   (ADD COLUMN IF NOT EXISTS), registrada en migrations/index.ts:
+   - estadoEntrega text NOT NULL default 'sin_albaran'
+   - almacenOrigen text (nullable)
+   No hace falta tocar verifySchema.ts: es genérico y cubre cualquier columna del
+   schema de Drizzle automáticamente.
+
+2. Creá una función pura y exportada `deriveEstadoEntrega(estadosDeAlbaranes: string[])`
+   con exactamente estas reglas:
+   - Sin albaranes                          → 'sin_albaran'
+   - Todos en 'cancel'                      → 'cancelado'
+   - Todos los NO cancelados en 'done'      → 'entregado'
+   - Algunos 'done' y otros no              → 'parcial'
+   - Ninguno 'done'                         → 'pendiente'
+   Los albaranes en 'cancel' se ignoran en la derivación (pero siguen guardados).
+   Que sea pura y sin acceso a DB, para poder testearla directo en el paso de tests.
+
+3. `almacenOrigen` de la venta = el almacenOrigen del albarán NO cancelado más reciente
+   por fechaProgramada. Si todos están cancelados o no hay ninguno, queda null.
+   Si la venta tiene albaranes activos de MÁS DE UN almacén (el caso real de S01344:
+   CCS y LEC), guardá el más reciente pero dejá disponible para la UI el dato de que
+   hay varios — no lo escondas, es justo lo que el usuario necesita saber. Resolvelo
+   como prefieras (un campo derivado, o que la UI lo calcule desde los albaranes),
+   pero decime cuál elegiste y por qué.
+
+4. Llamá a la derivación automáticamente al final de `syncDeliveries()`, para todas las
+   ventas tocadas en esa corrida. Debe ser idempotente.
+
+5. Endpoint POST /api/odoo/backfill-deliveries que recorra TODAS las ventas importadas y
+   recalcule estadoEntrega + almacenOrigen desde los albaranes que YA están en la DB,
+   sin ir a Odoo. Definilo primero en lib/api-spec/openapi.yaml y corré
+   `pnpm --filter @workspace/api-spec run codegen`. Nunca edites los directorios
+   generated/ a mano.
+
+6. Exponé estadoEntrega y almacenOrigen en el schema Sale del openapi.yaml, para que la
+   UI los lea sin tener que pedir los albaranes completos de cada venta.
+
+7. Actualizá replit.md: en "Where things live" agregá deliverySync.ts y las tablas
+   deliveries/delivery_items; en "Gotchas" dejá escrita la separación entre sales.estado
+   y sales.estadoEntrega; y en la rutina post-apply agregá los endpoints nuevos en el
+   orden correcto:
+   sync-products → sync → backfill-products → backfill-destinos → sync-deliveries →
+   backfill-deliveries.
+
+RESTRICCIONES
+- NO toques saleEstadoSync.ts ni la lógica de despachos.
+- NO toques pesoTotalOdoo / volumenTotalOdoo ni los campos manuales de products.
+- NO agregues polling automático (eso es el paso 7).
+- Nada de UI en este paso.
+- Reiniciá el workflow del api-server después del codegen: el server bundlea al arrancar
+  y no hace hot-reload de las libs.
+
+VERIFICACIÓN (mostrame los números reales, no "listo")
+a) Corré el backfill y mostrame la distribución completa: cuántas ventas quedaron en
+   sin_albaran, pendiente, parcial, entregado y cancelado, y que suman el total de ventas.
+b) El caso S01344: estadoEntrega debe ser 'pendiente' (su único albarán activo está en
+   'assigned'; el cancelado NO debe contarse) y almacenOrigen debe ser LEC/Existencias.
+c) El caso S01285: estadoEntrega 'entregado' (los 2 activos están en 'done').
+d) Buscame y mostrame al menos un caso real de entrega PARCIAL, con los albaranes que
+   lo justifican.
+e) Confirmame con una consulta que NINGUNA venta cambió su campo `estado` durante este
+   paso: comparalo antes y después, fila por fila.
+f) Corré el backfill dos veces y mostrame que la segunda no cambia nada.
+
+Al terminar, commiteá y aplicá a main. Acordate de que el push a GitHub lo hago yo
+después desde Tools → Git.
