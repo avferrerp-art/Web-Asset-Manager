@@ -5,6 +5,7 @@ import {
   useCreateSale, useUpdateSale, useDeleteSale,
   useListUnlinkedSaleItems, getListUnlinkedSaleItemsQueryKey
 } from "@workspace/api-client-react";
+import type { Sale } from "@workspace/api-client-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus, Edit2, Trash2, Upload, Loader2, FileText, X, PackageSearch, AlertTriangle, Unlink } from "lucide-react";
@@ -23,6 +24,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { OdooBadge } from "@/components/odoo-sync-card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { CargoWizard } from "@/components/cargo-wizard";
+import { SaleDetailSheet } from "@/components/sale-detail-sheet";
 import { Search } from "lucide-react";
 import { matchesSearch } from "@/lib/search";
 
@@ -71,6 +73,8 @@ export default function Ventas() {
   const [uploadedFileName, setUploadedFileName] = useState<string | null>(null);
   const [extractError, setExtractError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedSale, setSelectedSale] = useState<Sale | null>(null);
+  const [detailOpen, setDetailOpen] = useState(false);
 
   const { data: sales, isLoading } = useListSales(undefined, {
     query: { queryKey: getListSalesQueryKey() }
@@ -217,6 +221,11 @@ export default function Ventas() {
 
   return (
     <div className="space-y-6">
+      <SaleDetailSheet
+        sale={selectedSale}
+        open={detailOpen}
+        onOpenChange={setDetailOpen}
+      />
       <CargoWizard
         open={cargoWizardOpen}
         onClose={() => { setCargoWizardOpen(false); setCargoWizardSaleId(undefined); setCargoWizardSale(null); }}
@@ -505,7 +514,12 @@ export default function Ventas() {
                     : activeFilter === "todas" ? "Sin órdenes registradas." : `Sin órdenes con estado "${activeFilter}".`}
                 </TableCell></TableRow>
               ) : filteredSales.map((sale) => (
-                <TableRow key={sale.id} data-testid={`row-sale-${sale.id}`}>
+                <TableRow
+                  key={sale.id}
+                  data-testid={`row-sale-${sale.id}`}
+                  className="cursor-pointer hover:bg-accent/40"
+                  onClick={() => { setSelectedSale(sale); setDetailOpen(true); }}
+                >
                   <TableCell className="font-medium">
                     #{sale.id}
                     <OdooBadge odooRef={sale.odooRef} />
@@ -548,7 +562,7 @@ export default function Ventas() {
                     )}
                   </TableCell>
                   <TableCell>{ESTADO_BADGE[sale.estado] ?? <Badge>{sale.estado}</Badge>}</TableCell>
-                  <TableCell>
+                  <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       <Tooltip>
                         <TooltipTrigger asChild>
@@ -557,7 +571,7 @@ export default function Ventas() {
                             variant="ghost"
                             size="sm"
                             className="gap-1 text-xs px-2"
-                            onClick={() => { setCargoWizardSaleId(sale.id); setCargoWizardSale(sale); setCargoWizardOpen(true); }}
+                            onClick={(e) => { e.stopPropagation(); setCargoWizardSaleId(sale.id); setCargoWizardSale(sale); setCargoWizardOpen(true); }}
                           >
                             <PackageSearch className="w-3.5 h-3.5" /> Planificar
                           </Button>
@@ -566,10 +580,10 @@ export default function Ventas() {
                           Abre el plan de carga y continúa en Pre-Despacho para crear el despacho
                         </TooltipContent>
                       </Tooltip>
-                      <Button data-testid={`button-edit-sale-${sale.id}`} variant="ghost" size="icon" onClick={() => handleEdit(sale)}>
+                      <Button data-testid={`button-edit-sale-${sale.id}`} variant="ghost" size="icon" onClick={(e) => { e.stopPropagation(); handleEdit(sale); }}>
                         <Edit2 className="w-4 h-4" />
                       </Button>
-                      <Button data-testid={`button-delete-sale-${sale.id}`} variant="ghost" size="icon" className="text-destructive" onClick={() => handleDelete(sale.id)}>
+                      <Button data-testid={`button-delete-sale-${sale.id}`} variant="ghost" size="icon" className="text-destructive" onClick={(e) => { e.stopPropagation(); handleDelete(sale.id); }}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
