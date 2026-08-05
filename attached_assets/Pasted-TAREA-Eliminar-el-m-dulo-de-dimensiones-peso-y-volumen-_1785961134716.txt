@@ -1,0 +1,107 @@
+TAREA — Eliminar el módulo de dimensiones: peso y volumen vienen directo de Odoo
+
+CONTEXTO Y DECISIÓN
+Hoy LogiFleet tiene un sistema de medición manual: cada artículo del catálogo se mide una
+vez (pesoKg, largoCm, anchoCm, altoCm, dimensionesConfirmadas), las partidas de venta
+heredan esas medidas, y los totales de la venta se calculan sumando cantidad × medidas.
+Ese sistema nunca se usó: de 511 artículos hay 0 medidos, y por eso 747 de 755 ventas
+están marcadas "dimensiones incompletas" y muestran 0 kg / 0 m³.
+
+Lo verifiqué contra la base:
+- Artículos: 98 de 511 tienen pesoOdoo > 0 (19%), 17 tienen volumenOdoo > 0 (3%).
+- Ventas: 473 de 755 tienen pesoTotalOdoo > 0 (63%), 237 tienen volumenTotalOdoo > 0 (31%).
+- Hoy solo 25 ventas muestran peso y 15 volumen.
+
+Decisión: se elimina la medición manual. El peso y el volumen de una venta son
+SIEMPRE los que vienen de Odoo (pesoTotalOdoo / volumenTotalOdoo). Se deja de calcular
+nada a partir de dimensiones de bultos.
+
+REGLA CRÍTICA DE ESTE CAMBIO
+Con esta decisión, 282 ventas van a quedar sin peso y 518 sin volumen. Eso NO puede
+mostrarse como "0 kg" ni "0 m³": un cero se lee como dato real y haría que la calculadora
+recomiende el camión más chico para una carga desconocida. Donde no hay dato de Odoo, la
+UI debe decir explícitamente "sin dato en Odoo" (o similar), y la recomendación de
+vehículo debe advertir que está incompleta. Este es el punto más importante de la tarea.
+
+QUÉ HACER
+
+Backend
+1. artifacts/api-server/src/services/productBackfill.ts:
+   - `recalcSales` deja de sumar cantidad × pesoUnitario y cantidad × largo×ancho×alto.
+     Ahora pesoTotal y volumenTotal simplemente reflejan pesoTotalOdoo y volumenTotalOdoo.
+     Si el total de Odoo es null o 0, dejalos en null (no en 0) para poder distinguir
+     "no hay dato" de "pesa cero".
+   - `propagateDimensionsForProduct` se elimina, junto con su llamada desde el PATCH de
+     productos.
+   - El backfill conserva la FASE 1 (vincular partidas al catálogo por referencia
+     [NTSxxxxxx]) — eso sigue siendo útil. Se elimina la fase 2 de propagación de
+     dimensiones.
+2. artifacts/api-server/src/services/odooSync.ts:
+   - En `computeDesiredSale`, eliminá la lógica de `hasLocalData`: pesoTotal y volumenTotal
+     se escriben siempre desde los totales de Odoo, nunca desde el cálculo local.
+   - Dejá de calcular `dimensionesIncompletas`. El campo queda en la DB pero sin uso.
+   - Las partidas se siguen creando con productId, descripcion y cantidad. Dejá de
+     escribir largo/ancho/alto y pesoUnitario.
+3. artifacts/api-server/src/routes/products.ts: sacá del PATCH los campos pesoKg, largoCm,
+   anchoCm, altoCm, apilable, fragil y dimensionesConfirmadas. El catálogo pasa a ser
+   solo lectura desde Odoo, más el campo `notas`, que sí se conserva editable.
+4. artifacts/api-server/src/routes/sale-items.ts: quitá largo/ancho/alto de la creación y
+   edición de partidas, y del recálculo de totales.
+5. Actualizá lib/api-spec/openapi.yaml para reflejar los campos que dejan de aceptarse o
+   devolverse, y corré `pnpm --filter @workspace/api-spec run codegen`. Reiniciá el
+   workflow del api-server después.
+
+Frontend
+6. artifacts/logistics/src/pages/articulos.tsx: sacá los inputs de medición y el botón de
+   confirmar dimensiones. La página queda como catálogo de consulta, mostrando peso y
+   volumen de Odoo (y "sin dato" cuando son 0), con la búsqueda y el sync que ya tiene.
+   Sacá el filtro "Solo sin dimensiones" y reemplazalo por uno de "Sin peso en Odoo", que
+   ahora sí es accionable: son 413 artículos y es información para reclamarle a compras.
+7. artifacts/logistics/src/pages/carga.tsx: simplificá la calculadora. Ya no se arman
+   bultos. Elegís una venta y toma su peso y volumen de Odoo, o los escribís a mano para
+   simular. Con eso llama a la lógica de lib/fleet.ts, que NO hay que tocar: ya trabaja
+   sobre totales. Si a la venta le falta el volumen, la recomendación se hace solo por
+   peso y se avisa claramente que está incompleta. Eliminá el botón "Importar totales" y
+   toda la matemática de cubo equivalente y reparto proporcional.
+8. artifacts/logistics/src/components/cargo-wizard.tsx: quedará sin propósito una vez que
+   no se midan bultos. Revisalo y decidí si se elimina o si queda reducido a asignar el
+   producto del catálogo a una partida sin vincular (esa parte sí sigue siendo útil).
+   Explicame qué elegiste.
+9. artifacts/logistics/src/pages/ventas.tsx: sacá el badge "Dimensiones incompletas".
+   Donde hoy dice "0 kg · 0 m³", mostrá el dato de Odoo o "sin dato".
+10. artifacts/chofer/app/despacho/[id].tsx: sacá las dimensiones de la vista del chofer.
+
+Base de datos
+11. NO borres ninguna columna y NO agregues migración. Las columnas de dimensiones quedan
+    en la base con sus datos, sin uso. Esto es a propósito: es reversible si nos
+    arrepentimos.
+
+Documentación y tests
+12. Actualizá replit.md: el principio "cada artículo se mide una vez" ya no aplica. Dejá
+    escrito que peso y volumen son de Odoo, que hay columnas de dimensiones dormidas, y
+    cuál es la cobertura real (63% peso, 31% volumen a nivel venta).
+13. Actualizá los tests de e2e/ que dependen de dimensiones: backfill-totals.test.ts y
+    carga-calculadora.test.ts. Los de fleet siguen valiendo. Agregá un test de que
+    recalcSales nunca pisa pesoTotalOdoo / volumenTotalOdoo.
+
+RESTRICCIONES
+- NO toques nada de albaranes: deliveries, delivery_items, deliverySync, deliveryEstado,
+  estadoEntrega, almacenOrigen. Es un módulo aparte y funciona.
+- NO toques sales.estado ni saleEstadoSync.
+- pesoTotalOdoo y volumenTotalOdoo pasan a ser la fuente de verdad: nada puede
+  sobrescribirlos, igual que hasta ahora.
+- NO toques lib/fleet.ts.
+
+VERIFICACIÓN (números reales, no "listo")
+a) Cuántas ventas muestran peso y cuántas volumen después del cambio. Deberían ser 473 y
+   237, contra las 25 y 15 de hoy.
+b) Una captura de la lista de Ventas mostrando una venta con peso real y otra con
+   "sin dato" — quiero ver que se distinguen.
+c) La calculadora con una venta que tiene peso y volumen: qué vehículo recomienda.
+d) La calculadora con una venta que tiene peso pero NO volumen: que recomiende por peso y
+   avise que la recomendación está incompleta.
+e) Confirmame con una consulta que ninguna fila cambió su pesoTotalOdoo ni su
+   volumenTotalOdoo durante la migración de lógica.
+f) `pnpm run typecheck` sin errores y la suite de e2e en verde.
+
+Al terminar, commiteá y aplicá a main. El push a GitHub lo hago yo desde Tools → Git.
