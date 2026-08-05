@@ -14,3 +14,5 @@ export * from "./fuel_prices";
 export * from "./odoo_sync";
 export * from "./products";
 export * from "./sync_alerts";
+export * from "./deliveries";
+export * from "./delivery_items";

@@ -10,10 +10,11 @@
 //    and are tracked in the `_migrations` table (applied once per database).
 import * as baseline from "./0000_baseline";
 import * as odooWriteDateSyncAlerts from "./0001_odoo_write_date_sync_alerts";
+import * as deliveries from "./0002_deliveries";
 
 export interface Migration {
   name: string;
   sql: string;
 }
 
-export const migrations: Migration[] = [baseline, odooWriteDateSyncAlerts];
+export const migrations: Migration[] = [baseline, odooWriteDateSyncAlerts, deliveries];
