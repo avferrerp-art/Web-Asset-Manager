@@ -401,8 +401,10 @@ export interface Sale {
      * @nullable
      */
   almacenOrigen?: string | null;
-  /** true cuando los albaranes activos provienen de más de un almacén */
+  /** true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén */
   almacenesMultiples?: boolean;
+  /** Nombres de los albaranes de la venta (ej. CCS/OUT/00278), para búsqueda en la lista */
+  albaranNombres?: string[];
   createdAt: string;
 }
 

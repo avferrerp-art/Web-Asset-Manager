@@ -280,7 +280,8 @@ export const ListSalesResponseItem = zod.object({
   "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
   "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
-  "almacenesMultiples": zod.boolean().optional().describe('true cuando los albaranes activos provienen de más de un almacén'),
+  "almacenesMultiples": zod.boolean().optional().describe('true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén'),
+  "albaranNombres": zod.array(zod.string()).optional().describe('Nombres de los albaranes de la venta (ej. CCS\/OUT\/00278), para búsqueda en la lista'),
   "createdAt": zod.string()
 })
 export const ListSalesResponse = zod.array(ListSalesResponseItem)
@@ -321,7 +322,8 @@ export const CreateSaleResponse = zod.object({
   "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
   "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
-  "almacenesMultiples": zod.boolean().optional().describe('true cuando los albaranes activos provienen de más de un almacén'),
+  "almacenesMultiples": zod.boolean().optional().describe('true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén'),
+  "albaranNombres": zod.array(zod.string()).optional().describe('Nombres de los albaranes de la venta (ej. CCS\/OUT\/00278), para búsqueda en la lista'),
   "createdAt": zod.string()
 })
 
@@ -352,7 +354,8 @@ export const GetSaleResponse = zod.object({
   "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
   "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
-  "almacenesMultiples": zod.boolean().optional().describe('true cuando los albaranes activos provienen de más de un almacén'),
+  "almacenesMultiples": zod.boolean().optional().describe('true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén'),
+  "albaranNombres": zod.array(zod.string()).optional().describe('Nombres de los albaranes de la venta (ej. CCS\/OUT\/00278), para búsqueda en la lista'),
   "createdAt": zod.string()
 })
 
@@ -396,7 +399,8 @@ export const UpdateSaleResponse = zod.object({
   "dimensionesIncompletas": zod.boolean().optional().describe('true si alguna partida proviene de un producto sin dimensiones confirmadas'),
   "estadoEntrega": zod.string().describe('Estado de entrega derivado de los albaranes de Odoo (separado del estado interno): sin_albaran | pendiente | parcial | entregado | cancelado'),
   "almacenOrigen": zod.string().nullish().describe('Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos'),
-  "almacenesMultiples": zod.boolean().optional().describe('true cuando los albaranes activos provienen de más de un almacén'),
+  "almacenesMultiples": zod.boolean().optional().describe('true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén'),
+  "albaranNombres": zod.array(zod.string()).optional().describe('Nombres de los albaranes de la venta (ej. CCS\/OUT\/00278), para búsqueda en la lista'),
   "createdAt": zod.string()
 })
 

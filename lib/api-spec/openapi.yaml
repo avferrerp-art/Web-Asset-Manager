@@ -2101,7 +2101,12 @@ components:
           description: "Almacén del albarán activo (no cancelado) más reciente por fechaProgramada; null si no hay albaranes activos"
         almacenesMultiples:
           type: boolean
-          description: "true cuando los albaranes activos provienen de más de un almacén"
+          description: "true cuando la venta tiene albaranes (incluidos cancelados) de más de un almacén"
+        albaranNombres:
+          type: array
+          items:
+            type: string
+          description: "Nombres de los albaranes de la venta (ej. CCS/OUT/00278), para búsqueda en la lista"
         createdAt:
           type: string
 

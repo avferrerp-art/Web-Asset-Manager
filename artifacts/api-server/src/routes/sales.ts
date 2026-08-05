@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, desc } from "drizzle-orm";
-import { db, salesTable } from "@workspace/db";
+import { db, salesTable, deliveriesTable } from "@workspace/db";
 import {
   ListSalesQueryParams,
   CreateSaleBody,
@@ -18,7 +18,17 @@ router.get("/sales", async (req, res): Promise<void> => {
   if (query.success && query.data.status) {
     results = results.filter((s) => s.estado === query.data.status);
   }
-  res.json(results);
+  // Albarán names per sale, so the list search can match e.g. "CCS/OUT/00278"
+  const albaranes = await db
+    .select({ ventaId: deliveriesTable.ventaId, nombre: deliveriesTable.nombre })
+    .from(deliveriesTable);
+  const nombresByVenta = new Map<number, string[]>();
+  for (const a of albaranes) {
+    const list = nombresByVenta.get(a.ventaId) ?? [];
+    list.push(a.nombre);
+    nombresByVenta.set(a.ventaId, list);
+  }
+  res.json(results.map((s) => ({ ...s, albaranNombres: nombresByVenta.get(s.id) ?? [] })));
 });
 
 router.post("/sales", async (req, res): Promise<void> => {

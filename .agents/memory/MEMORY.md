@@ -11,4 +11,5 @@
 - [Odoo partner reads](odoo-partner-reads.md) — this Odoo instance lacks `mobile` on res.partner; use fields_get-driven reads and never drop address fields on retry.
 - [Odoo stock.picking reads](odoo-stock-picking.md) — Odoo 19: delivered qty is `quantity` (no quantity_done); lines are `move_ids`; link albarán→venta via `sale_id`.
 - [Drizzle ANY(ARRAY) pitfall](drizzle-any-array-params.md) — raw `= ANY(ARRAY[$..])` params infer as text and break integer filters; always use `inArray`.
+- [Visual verify behind auth](visual-verify-behind-auth.md) — screenshots hit the Clerk login; use a mockup-sandbox component for captures + standalone router/SQL for real numbers.
 - [Expo mobile quirks](chofer-expo-quirks.md) — Orval hooks in Expo need explicit queryKey; keep @types/react catalog pinned to Expo's 19.1.x; mobile auth is Bearer via setAuthTokenGetter; clear query cache on sign-out.

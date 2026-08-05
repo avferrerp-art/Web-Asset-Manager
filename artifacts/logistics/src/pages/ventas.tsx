@@ -58,10 +58,46 @@ const FILTERS = [
 
 type FilterKey = (typeof FILTERS)[number]["key"];
 
+/* Estado de entrega (Odoo) — mismos colores que el detalle */
+const ENTREGA_BADGE: Record<string, React.ReactElement> = {
+  sin_albaran: <Badge variant="outline" className="text-muted-foreground border-muted-foreground/40">Sin albarán</Badge>,
+  pendiente:   <Badge variant="outline" className="text-orange-500 border-orange-500/50">Pendiente</Badge>,
+  parcial:     <Badge variant="outline" className="text-amber-500 border-amber-500/50">Parcial</Badge>,
+  entregado:   <Badge variant="outline" className="text-green-500 border-green-500/50">Entregado</Badge>,
+  cancelado:   <Badge variant="outline" className="text-red-500 border-red-500/50">Cancelado</Badge>,
+};
+
+const ENTREGA_FILTERS = [
+  { key: "todas",       label: "Todas" },
+  { key: "sin_albaran", label: "Sin albarán" },
+  { key: "pendiente",   label: "Pendiente" },
+  { key: "parcial",     label: "Parcial" },
+  { key: "entregado",   label: "Entregado" },
+  { key: "cancelado",   label: "Cancelado" },
+  { key: "accion",      label: "Requieren acción" },
+] as const;
+
+type EntregaFilterKey = (typeof ENTREGA_FILTERS)[number]["key"];
+
+const ACCION_STATES = new Set(["pendiente", "parcial", "sin_albaran"]);
+
+function matchesEntregaFilter(estadoEntrega: string, filter: EntregaFilterKey): boolean {
+  if (filter === "todas") return true;
+  if (filter === "accion") return ACCION_STATES.has(estadoEntrega);
+  return estadoEntrega === filter;
+}
+
+/** Código corto del almacén: "LEC/Existencias" → "LEC", "Urbin" → "Urbin" */
+function almacenCodigo(almacenOrigen?: string | null): string | null {
+  if (!almacenOrigen) return null;
+  return almacenOrigen.split("/")[0] || null;
+}
+
 export default function Ventas() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
   const [activeFilter, setActiveFilter] = useState<FilterKey>("todas");
+  const [entregaFilter, setEntregaFilter] = useState<EntregaFilterKey>("todas");
   const [search, setSearch] = useState("");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingSale, setEditingSale] = useState<any>(null);
@@ -89,13 +125,26 @@ export default function Ventas() {
     ? (sales ?? [])
     : (sales ?? []).filter(s => s.estado === activeFilter);
 
+  const entregaFiltered = statusFiltered.filter(s =>
+    matchesEntregaFilter(s.estadoEntrega, entregaFilter));
+
   const filteredSales = search.trim()
-    ? statusFiltered.filter(s =>
-        matchesSearch(search, [s.cliente, s.destino, s.odooRef, s.id, `#${s.id}`]))
-    : statusFiltered;
+    ? entregaFiltered.filter(s =>
+        matchesSearch(search, [s.cliente, s.destino, s.odooRef, s.id, `#${s.id}`, ...(s.albaranNombres ?? [])]))
+    : entregaFiltered;
 
   const countByStatus = (key: string) =>
     key === "todas" ? (sales?.length ?? 0) : (sales?.filter(s => s.estado === key).length ?? 0);
+
+  const countByEntrega = (key: EntregaFilterKey) =>
+    (sales ?? []).filter(s => matchesEntregaFilter(s.estadoEntrega, key)).length;
+
+  // Discrepancias:
+  // - masiva y esperada: pendiente en LogiFleet pero ya entregado en Odoo → tratamiento discreto (contador arriba + fila atenuada)
+  // - rara y grave: despachado en LogiFleet pero Odoo NO lo registra entregado → ícono de advertencia por fila
+  const isEntregadoSinDespacho = (s: Sale) => s.estado === "pendiente" && s.estadoEntrega === "entregado";
+  const isDespachadoNoEntregado = (s: Sale) => s.estado === "despachado" && s.estadoEntrega !== "entregado";
+  const entregadoSinDespachoCount = (sales ?? []).filter(isEntregadoSinDespacho).length;
 
   const createMutation = useCreateSale();
   const updateMutation = useUpdateSale();
@@ -448,7 +497,7 @@ export default function Ventas() {
       <div className="relative flex-1 min-w-[220px] max-w-sm">
         <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
         <Input
-          placeholder="Buscar por cliente, destino, referencia o #orden..."
+          placeholder="Buscar por cliente, destino, referencia, #orden o albarán..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="pl-8 h-9"
@@ -456,8 +505,9 @@ export default function Ventas() {
         />
       </div>
 
-      {/* Status filter pills */}
-      <div className="flex flex-wrap gap-2">
+      {/* Status filter pills (despacho) */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <span className="text-xs font-medium text-muted-foreground w-[64px]">Despacho</span>
         {FILTERS.map(({ key, label }) => {
           const count = countByStatus(key);
           const isActive = activeFilter === key;
@@ -491,6 +541,53 @@ export default function Ventas() {
         })}
       </div>
 
+      {/* Entrega (Odoo) filter pills */}
+      <div className="flex flex-wrap gap-2 items-center">
+        <span className="text-xs font-medium text-muted-foreground w-[64px]">Entrega</span>
+        {ENTREGA_FILTERS.map(({ key, label }) => {
+          const count = countByEntrega(key);
+          const isActive = entregaFilter === key;
+          const colorMap: Record<string, string> = {
+            sin_albaran: "data-[active=true]:bg-muted data-[active=true]:border-muted-foreground data-[active=true]:text-foreground",
+            pendiente:   "data-[active=true]:bg-orange-500/20 data-[active=true]:border-orange-500 data-[active=true]:text-orange-400",
+            parcial:     "data-[active=true]:bg-amber-500/20 data-[active=true]:border-amber-500 data-[active=true]:text-amber-400",
+            entregado:   "data-[active=true]:bg-green-500/20 data-[active=true]:border-green-500 data-[active=true]:text-green-400",
+            cancelado:   "data-[active=true]:bg-red-500/20 data-[active=true]:border-red-500 data-[active=true]:text-red-400",
+            accion:      "data-[active=true]:bg-amber-500/20 data-[active=true]:border-amber-500 data-[active=true]:text-amber-400",
+          };
+          return (
+            <button
+              key={key}
+              data-testid={`filter-entrega-${key}`}
+              data-active={isActive}
+              onClick={() => setEntregaFilter(key)}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full border text-sm font-medium transition-colors
+                ${key === "accion" ? "border-dashed" : ""}
+                ${isActive
+                  ? `border-primary bg-primary/20 text-primary ${colorMap[key] ?? ""}`
+                  : "border-border bg-card text-muted-foreground hover:bg-accent/30 hover:text-foreground"}
+              `}
+            >
+              {key === "accion" && <AlertTriangle className="w-3.5 h-3.5" />}
+              {label}
+              {!isLoading && (
+                <span className={`text-[11px] rounded-full px-1.5 py-0.5 font-bold min-w-[20px] text-center
+                  ${isActive ? "bg-primary/30" : "bg-muted"}`}>
+                  {count}
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Discrepancia masiva (discreta): entregado en Odoo sin despacho en LogiFleet */}
+      {!isLoading && entregadoSinDespachoCount > 0 && (
+        <p className="text-xs text-muted-foreground" data-testid="text-entregado-sin-despacho">
+          {entregadoSinDespachoCount} ventas ya entregadas en Odoo sin despacho registrado en LogiFleet (filas atenuadas).
+        </p>
+      )}
+
       <Card>
         <CardContent className="p-0">
           <Table>
@@ -500,15 +597,16 @@ export default function Ventas() {
                 <TableHead>Cliente / Contacto</TableHead>
                 <TableHead>Destino / Material</TableHead>
                 <TableHead>Carga</TableHead>
-                <TableHead>Estado</TableHead>
+                <TableHead>Despacho</TableHead>
+                <TableHead>Entrega</TableHead>
                 <TableHead className="w-[160px]"></TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="h-24 text-center">Cargando...</TableCell></TableRow>
               ) : filteredSales.length === 0 ? (
-                <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                <TableRow><TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                   {search.trim()
                     ? `Sin resultados para "${search.trim()}"`
                     : activeFilter === "todas" ? "Sin órdenes registradas." : `Sin órdenes con estado "${activeFilter}".`}
@@ -517,7 +615,7 @@ export default function Ventas() {
                 <TableRow
                   key={sale.id}
                   data-testid={`row-sale-${sale.id}`}
-                  className="cursor-pointer hover:bg-accent/40"
+                  className={`cursor-pointer hover:bg-accent/40 ${isEntregadoSinDespacho(sale) ? "opacity-60" : ""}`}
                   onClick={() => { setSelectedSale(sale); setDetailOpen(true); }}
                 >
                   <TableCell className="font-medium">
@@ -562,6 +660,38 @@ export default function Ventas() {
                     )}
                   </TableCell>
                   <TableCell>{ESTADO_BADGE[sale.estado] ?? <Badge>{sale.estado}</Badge>}</TableCell>
+                  <TableCell>
+                    <div className="flex items-center gap-1.5">
+                      {ENTREGA_BADGE[sale.estadoEntrega] ?? <Badge variant="outline">{sale.estadoEntrega}</Badge>}
+                      {isDespachadoNoEntregado(sale) && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span data-testid={`icon-discrepancia-${sale.id}`}>
+                              <AlertTriangle className="w-4 h-4 text-red-500" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Despachado en LogiFleet, pero Odoo aún no lo registra como entregado.
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                      {sale.almacenesMultiples && (
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <span data-testid={`icon-multialmacen-${sale.id}`}>
+                              <AlertTriangle className="w-3.5 h-3.5 text-amber-500" />
+                            </span>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            Esta orden tuvo movimientos en más de un almacén.
+                          </TooltipContent>
+                        </Tooltip>
+                      )}
+                    </div>
+                    {almacenCodigo(sale.almacenOrigen) && (
+                      <div className="text-[10px] text-muted-foreground mt-0.5">{almacenCodigo(sale.almacenOrigen)}</div>
+                    )}
+                  </TableCell>
                   <TableCell onClick={(e) => e.stopPropagation()}>
                     <div className="flex justify-end gap-1">
                       <Tooltip>

@@ -478,7 +478,7 @@ function EntregasTab({
         <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400">
           <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <span>
-            Esta orden sale de más de un almacén — puede requerir más de un despacho.
+            Esta orden tuvo movimientos en más de un almacén (incluye albaranes cancelados) — puede requerir más de un despacho.
           </span>
         </div>
       )}
