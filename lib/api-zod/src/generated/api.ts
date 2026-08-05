@@ -1094,30 +1094,6 @@ export const DeleteRoutePointResponse = zod.void()
 
 
 /**
- * @summary Recommend the best vehicle for a given load
- */
-export const RecommendVehicleBody = zod.object({
-  "pesoTotal": zod.number(),
-  "volumenTotal": zod.number()
-})
-
-export const RecommendVehicleResponseItem = zod.object({
-  "id": zod.number(),
-  "tipo": zod.string().describe('propio | tercero'),
-  "modelo": zod.string(),
-  "capacidadPeso": zod.number().describe('Max weight capacity in kg'),
-  "capacidadVolumen": zod.number().describe('Max volume capacity in m3'),
-  "tipoCombustible": zod.string().describe('gasolina | diesel | gas'),
-  "rendimientoKmLitro": zod.number().describe('Fuel efficiency in km\/liter'),
-  "placa": zod.string().nullish(),
-  "tarifaPeaje": zod.number().nullish().describe('Tarifa de peaje por despacho en moneda local'),
-  "tanqueLitros": zod.number().nullish().describe('Capacidad del tanque en litros'),
-  "createdAt": zod.string()
-})
-export const RecommendVehicleResponse = zod.array(RecommendVehicleResponseItem)
-
-
-/**
  * @summary Estimate costs for a dispatch before approval
  */
 export const EstimateDispatchCostsParams = zod.object({

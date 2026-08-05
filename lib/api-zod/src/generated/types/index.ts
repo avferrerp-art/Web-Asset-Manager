@@ -32,7 +32,6 @@ export * from './listDispatchesParams';
 export * from './listOdooAlertsParams';
 export * from './listProductsParams';
 export * from './listSalesParams';
-export * from './loadRequirement';
 export * from './odooStatus';
 export * from './odooSyncResult';
 export * from './odooTestResult';

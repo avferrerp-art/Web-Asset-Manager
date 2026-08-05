@@ -63,4 +63,24 @@ describe("Load calculator — fleet suggestion", () => {
     // Even mixed with a valid vehicle, the zero-capacity ones never win.
     expect(suggestedVehicle([sinPeso, sinVolumen, van], 1, 0.001)).toBe(van);
   });
+
+  it("REGRESSION: fit vehicles are sorted by utilization DESCENDING (tightest fit first, never emptiest-first)", () => {
+    // Guard against re-introducing the ascending sort bug (emptiest vehicle
+    // first), which made the wizards preselect the BIGGEST vehicle for tiny
+    // loads (e.g. sale #762: 0.96 kg → Foton TM2 2000 kg instead of the
+    // Silverado 950 kg).
+    const silverado = { id: 10, modelo: "Silverado", capacidadPeso: 950, capacidadVolumen: 5 };
+    const fotonTm2 = { id: 11, modelo: "Foton TM2", capacidadPeso: 2000, capacidadVolumen: 12 };
+    const fleet = [fotonTm2, silverado, trailer];
+
+    const { fit } = classifyFleet(fleet, 0.96, 0.001);
+    expect(fit.length).toBeGreaterThan(1);
+    for (let i = 1; i < fit.length; i++) {
+      // Descending utilization: each entry is at most as utilized as the previous.
+      expect(fit[i].maxPct).toBeLessThanOrEqual(fit[i - 1].maxPct);
+    }
+    // The tightest fit (smallest capable vehicle) wins — never the biggest.
+    expect(suggestedVehicle(fleet, 0.96, 0.001)?.id).toBe(silverado.id);
+    expect(fit[fit.length - 1].vehicle.id).toBe(trailer.id);
+  });
 });

@@ -65,11 +65,6 @@ export interface VehicleUpdate {
   tanqueLitros?: number;
 }
 
-export interface LoadRequirement {
-  pesoTotal: number;
-  volumenTotal: number;
-}
-
 export interface Personnel {
   id: number;
   nombre: string;

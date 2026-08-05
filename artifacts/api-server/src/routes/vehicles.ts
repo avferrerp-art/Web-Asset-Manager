@@ -7,7 +7,6 @@ import {
   UpdateVehicleParams,
   UpdateVehicleBody,
   DeleteVehicleParams,
-  RecommendVehicleBody,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -15,25 +14,6 @@ const router: IRouter = Router();
 router.get("/vehicles", async (_req, res): Promise<void> => {
   const vehicles = await db.select().from(vehiclesTable).orderBy(asc(vehiclesTable.modelo), asc(vehiclesTable.placa));
   res.json(vehicles);
-});
-
-router.post("/vehicles/recommend", async (req, res): Promise<void> => {
-  const parsed = RecommendVehicleBody.safeParse(req.body);
-  if (!parsed.success) {
-    res.status(400).json({ error: parsed.error.message });
-    return;
-  }
-  const { pesoTotal, volumenTotal } = parsed.data;
-  const all = await db.select().from(vehiclesTable);
-  const suitable = all.filter(
-    (v) => v.capacidadPeso >= pesoTotal && v.capacidadVolumen >= volumenTotal,
-  );
-  suitable.sort((a, b) => {
-    const aWaste = (a.capacidadPeso - pesoTotal) / a.capacidadPeso + (a.capacidadVolumen - volumenTotal) / a.capacidadVolumen;
-    const bWaste = (b.capacidadPeso - pesoTotal) / b.capacidadPeso + (b.capacidadVolumen - volumenTotal) / b.capacidadVolumen;
-    return aWaste - bWaste;
-  });
-  res.json(suitable);
 });
 
 router.post("/vehicles", async (req, res): Promise<void> => {

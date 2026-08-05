@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { almacenCiudad, ciudadCoincide } from "@/lib/almacenes";
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
+import { classifyFleet, suggestedVehicle } from "@/lib/fleet";
 
 function fmtDateShort(s: string) {
   return new Date(s).toLocaleDateString("es-VE", {
@@ -124,6 +125,16 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     ) ?? null;
   })();
 
+  // Clasificación de flota (fleet.ts = única fuente de verdad). Solo aplica
+  // cuando la venta tiene peso en Odoo; sin dato no se sugiere nada.
+  const fleetClass =
+    selectedSale && !sinDatoCarga(selectedSale.pesoTotal)
+      ? classifyFleet(vehicles ?? [], selectedSale.pesoTotal ?? 0, selectedSale.volumenTotal ?? 0)
+      : null;
+  const suggestedFit = fleetClass?.fit[0] ?? null;
+  const ningunVehiculoCompatible =
+    fleetClass != null && fleetClass.fit.length === 0 && (vehicles?.length ?? 0) > 0;
+
   const selectedVehicle = vehicles?.find((v) => v.id === assignment.vehiculoId);
   const selectedChofer = personnel?.find((p) => p.id === assignment.choferId);
   const selectedAyudante = personnel?.find((p) => p.id === assignment.ayudanteId);
@@ -200,13 +211,12 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     setSelectedSale(sale);
     // Sin peso en Odoo no hay compatibilidad confiable: no preseleccionar
     // vehículo por capacidad (un 0 silencioso sugeriría el más chico).
+    // Con datos, fleet.ts es la única fuente de verdad: el sugerido es el
+    // ajuste más apretado (el más chico que soporta la carga). Si ninguno
+    // la soporta, no se preselecciona nada.
     const bestVehicle = sinDatoCarga(sale.pesoTotal)
-      ? undefined
-      : vehicles?.find(
-          (v) =>
-            v.capacidadPeso >= (sale.pesoTotal ?? 0) &&
-            v.capacidadVolumen >= (sale.volumenTotal ?? 0)
-        );
+      ? null
+      : suggestedVehicle(vehicles ?? [], sale.pesoTotal ?? 0, sale.volumenTotal ?? 0);
     // Preferir una ruta cuyo origen coincida con la ciudad del almacén de la
     // venta (sugerencia; el usuario puede cambiarla). Si no hay almacén mapeado
     // o ninguna ruta coincide, comportamiento original: match por destino.
@@ -223,7 +233,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
       routes?.find(destinoMatch);
     setAssignment((prev) => ({
       ...prev,
-      vehiculoId: bestVehicle?.id ?? vehicles?.[0]?.id ?? 0,
+      vehiculoId: bestVehicle?.id ?? 0,
       routeId: matchingRoute?.id ?? 0,
       distanciaKm: matchingRoute?.distanciaTotalKm ?? 100,
     }));
@@ -573,10 +583,31 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                       <SelectItem key={v.id} value={v.id.toString()}>
                         {v.modelo} — {v.capacidadPeso}kg
                         {v.tipo === "tercero" ? " [Tercero]" : ""}
+                        {suggestedFit?.vehicle.id === v.id
+                          ? ` — ⭐ SUGERIDO (${suggestedFit.maxPct.toFixed(0)}% uso)`
+                          : ""}
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {suggestedFit && assignment.vehiculoId === suggestedFit.vehicle.id && (
+                  <Badge className="text-[10px] gap-1" data-testid="wizard-badge-sugerido">
+                    ⭐ SUGERIDO · {suggestedFit.maxPct.toFixed(0)}% uso
+                  </Badge>
+                )}
+                {ningunVehiculoCompatible && (
+                  <div
+                    data-testid="wizard-aviso-sin-vehiculo"
+                    className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                  >
+                    <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                    <span>
+                      Ningún vehículo de la flota soporta esta carga
+                      ({formatCarga(selectedSale?.pesoTotal, "kg")} · {formatCarga(selectedSale?.volumenTotal, "m³")}).
+                      Considera dividir el envío.
+                    </span>
+                  </div>
+                )}
               </div>
               <div className="space-y-1.5">
                 <Label className="text-sm">Distancia (km)</Label>

@@ -41,7 +41,6 @@ import type {
   ListOdooAlertsParams,
   ListProductsParams,
   ListSalesParams,
-  LoadRequirement,
   OdooStatus,
   OdooSyncResult,
   OdooTestResult,
@@ -3658,76 +3657,6 @@ export const useDeleteRoutePoint = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteRoutePointMutationOptions(options));
-    }
-
-export const getRecommendVehicleUrl = () => {
-
-
-
-
-  return `/api/vehicles/recommend`
-}
-
-/**
- * @summary Recommend the best vehicle for a given load
- */
-export const recommendVehicle = async (loadRequirement: LoadRequirement, options?: RequestInit): Promise<Vehicle[]> => {
-
-  return customFetch<Vehicle[]>(getRecommendVehicleUrl(),
-  {
-    ...options,
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', ...options?.headers },
-    body: JSON.stringify(loadRequirement)
-  }
-);}
-
-
-
-
-export const getRecommendVehicleMutationOptions = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recommendVehicle>>, TError,{data: BodyType<LoadRequirement>}, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof recommendVehicle>>, TError,{data: BodyType<LoadRequirement>}, TContext> => {
-
-const mutationKey = ['recommendVehicle'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recommendVehicle>>, {data: BodyType<LoadRequirement>}> = (props) => {
-          const {data} = props ?? {};
-
-          return  recommendVehicle(data,requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type RecommendVehicleMutationResult = NonNullable<Awaited<ReturnType<typeof recommendVehicle>>>
-    export type RecommendVehicleMutationBody = BodyType<LoadRequirement>
-    export type RecommendVehicleMutationError = ErrorType<unknown>
-
-    /**
- * @summary Recommend the best vehicle for a given load
- */
-export const useRecommendVehicle = <TError = ErrorType<unknown>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recommendVehicle>>, TError,{data: BodyType<LoadRequirement>}, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof recommendVehicle>>,
-        TError,
-        {data: BodyType<LoadRequirement>},
-        TContext
-      > => {
-      return useMutation(getRecommendVehicleMutationOptions(options));
     }
 
 export const getEstimateDispatchCostsUrl = (id: number,) => {

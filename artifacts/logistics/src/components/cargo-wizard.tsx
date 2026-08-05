@@ -50,6 +50,7 @@ function utilLabel(pct: number) {
 }
 
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
+import { classifyFleet } from "@/lib/fleet";
 
 export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehicleAssigned }: Props) {
   const queryClient = useQueryClient();
@@ -136,26 +137,24 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
     }, 300);
   }
 
+  // fleet.ts es la única fuente de verdad: los compatibles van primero,
+  // ordenados del ajuste más apretado al más holgado (el primero es el
+  // SUGERIDO). Dimensión sin dato → 0 (no restringe), pero la recomendación
+  // se marca incompleta con el aviso de arriba.
+  const fleetClass = classifyFleet(vehicles ?? [], totalPeso ?? 0, totalVol ?? 0);
   const rankedVehicles: Array<{
     vehicle: Vehicle;
     weightPct: number;
     volPct: number;
     maxPct: number;
     canFit: boolean;
-  }> = (vehicles ?? [])
-    .map(v => {
-      // Dimensión sin dato → no restringe (0%), pero la recomendación se marca incompleta.
-      const weightPct = totalPeso == null ? 0 : v.capacidadPeso > 0 ? (totalPeso / v.capacidadPeso) * 100 : Infinity;
-      const volPct = totalVol == null ? 0 : v.capacidadVolumen > 0 ? (totalVol / v.capacidadVolumen) * 100 : Infinity;
-      return {
-        vehicle: v,
-        weightPct,
-        volPct,
-        maxPct: Math.max(weightPct, volPct),
-        canFit: weightPct <= 100 && volPct <= 100,
-      };
-    })
-    .sort((a, b) => a.maxPct - b.maxPct);
+  }> = [...fleetClass.fit, ...fleetClass.unfit].map(c => ({
+    vehicle: c.vehicle as Vehicle,
+    weightPct: c.weightPct,
+    volPct: c.volPct,
+    maxPct: c.maxPct,
+    canFit: c.isFit,
+  }));
 
   const sinDatos = sinPeso && sinVolumen;
 
@@ -448,7 +447,9 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                           <span className="font-semibold text-sm truncate">{vehicle.modelo}</span>
                           <span className="text-xs text-muted-foreground shrink-0">{vehicle.placa}</span>
                           {canFit && idx === 0 && (
-                            <Badge className="text-[10px] shrink-0">SUGERIDO</Badge>
+                            <Badge className="text-[10px] shrink-0" data-testid="cargo-badge-sugerido">
+                              ⭐ SUGERIDO · {rankedVehicles[0].maxPct.toFixed(0)}% uso
+                            </Badge>
                           )}
                         </div>
                         {canFit && onVehicleAssigned && selectedSaleId && (

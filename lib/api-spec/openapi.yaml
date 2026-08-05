@@ -1015,28 +1015,6 @@ paths:
         "404":
           description: Not found
 
-  # --- VEHICLE RECOMMENDATION ---
-  /vehicles/recommend:
-    post:
-      operationId: recommendVehicle
-      tags: [vehicles]
-      summary: Recommend the best vehicle for a given load
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/LoadRequirement"
-      responses:
-        "200":
-          description: Recommended vehicles sorted by suitability
-          content:
-            application/json:
-              schema:
-                type: array
-                items:
-                  $ref: "#/components/schemas/Vehicle"
-
   # --- COST ESTIMATION ---
   /dispatches/{id}/estimate-costs:
     get:
@@ -1664,15 +1642,6 @@ components:
         tarifaPeaje:
           type: number
         tanqueLitros:
-          type: number
-
-    LoadRequirement:
-      type: object
-      required: [pesoTotal, volumenTotal]
-      properties:
-        pesoTotal:
-          type: number
-        volumenTotal:
           type: number
 
     # --- PERSONNEL ---
