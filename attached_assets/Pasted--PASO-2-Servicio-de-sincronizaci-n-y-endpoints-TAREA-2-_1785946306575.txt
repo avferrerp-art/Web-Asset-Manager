@@ -1,0 +1,96 @@
+# PASO 2 — Servicio de sincronización y endpoints
+
+```
+TAREA 2 — Sync de albaranes desde Odoo + endpoints de lectura
+
+CONTEXTO
+Las tablas deliveries y delivery_items ya existen (migración 0002). Ahora hay que
+poblarlas desde Odoo. LEÉ docs/odoo-albaranes-hallazgos.md antes de empezar; estos
+son los datos ya verificados contra la instancia real, no los re-verifiques:
+
+- Odoo 19.0 Enterprise.
+- stock.picking: filtrar por picking_type_id.code = 'outgoing'.
+  Vínculo primario a la venta: `sale_id` (many2one a sale.order, poblado en 30/30
+  de la muestra; su id numérico es el mismo que guardamos en sales.odooId).
+  `origin` es solo respaldo: puede venir false, o con texto no-venta
+  ("Devolución de CCS/IN/00011", "P00015", el typo "SS1046").
+  NO existe `group_id`.
+- Las líneas se leen por `move_ids`. NO existen move_ids_without_package ni move_lines.
+- stock.move: demanda = `product_uom_qty`, entregada = `quantity`.
+  `quantity_done` NO existe: pedirlo hace fallar la lectura.
+- almacenCodigo se deriva del prefijo de location_id[1] ("CCS/Existencias" → "CCS"),
+  porque stock.location NO tiene campo `code`.
+- Odoo devuelve `false` (no null) en campos vacíos, y las fechas son strings UTC sin
+  zona ("2026-08-03 13:42:05"): parsealas explícitamente como UTC.
+- Volumen esperado: 976 albaranes de salida, de los cuales 912 corresponden a ventas
+  ya importadas. Los ~64 restantes son órdenes viejas no importadas y 4 orígenes
+  no-venta: NO son un error, se cuentan y se siguen de largo.
+
+Convención OBLIGATORIA del repo (replit.md → Architecture decisions): la API se define
+primero en lib/api-spec/openapi.yaml, después se corre
+`pnpm --filter @workspace/api-spec run codegen`, y recién ahí se escribe el server.
+Nunca edites a mano lib/api-zod/src/generated/ ni lib/api-client-react/src/generated/.
+
+QUÉ CREAR
+
+1. artifacts/api-server/src/services/deliverySync.ts, con la estructura y el estilo de
+   odooSync.ts / productSync.ts:
+   - Paginar de a 200 con el patrón ["id", ">", lastId] + order "id asc" que ya usan
+     fetchConfirmedOrders y fetchOdooProducts.
+   - Vincular cada albarán a la venta por sale_id[0] contra sales.odooId. Si sale_id
+     viene false, intentar con origin contra sales.odooRef. Si ninguno matchea, contar
+     el albarán en `unmatched` y NO guardarlo.
+   - Traer las líneas stock.move en lotes y vincularlas al catálogo `products` por el
+     odooId del producto. Sin match, productId queda null: NO inventes un producto.
+   - UPSERT idempotente por deliveries.odooId y delivery_items.odooMoveId. Correrlo dos
+     veces no puede duplicar nada.
+   - Los albaranes cancelados (state 'cancel') TAMBIÉN se guardan. No los descartes:
+     quiero el historial completo, igual que se ve en Odoo.
+   - Guardar odooWriteDate en cada albarán para poder hacer sync incremental después.
+   - Registrar el resultado en la tabla odoo_sync_state, agregando columnas propias
+     para albaranes (lastDeliveriesSyncAt, lastDeliveriesResult, lastDeliveriesError,
+     deliveriesCreatedCount, deliveriesUpdatedCount), con su migración 0003 idempotente
+     y registrada, igual que la 0002.
+   - Lectura defensiva siguiendo .agents/memory/odoo-partner-reads.md: detectá los campos
+     disponibles con fields_get y logueá warn si falta alguno opcional. PERO si no se
+     pueden leer `quantity` (cantidad entregada) o `location_id` (almacén de origen),
+     la sync debe FALLAR con un error claro. Nunca guardes ceros o nulls en esos dos
+     campos por una degradación silenciosa — ese fue exactamente el bug de los destinos.
+   - Devolver { created, updated, itemsUpserted, unmatched, total }.
+
+2. En lib/api-spec/openapi.yaml definí:
+   - POST /odoo/sync-deliveries  → dispara la sync, devuelve DeliverySyncResult
+   - GET  /sales/{id}/deliveries → array de albaranes de esa venta con sus items
+     embebidos (Delivery con `items: DeliveryItem[]`), ordenados por fechaProgramada
+     descendente y con los cancelados al final.
+   Definí los schemas Delivery, DeliveryItem y DeliverySyncResult con todos los campos
+   de las tablas. Mantené el título del spec en "Api" (los import paths dependen de eso).
+
+3. Corré el codegen y creá artifacts/api-server/src/routes/deliveries.ts con los dos
+   endpoints, validando con los Zod generados. Registralo en src/routes/index.ts
+   DESPUÉS de requireAuth (ver .agents/memory/clerk-auth-setup.md).
+
+RESTRICCIONES
+- NO toques odooSync.ts ni productSync.ts: este servicio es independiente.
+- NO modifiques sales, sale_items ni products. Este paso solo escribe en deliveries,
+  delivery_items y odoo_sync_state.
+- NO agregues todavía estadoEntrega ni almacenOrigen a sales (es la tarea siguiente).
+- NO agregues polling automático todavía. Por ahora solo el endpoint manual.
+- Nada de UI.
+- Reiniciá el workflow del api-server después del codegen: el server bundlea al
+  arrancar y no hace hot-reload de las libs.
+
+VERIFICACIÓN (mostrame los números reales, no "listo")
+a) Primera corrida: cuántos albaranes y líneas se crearon, y cuántos quedaron sin
+   matchear. El unmatched debería rondar los 64.
+b) Segunda corrida: created = 0. Confirmalo con un COUNT antes y después.
+c) La venta de S01344: exactamente 2 albaranes — CCS/OUT/00307 en 'cancel' con almacén
+   CCS/Existencias (código CCS), y LEC/OUT/00611 en 'assigned' con LEC/Existencias (LEC).
+d) La venta de S01285: 4 albaranes, 2 en 'cancel' y 2 en 'done'.
+e) El albarán CCS/OUT/00278: 5 líneas con demanda/entregada 8/8, 20/20, 20/20, 200/200,
+   200/200, y la relación de backorder con CCS/OUT/00279 registrada.
+f) Cuántas líneas quedaron vinculadas al catálogo products y cuántas no.
+g) Confirmame con una consulta que ninguna fila de sales, sale_items ni products cambió
+   durante la sync.
+
+Al terminar, commiteá, mergeá a main y pusheá a GitHub.
