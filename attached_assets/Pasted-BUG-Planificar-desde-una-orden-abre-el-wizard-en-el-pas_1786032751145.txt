@@ -1,0 +1,64 @@
+BUG — "Planificar" desde una orden abre el wizard en el paso de buscar orden
+
+SÍNTOMA
+En Pre-Despacho, al hacer click en "Planificar" en la fila de una orden concreta, el
+wizard "Planificar Carga" abre en el paso 1 (Seleccionar orden) en vez de arrancar en
+Partidas, que es de donde debería partir porque la orden ya está elegida. Si cierro y
+vuelvo a abrir la MISMA orden, ahí sí arranca bien en Partidas.
+
+CAUSA RAÍZ
+artifacts/logistics/src/components/cargo-wizard.tsx, líneas 58-59:
+
+  const [step, setStep] = useState(initialSaleId ? 2 : 1);
+  const [selectedSaleId, setSelectedSaleId] = useState<number | null>(initialSaleId ?? null);
+
+El inicializador de useState corre SOLO en el primer montaje. El CargoWizard está montado
+de forma permanente en pre-despacho.tsx (~línea 270) y en ventas.tsx (~línea 220) desde
+que carga la página, cuando initialSaleId todavía es undefined. Así que step nace en 1 y
+nunca se vuelve a calcular aunque después llegue la orden por props.
+
+Y el motivo de que la segunda vez funcione está en handleClose(), líneas 129-137: un
+setTimeout que hace setStep(initialSaleId ? 2 : 1) AL CERRAR, con el initialSaleId de la
+orden que se acaba de ver. El estado correcto se aplica tarde. Eso además deja un bug
+peor latente: abrir el wizard sin orden después de haberlo usado con una puede arrancar
+en Partidas con una orden vieja seleccionada.
+
+QUÉ HACER
+
+1. Sincronizá el estado cuando el diálogo se ABRE, no cuando se cierra. La forma más
+   robusta y la que prefiero: en los dos call sites (pre-despacho.tsx y ventas.tsx) pasale
+   una `key` al componente basada en la orden, por ejemplo
+   key={`cargo-${cargoWizardSaleId ?? "none"}`}, para que React lo remonte con el estado
+   inicial correcto en cada apertura. Si en vez de eso preferís un useEffect sobre
+   [open, initialSaleId] dentro del componente, también sirve — pero decime cuál elegiste
+   y por qué.
+
+2. Eliminá el reset con setTimeout de handleClose(). Es la fuente del comportamiento
+   fantasma y deja de hacer falta si el estado se inicializa bien al abrir.
+
+3. Revisá que la query de órdenes (`enabled: !initialSaleId`) siga siendo coherente: si se
+   abre con orden, no hace falta traer la lista de pendientes; si se abre sin orden, sí.
+
+4. Aplicá el mismo criterio en cualquier otro diálogo del repo que reciba datos iniciales
+   por props y esté montado permanentemente. Revisá al menos nuevo-despacho-wizard.tsx y
+   sale-detail-sheet.tsx y decime si tienen el mismo patrón. Si lo tienen, arreglalos
+   igual; si no, decímelo explícitamente.
+
+RESTRICCIONES
+- NO cambies el flujo del wizard ni sus pasos: solo en cuál arranca.
+- NO toques la lógica de flota, albaranes, estadoEntrega ni la carga desde Odoo.
+- Abrir el wizard SIN orden (desde el botón general) tiene que seguir arrancando en el
+  paso 1, con la lista de órdenes.
+
+VERIFICACIÓN — capturas del navegador
+a) Pre-Despacho → "Planificar" en la orden #772: abre directo en Partidas, con #772 ya
+   seleccionada, la PRIMERA vez.
+b) Cerrar y abrir "Planificar" en OTRA orden distinta, por ejemplo #770: abre en Partidas
+   con #770, no con #772.
+c) Cerrar y abrir el wizard desde el botón general sin orden: arranca en el paso 1 con la
+   lista, sin ninguna orden preseleccionada.
+d) Lo mismo desde la página de Ventas, que usa el mismo componente.
+e) Repetir el ciclo tres veces seguidas alternando órdenes, para confirmar que no queda
+   estado pegado entre aperturas.
+
+Antes de decir que está listo, hacé el ciclo (a)→(b)→(c) en la app con la ventana abierta.
