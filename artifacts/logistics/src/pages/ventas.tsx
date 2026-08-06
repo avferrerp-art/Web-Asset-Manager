@@ -284,6 +284,7 @@ export default function Ventas() {
         onOpenChange={setDetailOpen}
       />
       <CargoWizard
+        key={`cargo-${cargoWizardSaleId ?? "none"}`}
         open={cargoWizardOpen}
         onClose={() => { setCargoWizardOpen(false); setCargoWizardSaleId(undefined); setCargoWizardSale(null); }}
         initialSaleId={cargoWizardSaleId}

@@ -267,6 +267,7 @@ export default function PreDespacho() {
       </div>
       <NuevoDespachoWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
       <CargoWizard
+        key={`cargo-${cargoWizardSaleId ?? "none"}`}
         open={cargoWizardOpen}
         onClose={() => { setCargoWizardOpen(false); setCargoWizardSaleId(undefined); setCargoWizardSale(null); }}
         initialSaleId={cargoWizardSaleId}

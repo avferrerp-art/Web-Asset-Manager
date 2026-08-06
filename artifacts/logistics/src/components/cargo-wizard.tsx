@@ -127,14 +127,11 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
   const sinPeso = totalPeso == null;
   const sinVolumen = totalVol == null;
 
+  // No reset diferido aquí: los call sites pasan una `key` basada en la orden
+  // (ej. `cargo-${saleId ?? "none"}`), así que React remonta el componente con
+  // el estado inicial correcto en cada apertura.
   function handleClose() {
     onClose();
-    setTimeout(() => {
-      setStep(initialSaleId ? 2 : 1);
-      setSelectedSaleId(initialSaleId ?? null);
-      setLinkingItemId(null);
-      setLinkSearch("");
-    }, 300);
   }
 
   // fleet.ts es la única fuente de verdad: los compatibles van primero,
