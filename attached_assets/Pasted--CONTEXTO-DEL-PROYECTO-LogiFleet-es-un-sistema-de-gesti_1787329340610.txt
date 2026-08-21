@@ -1,0 +1,179 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas y
+traslados internos desde Odoo, planifica despachos, calcula costos, y tiene una
+app móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura relevante aquí:
+
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO (hooks React Query) — NO editar
+  lib/db/               Drizzle schema + migraciones
+  artifacts/api-server/ API Express 5 (routers en src/routes/)
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui + React Query
+
+Lee `replit.md` y `.agents/memory/`. Relevantes acá:
+  - .agents/memory/hook-call-convention.md   (hooks generados: useHook({ query: {...} }))
+  - .agents/memory/cache-bust-pattern.md
+  - .agents/memory/visual-verify-behind-auth.md
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: define el endpoint en lib/api-spec/openapi.yaml y luego
+     `pnpm --filter @workspace/api-spec run codegen`. Los `generated/` NUNCA se
+     editan a mano. El título del spec debe seguir siendo "Api".
+  2. Routers nuevos van DESPUÉS de requireAuth en src/routes/index.ts.
+  3. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  4. null = "sin dato". La UI dice "sin dato en Odoo", NUNCA muestra 0.
+  5. Los listados se ordenan de más reciente a más antiguo.
+
+════════ QUÉ YA EXISTE EN LA BASE DE DATOS ════════
+
+El sync de traslados ya corrió sobre datos reales y estos son los resultados
+verificados — te doy los números para que calibres la UI con la distribución
+real, no con casos ideales:
+
+  144 traslados importados
+    81 interplaza (cruzan Caracas ↔ Lechería — necesitan camión grande, peajes)
+    63 intraplaza (Urbina↔Caracas o Lechería↔Nueva Barcelona — viaje urbano corto)
+
+  Por estado de Odoo: done 122 · cancel 14 · draft 7 · assigned 1
+
+  Peso calculable: 58 de 144 (40%) — MEJOR cobertura que el catálogo general
+  Volumen calculable: 23 de 144 (16%) — MUCHO más débil que el peso
+
+  0 traslados con almacén sin resolver (los 4 almacenes cubren el 100% de los
+  casos reales)
+
+CONSECUENCIA DE DISEÑO: con solo 40% de cobertura de peso y 16% de volumen, la
+mayoría de las filas de esta pantalla van a mostrar "sin dato en Odoo" en esas
+columnas. Eso NO es un bug ni un caso raro a ocultar — es el estado normal.
+La UI tiene que verse bien así, no solo en el caso feliz con todos los datos.
+
+Tablas involucradas (ya existen, con datos reales):
+  almacenes       id, codigo, odooPrefix, nombre, plaza, activo
+                  4 filas: URB/Urbina/Caracas, CCS/Caracas/Caracas,
+                  LEC/Lechería/Lechería, NVBLA/Nueva Barcelona/Lechería
+  deliveries      tipo ('venta'|'traslado'), nombre, estado (Odoo),
+                  almacenOrigen, almacenCodigo, almacenDestino,
+                  almacenDestinoCodigo, fechaProgramada, fechaEfectiva
+  delivery_items  deliveryId, descripcion, cantidadDemanda, cantidadEntregada,
+                  uom, productId
+  traslados       deliveryId (FK), almacenOrigenId, almacenDestinoId,
+                  estadoLogistico, pesoCalculadoKg, volumenCalculadoM3,
+                  pesoEstimadoKg, notas
+  products        pesoOdoo, volumenOdoo (nullable, null = sin dato)
+
+Si algo de esto falta, detente y repórtalo.
+
+════════ TAREA ════════
+
+Exponer los traslados en la API y crear el módulo Traslados en la web.
+SOLO LECTURA — sin planificación, sin asignar camión, sin crear ni editar.
+
+1. En lib/api-spec/openapi.yaml (primero el contrato, después el codegen):
+
+   GET /traslados
+     query params: almacenOrigenId, almacenDestinoId, estadoLogistico,
+     estadoOdoo, search
+     respuesta por fila:
+       id, referencia (deliveries.nombre),
+       almacenOrigen {id, codigo, nombre, plaza},
+       almacenDestino {id, codigo, nombre, plaza},
+       cruzaPlaza (bool, true si almacenOrigen.plaza !== almacenDestino.plaza),
+       mismoAlmacen (bool, true si almacenOrigenId === almacenDestinoId),
+       fechaProgramada, fechaEfectiva, estadoOdoo, estadoLogistico,
+       cantidadLineas, pesoCalculadoKg, volumenCalculadoM3
+
+   GET /traslados/{id}
+     lo anterior + líneas: productoId, codigo, descripcion, demanda, cantidad,
+     unidad, diferencia (demanda - cantidad)
+
+   Después: `pnpm --filter @workspace/api-spec run codegen`
+
+2. Router src/routes/traslados.ts, montado en src/routes/index.ts DESPUÉS de
+   requireAuth. Ordenar por fechaProgramada descendente, nulls al final.
+
+3. Página artifacts/logistics/src/pages/traslados.tsx + ruta `/traslados` en
+   App.tsx (agrégala después de `/ventas`, junto a los demás <Route> con
+   ProtectedPage) + entrada en el sidebar en
+   artifacts/logistics/src/components/layout.tsx (el array `navItems`, después
+   de "Ventas"; usa el ícono ArrowLeftRight de lucide-react — ya se usa ese
+   patrón de íconos en el resto del array, revísalo antes de importar uno
+   nuevo).
+
+   CLAVE DE UX: un traslado es "una venta sin cliente". Reusa los patrones de
+   src/pages/ventas.tsx (tabla, badges, barra de búsqueda con
+   src/lib/search.ts — usa matchesSearch, es accent-insensitive, así que
+   "lecheria" sin tilde encuentra "Lechería") y de
+   src/components/sale-detail-sheet.tsx para el panel de detalle. No inventes
+   un lenguaje visual nuevo.
+
+   Columnas de la tabla: Referencia · Origen → Destino · Fecha programada ·
+   Estado · Artículos · Peso
+
+   - Origen → Destino: SIEMPRE el nombre del almacén, nunca el prefijo de
+     Odoo. "Urbina → Lechería", jamás "Urbin → LEC". Cuando cruzaPlaza es
+     true, usa un badge o acento visual distinto — es el viaje que necesita
+     camión grande y peajes; distínguelo del viaje urbano corto de un
+     vistazo, sin que el usuario tenga que abrir el detalle.
+   - Estado: una sola columna que combine estadoOdoo y estadoLogistico de
+     forma legible (ej. "Confirmado en Odoo", "Por planificar",
+     "Cancelado") — no dos badges compitiendo por espacio.
+   - Filas con mismoAlmacen = true: atenuadas (opacity reducida), con
+     tooltip "reubicación dentro del mismo almacén, no requiere transporte".
+     Vas a tener pocas pero existen (Urbin/INT/00014 es un caso real).
+   - Peso: si pesoCalculadoKg es null, mostrar "sin dato en Odoo" en el
+     mismo estilo (itálica, gris tenue) que ya usa articulos.tsx. Con 40%
+     de cobertura, ESTA es la vista más común de la columna — que se vea
+     bien, no como un error.
+   - Filtros por almacén de origen, almacén de destino y estado. En el
+     selector de almacén usa el nombre completo con tilde (Lechería), no el
+     código.
+
+4. Panel de detalle: sigue el patrón exacto de la pestaña "Entregas" de
+   sale-detail-sheet.tsx — es prácticamente la misma tarjeta:
+
+     [Referencia]  [badge estado]
+     Almacén de origen     Nombre completo (no el string crudo de Odoo)
+     Almacén de destino    Nombre completo
+     Fecha programada
+     Fecha efectiva
+     ┌─────────────────────────┬─────────┬───────────┬────────┐
+     │ Producto                │ Demanda │ Entregado │ Unidad │
+
+   En las líneas, resalta visualmente cuando demanda ≠ cantidad — es el
+   faltante detectado en la recepción y hoy no se ve en ningún lado de la
+   app. Usa un tratamiento sutil (color de texto o un ícono), no un badge
+   rojo agresivo por cada línea: en ventas ya viste que hay volumen de datos
+   y no todo desajuste es grave.
+
+5. Si pesoCalculadoKg o volumenCalculadoM3 tienen valor, muéstralos en el
+   encabezado del panel junto a las fechas. Si ambos son null, no dejes un
+   hueco en blanco — usa el mismo "sin dato en Odoo" del resto de la app.
+
+════════ NO HAGAS ════════
+- NO agregues botones de crear, editar ni eliminar traslados.
+- NO toques el módulo de Ventas, Pre-Despacho ni Despachos.
+- NO permitas asignar vehículo ni chofer todavía.
+- NO toques la app chofer (artifacts/chofer).
+- NO uses pesoEstimadoKg en esta pantalla — esa columna es para la Fase 2
+  (planificación), aquí solo se lee lo que ya calculó el sync.
+- NO edites directorios `generated/`.
+
+════════ VERIFICACIÓN ════════
+- `pnpm run typecheck` limpio y api-server reiniciado.
+- La lista muestra los 144 traslados con origen y destino correctos.
+  Verificar puntualmente que Urbin/INT/00003 aparece como "Caracas →
+  Lechería" (NO "Urbina → Lechería").
+- Urbin/INT/00014 aparece atenuado con su tooltip.
+- Filtrar por estadoOdoo=cancel debe devolver 14 filas.
+- Filtrar por almacén con "Lechería" (con tilde) en el selector funciona.
+- Un traslado con pesoCalculadoKg null muestra "sin dato en Odoo" — probar
+  con uno de los 86 que no tienen peso, no solo con los 58 que sí.
+- Un traslado con demanda ≠ cantidad en alguna línea muestra el resaltado.
+- Para las capturas: la app está detrás del login de Clerk. Sigue el patrón
+  de .agents/memory/visual-verify-behind-auth.md — monta un componente en
+  artifacts/mockup-sandbox con datos representativos (incluye al menos un
+  caso interplaza, uno intraplaza, uno sin peso y uno con demanda≠cantidad)
+  y captura ahí; saca los números reales con SQL o un router standalone.
