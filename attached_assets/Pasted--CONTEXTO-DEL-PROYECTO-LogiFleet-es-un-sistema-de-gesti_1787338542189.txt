@@ -1,0 +1,301 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas desde Odoo,
+planifica despachos (vehículo + chofer + ruta), calcula costos, y tiene una app
+móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui + React Query
+  artifacts/mockup-sandbox/  canvas de mockups (solo diseño, no producción)
+
+Lee `replit.md` en la raíz y `.agents/memory/`. Para esta tarea son críticos:
+  - .agents/memory/measurement-domain-semantics.md  (ventas y traslados NO
+    comparten el mismo predicado de "sin dato" — ver más abajo, es el error
+    más fácil de cometer en esta tarea)
+  - .agents/memory/visual-verify-behind-auth.md
+  - .agents/memory/hook-call-convention.md (si existe)
+  - .agents/memory/cache-bust-pattern.md (si existe)
+
+REGLAS DEL REPO — no negociables:
+  1. Esta es una tarea 100% de frontend. NO toques lib/api-spec/openapi.yaml,
+     lib/db/, ni ningún archivo bajo artifacts/api-server/. El contrato de API
+     que necesitas YA EXISTE (ver más abajo) — si algo de lo descrito no
+     existe tal cual, detente y repórtalo, no lo inventes en el backend.
+  2. NO edites directorios `generated/`.
+  3. null = "sin dato". NUNCA mostrar 0 cuando no hay dato.
+  4. Ventas y traslados tienen semántica de "sin dato" DISTINTA (ver abajo).
+     No reutilices el helper de una para la otra, y NO edites
+     `src/lib/carga.ts` (el de ventas) para intentar que sirva para ambas.
+
+════════ REQUISITO PREVIO — lo que ya existe ════════
+
+Una tarea anterior ("Generaliza despachos para ventas y traslados con peso
+efectivo editable") ya dejó el backend completo:
+
+  - `dispatches` ahora es polimórfico: columnas `tipo` ('venta'|'traslado'),
+    `ventaId` (nullable) y `trasladoId` (nullable), con constraint de
+    exclusividad (exactamente uno de los dos).
+  - `POST /dispatches` acepta un body discriminado por `tipo`:
+      { tipo: "venta", ventaId, vehiculoId, choferId, fechaEstimadaSalida,
+        fechaEstimadaLlegada, ruta?, distanciaKm?, distanciaManual?, routeId?,
+        totalPeajes?, routePoints? }
+    o
+      { tipo: "traslado", trasladoId, vehiculoId, choferId, ...los mismos
+        campos comunes }
+    `tipo` es OBLIGATORIO en el body — el default a "venta" solo aplica si lo
+    omites por completo, así que en el flujo de traslados envíalo explícito.
+  - `Dispatch` / `DispatchDetail` (respuesta de GET/POST) ahora incluyen:
+    `tipo`, `ventaId`, `trasladoId`, `referencia`, `origen`, `destino`
+    (estos tres ya vienen resueltos por el backend tanto para venta como
+    para traslado — para un traslado, `destino` es el NOMBRE del almacén
+    destino, ej. "Lechería", ya no lo compongas tú).
+    `DispatchDetail.pesoTotal`/`volumenTotal` para un traslado ya vienen
+    igual a `traslado.pesoEfectivoKg` / `traslado.volumenCalculadoM3`.
+  - `traslados` tiene ahora `pesoEfectivoKg` (peso de Odoo si existe, si no
+    el estimado local) y `origenPeso` ('odoo' | 'estimado' | null).
+  - `PATCH /traslados/{id}` permite editar `pesoEstimadoKg` (número > 0 o
+    null) y `notas`. Si el traslado YA tiene peso de Odoo
+    (`pesoCalculadoKg !== null`), el PATCH de `pesoEstimadoKg` responde 400
+    con `{ error: "peso_odoo_readonly" }` — es de solo lectura en ese caso,
+    no lo intentes ocultar con un try/catch silencioso, muestra el error.
+  - El módulo Traslados de solo lectura (`/traslados`, componentes
+    `TrasladoStatusBadge`, `TrasladoDetailSheet`, helpers
+    `formatTrasladoMedida`/`trasladoSinMedida` en
+    `src/lib/traslado-medidas.ts`) ya existe y funciona.
+
+Si al revisar el código algo de esto no coincide, DETENTE y repórtalo — no
+sigas adivinando el contrato.
+
+════════ POR QUÉ ESTA TAREA ════════
+
+Hoy Pre-Despacho (`src/pages/pre-despacho.tsx`) solo lista órdenes de venta
+pendientes. Un traslado interno que necesita camión no tiene forma de
+convertirse en despacho: no aparece en ninguna cola de planificación.
+
+El wizard de sugerencia de vehículo (`src/components/cargo-wizard.tsx`,
+`CargoWizard`) tampoco sabe de traslados — solo calcula compatibilidad de
+flota a partir de `sale.pesoTotal`/`volumenTotal`.
+
+Esta tarea generaliza AMBOS para que un traslado se planifique con la misma
+calidad de UX que una venta: elegir vehículo por capacidad, crear el
+despacho, ver costos estimados.
+
+FUERA DE ALCANCE — no lo toques en esta tarea:
+  - `src/components/nuevo-despacho-wizard.tsx` (el flujo del botón "Nuevo
+    Despacho" en Pre-Despacho). Es un wizard standalone de casi 1000 líneas
+    que duplica gran parte de esta misma lógica para ventas; generalizarlo
+    a traslados es una tarea separada posterior. En esta tarea el botón
+    "Nuevo Despacho" sigue funcionando exactamente igual que hoy (solo
+    ventas) — no lo relaciones con lo que estás construyendo.
+  - `src/pages/despachos.tsx` (la lista general de despachos). Los campos
+    `referencia`/`origen`/`destino` que ya devuelve el backend deberían
+    hacer que un despacho de traslado se vea razonable ahí sin cambios,
+    pero pulir esa pantalla NO es parte de esta tarea. Solo verifica que no
+    se rompe (ver VERIFICACIÓN).
+  - `src/pages/ventas.tsx`. El flujo de ventas no cambia en nada.
+  - No edites `src/lib/carga.ts`.
+
+════════ LA TRAMPA: dos semánticas de "sin dato" ════════
+
+`sinDatoCarga`/`formatCarga` (`src/lib/carga.ts`, usado por ventas) trata
+CUALQUIER valor `<= 0` como "sin dato" — es una convención defensiva para el
+cálculo de capacidad de ventas.
+
+`trasladoSinMedida`/`formatTrasladoMedida` (`src/lib/traslado-medidas.ts`)
+trata SOLO `== null` como "sin dato" — es el contrato real de lectura de
+traslados.
+
+Para todo lo que construyas en esta tarea sobre datos de traslado (peso
+efectivo, volumen, el input de estimado), usa `trasladoSinMedida` /
+`formatTrasladoMedida`. Para todo lo que sigue siendo de venta dentro del
+mismo componente (porque `CargoWizard` ahora sirve a los dos), sigue usando
+`sinDatoCarga`/`formatCarga` exactamente como hoy. No mezcles ni "unifiques"
+ambos helpers — son semánticas de negocio distintas, no un descuido a
+corregir.
+
+════════ TAREA ════════
+
+1. Generalizar `CargoWizard` (`src/components/cargo-wizard.tsx`) para que
+   también planifique traslados, SIN romper el flujo actual de ventas (usado
+   hoy desde `ventas.tsx` y `pre-despacho.tsx` — ambos sitios deben seguir
+   funcionando byte-a-byte igual para ventas).
+
+   Props nuevas, opcionales, además de las que ya existen:
+     - `initialTrasladoId?: number`
+     - `initialTraslado?: TrasladoSummary`
+     - `onTrasladoVehicleAssigned?: (trasladoId: number, vehicleId: number) => void`
+
+   El componente entra en "modo traslado" cuando se le pasa
+   `initialTrasladoId`/`initialTraslado` (mutuamente excluyente con el modo
+   venta — en esta tarea el wizard siempre se abre desde Pre-Despacho con un
+   id inicial ya conocido, así que el paso 1 "Orden" no aplica a traslados:
+   arranca directo mostrando compatibilidad de flota).
+
+   En modo traslado, usa datos EN VIVO del traslado (no solo el prop
+   estático): resuélvelo con el hook de lectura individual generado
+   (`useGetTraslado` o el nombre exacto que tenga en
+   `lib/api-client-react/src/generated/`, revísalo) para que, al guardar un
+   peso estimado (punto 2), el wizard refleje el nuevo valor sin cerrar y
+   reabrir.
+
+   Cabecera del paso de flota en modo traslado (reemplaza el bloque de
+   Cliente/Destino que hoy se muestra para ventas):
+     - Referencia del traslado, Origen → Destino (con el mismo patrón visual
+       de nombre de almacén que usa `traslados.tsx`, nunca el prefijo de
+       Odoo), badge "Cruza Plaza" si `cruzaPlaza`.
+     - Peso efectivo: `formatTrasladoMedida(traslado.pesoEfectivoKg, "kg")`.
+       Si `origenPeso === "estimado"`, añade una etiqueta pequeña "(estimado)"
+       junto al valor — la gente necesita saber que ese número no vino de
+       Odoo.
+     - Volumen: `formatTrasladoMedida(traslado.volumenCalculadoM3, "m³")`.
+       No existe volumen estimado — si es null, sigue sin dato, punto.
+
+   La lista de flota (`classifyFleet`) se sigue calculando exactamente igual
+   que hoy (es agnóstica al dominio, no la toques) pero alimentada con
+   `traslado.pesoEfectivoKg ?? 0` / `traslado.volumenCalculadoM3 ?? 0` en modo
+   traslado. El botón "Asignar este vehículo" llama a
+   `onTrasladoVehicleAssigned(trasladoId, vehicle.id)` en vez de al callback
+   de venta.
+
+2. Input de peso estimado (solo aplica en modo traslado, solo cuando
+   `traslado.pesoCalculadoKg === null`, es decir cuando Odoo no tiene el
+   dato — si Odoo SÍ lo tiene, no muestres ningún input, el peso es de solo
+   lectura):
+
+   Un campo numérico + botón "Guardar estimado" que llama a la mutación
+   `useUpdateTraslado` con `{ id: trasladoId, data: { pesoEstimadoKg: valor } }`.
+     - Validar en el cliente que el valor sea > 0 antes de habilitar el botón
+       (el backend también lo exige, pero no dejes que el usuario mande un
+       request que sabes que va a fallar).
+     - Al tener éxito: invalida/refresca la query del traslado individual
+       para que `pesoEfectivoKg`/`origenPeso` se actualicen y la lista de
+       flota se recalcule con el nuevo valor. Toast de confirmación.
+     - Si falla con `peso_odoo_readonly` (no debería pasar si ya ocultaste el
+       input correctamente, pero cúbrelo): toast de error con el mensaje del
+       backend, no un mensaje genérico.
+     - Mientras no haya ni dato de Odoo ni estimado guardado
+       (`pesoEfectivoKg === null`), la lista de flota sigue mostrándose (no
+       bloquees el wizard) pero con la misma advertencia amarilla que ya
+       existe para ventas incompletas ("Recomendación incompleta..."),
+       adaptada al texto de traslados y mencionando que puede cargar un
+       estimado arriba.
+
+3. Nuevo componente `src/components/traslados-pendientes-card.tsx` con la
+   cola de traslados por planificar (créalo aparte de `pre-despacho.tsx` en
+   vez de inflar ese archivo más — ya está señalado como uno de los archivos
+   grandes del repo que conviene no seguir engordando).
+
+   Fuente de datos: `useListTraslados({ estadoLogistico: "por_planificar" })`.
+   Esto es solo un primer filtro en el servidor — TODAVÍA falta excluir los
+   traslados que YA tienen un despacho activo, porque el backend actual NO
+   actualiza `estadoLogistico` cuando se crea un despacho de traslado (es un
+   hueco conocido, ver la nota al final). Por eso el filtro real de "necesita
+   planificación" es del lado del cliente, igual que ya hace Pre-Despacho
+   para ventas con `salesWithDispatch`:
+
+     - Recibe `allDispatches` (la misma lista que ya carga Pre-Despacho,
+       `useListDispatches`) como prop.
+     - Construye `trasladosConDespacho = new Set(allDispatches.filter(d =>
+       d.estado !== "cancelado" && d.tipo === "traslado").map(d => d.trasladoId))`.
+     - Muestra solo traslados con `!t.mismoAlmacen`, `t.almacenOrigen` y
+       `t.almacenDestino` no nulos, y `!trasladosConDespacho.has(t.id)`.
+
+   Columnas: Referencia · Origen → Destino (con badge "Cruza Plaza") · Peso
+   (usa `formatTrasladoMedida`, marca "(estimado)" cuando corresponda) ·
+   Volumen · Acciones.
+
+   Acciones, mismo patrón que la tabla de ventas de Pre-Despacho:
+     - Botón "Planificar" → abre `CargoWizard` en modo traslado (paso de
+       flota).
+     - Botón "Crear Despacho" → llama a un callback `onCrearDespacho(traslado,
+       vehiculoSugeridoId?)` que el padre (`pre-despacho.tsx`) resuelve igual
+       que hoy hace para ventas.
+
+   Barra de búsqueda propia (no compartas el estado `search` de la tabla de
+   ventas), usando `matchesSearch` sobre referencia, nombre de almacén
+   origen, nombre de almacén destino y `#id`.
+
+   Estado vacío: si no hay traslados pendientes, un mensaje claro tipo "No
+   hay traslados pendientes de planificar" (mismo estilo visual que el de
+   ventas).
+
+4. Integrar en `src/pages/pre-despacho.tsx`:
+
+   - Renderizar `<TraslasdosPendientesCard allDispatches={allDispatches} .../>`
+     debajo de la card de "Órdenes de Venta por Planificar" (nombre real del
+     componente: el que le pusiste en el paso 3).
+   - Estado nuevo: `selectedTraslado`, `cargoWizardTrasladoOpen`,
+     `cargoWizardTrasladoId`, `cargoWizardTraslado` (mismo patrón que ya
+     existe para ventas, en paralelo, NO mezclado con el estado de venta).
+   - Segunda instancia de `CargoWizard` en modo traslado, con su propio
+     `open`/`onClose`, análoga a la que ya existe para ventas.
+   - `handleSelectTraslado(traslado, overrideVehicleId?)`: análogo a
+     `handleSelectSale`, pero:
+       - Preselección de vehículo por capacidad usa
+         `trasladoSinMedida(traslado.pesoEfectivoKg)` (no `sinDatoCarga`) y
+         compara contra `pesoEfectivoKg`/`volumenCalculadoM3`.
+       - `ruta` se inicializa con `${traslado.almacenDestino.nombre}`.
+       - La ruta predefinida sugerida (`matchingRoute`) se busca igual que
+         hoy pero comparando contra el nombre del almacén destino en vez de
+         `sale.destino`.
+   - El diálogo "Configurar Despacho" (el que ya existe al final del
+     archivo) debe funcionar para ambos casos:
+       - Título: "Configurar Despacho — Orden #{selectedSale.id}" o
+         "Configurar Despacho — Traslado {selectedTraslado.referencia}"
+         según cuál esté activo (son mutuamente excluyentes: al abrir uno,
+         limpia el otro).
+       - El bloque de resumen (Cliente/Destino/Peso/Volumen) se reemplaza por
+         Origen→Destino/Peso/Volumen cuando es un traslado.
+       - `onSubmit` arma el payload discriminado:
+         `selectedTraslado ? { ...values, tipo: "traslado", trasladoId: selectedTraslado.id }
+                           : { ...values, tipo: "venta", ventaId: selectedSale.id }`
+       - Al tener éxito: además de invalidar sales/dispatches como ya hace
+         hoy, invalida también la query de `useListTraslados` para que el
+         traslado recién planificado desaparezca de la cola. Limpia
+         `selectedSale` Y `selectedTraslado`.
+   - La detección de conflicto de vehículo (`vehicleConflict`, más abajo en
+     el archivo) NO necesita cambios — ya funciona sobre `allDispatches` sin
+     importar el tipo. Confírmalo, no lo reescribas.
+
+════════ NO HAGAS ════════
+- NO toques el backend, `openapi.yaml`, ni ningún directorio `generated/`.
+- NO toques `nuevo-despacho-wizard.tsx`, `ventas.tsx` ni `despachos.tsx`.
+- NO edites `src/lib/carga.ts` ni reutilices `sinDatoCarga`/`formatCarga`
+  para datos de traslado.
+- NO agregues un endpoint ni una tabla nueva — todo lo que necesitas ya
+  existe en el backend.
+- NO bloquees la creación de un despacho de traslado solo porque el volumen
+  no tiene dato — mismo criterio que ventas: null no bloquea.
+- NO intentes "arreglar" que `estadoLogistico` no avance al crear el
+  despacho — es un hueco de backend fuera de esta tarea (ver nota final);
+  el filtro client-side del punto 3 ya lo compensa.
+
+════════ VERIFICACIÓN ════════
+- `pnpm run typecheck` limpio.
+- Regresión de ventas: el flujo completo de Pre-Despacho para una venta
+  (Planificar → asignar vehículo → Crear Despacho → aprobar) sigue
+  funcionando exactamente igual que antes de esta tarea.
+- Un traslado que cruza plaza muestra el badge "Cruza Plaza" tanto en la
+  cola como en la cabecera del wizard.
+- Un traslado con peso en Odoo (`pesoCalculadoKg` no null): el wizard NO
+  muestra el input de estimado, y la recomendación de vehículo usa ese peso.
+- Un traslado SIN peso en Odoo: el wizard muestra el input; guardar un
+  estimado hace que la recomendación de vehículo se recalcule sin cerrar el
+  wizard, y el valor queda marcado "(estimado)".
+- Crear un despacho desde un traslado: aparece en `/despachos` con
+  origen/destino legibles (nombres de almacén, no prefijos de Odoo) y no
+  rompe esa pantalla.
+- Un traslado con `mismoAlmacen = true` NUNCA aparece en la cola de
+  Pre-Despacho.
+- Después de crear el despacho de un traslado, ese traslado desaparece de la
+  cola de "por planificar" (verifica que sea por el filtro client-side de
+  `trasladosConDespacho`, ya que `estadoLogistico` en la fila cruda seguirá
+  diciendo `por_planificar` — es esperado, no un bug de esta tarea).
+- Capturas: la app está detrás de Clerk — sigue el patrón de
+  `.agents/memory/visual-verify-behind-auth.md` (montar en
+  `artifacts/mockup-sandbox` con datos representativos).
