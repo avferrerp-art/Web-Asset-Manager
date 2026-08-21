@@ -5,6 +5,7 @@ import { logger } from "../lib/logger";
 export type TrasladoEstadoFromDispatch =
   | "por_planificar"
   | "planificado"
+  | "en_carga"
   | "en_transito"
   | "entregado";
 
@@ -14,16 +15,17 @@ const ODOO_TERMINAL_STATES = ["confirmado_odoo", "cancelado"] as const;
  * Deriva el estado logístico de un traslado a partir de TODOS sus despachos:
  * - algún despacho entregado             -> entregado
  * - algún despacho en ruta               -> en_transito
- * - algún despacho activo (no cancelado) -> planificado
+ * - algún despacho activo (no cancelado) -> conserva en_carga o planificado
  * - sin despachos o todos cancelados     -> por_planificar
  */
 export function deriveTrasladoEstadoFromDispatch(
   dispatchEstados: string[],
+  estadoActual?: string,
 ): TrasladoEstadoFromDispatch {
   if (dispatchEstados.includes("entregado")) return "entregado";
   if (dispatchEstados.includes("en-ruta")) return "en_transito";
   if (dispatchEstados.some((estado) => estado !== "cancelado")) {
-    return "planificado";
+    return estadoActual === "en_carga" ? "en_carga" : "planificado";
   }
   return "por_planificar";
 }
@@ -54,7 +56,10 @@ export async function syncTrasladoEstadoFromDispatch(
         WHERE traslado_id = ${trasladoId}
           AND tipo = 'traslado'
           AND estado <> 'cancelado'
-      ) THEN 'planificado'
+      ) THEN CASE
+        WHEN estado_logistico = 'en_carga' THEN 'en_carga'
+        ELSE 'planificado'
+      END
       ELSE 'por_planificar'
     END
     WHERE id = ${trasladoId}
@@ -128,6 +133,7 @@ export async function reconcileTrasladoEstados(
     for (const traslado of traslados) {
       const target = deriveTrasladoEstadoFromDispatch(
         byTraslado.get(traslado.id) ?? [],
+        traslado.estadoLogistico,
       );
       if (target === traslado.estadoLogistico) continue;
       const ids = fixes.get(target) ?? [];

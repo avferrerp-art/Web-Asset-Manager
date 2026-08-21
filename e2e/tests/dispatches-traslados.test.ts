@@ -42,6 +42,7 @@ import {
   reconcileTrasladoEstados,
   syncTrasladoEstadoFromDispatch,
 } from "../../artifacts/api-server/src/services/trasladoEstadoSync";
+import { toDatetimeLocal } from "../../artifacts/logistics/src/lib/datetime-local";
 
 const suffix = `${process.pid}-${Math.floor(Math.random() * 1_000_000)}`;
 const negativeOdooId = -1_700_000_000 + Math.floor(Math.random() * 100_000);
@@ -53,6 +54,33 @@ let dispatchIds: number[] = [];
 let saleId: number | null = null;
 let vehicleId: number | null = null;
 let driverId: number | null = null;
+
+describe("valores datetime-local", () => {
+  it("conserva la hora local al convertir y reconvertir, y deja inválidos en blanco", () => {
+    const previousTimezone = process.env.TZ;
+    process.env.TZ = "America/Santo_Domingo";
+
+    try {
+      expect(toDatetimeLocal(null)).toBe("");
+      expect(toDatetimeLocal("fecha-invalida")).toBe("");
+
+      const storedInstant = "2035-01-02T08:30:00-04:00";
+      let formValue = toDatetimeLocal(storedInstant);
+      expect(formValue).toBe("2035-01-02T08:30");
+
+      for (let save = 0; save < 3; save += 1) {
+        formValue = toDatetimeLocal(formValue);
+        expect(formValue).toBe("2035-01-02T08:30");
+      }
+    } finally {
+      if (previousTimezone === undefined) {
+        delete process.env.TZ;
+      } else {
+        process.env.TZ = previousTimezone;
+      }
+    }
+  });
+});
 
 beforeAll(async () => {
   await runMigrations();
@@ -391,12 +419,26 @@ describe("despachos de venta y traslado", () => {
       "planificado",
     );
     expect(
+      deriveTrasladoEstadoFromDispatch(["cancelado", "aprobado"], "en_carga"),
+    ).toBe("en_carga");
+    expect(
+      deriveTrasladoEstadoFromDispatch(["en-ruta", "aprobado"], "en_carga"),
+    ).toBe("en_transito");
+    expect(
       deriveTrasladoEstadoFromDispatch(["entregado", "en-ruta", "aprobado"]),
     ).toBe("entregado");
 
     await syncTrasladoEstadoFromDispatch(trasladoId);
     let traslado = await getTraslado(trasladoId);
     expect(traslado!.estadoLogistico).toBe("planificado");
+
+    await db
+      .update(trasladosTable)
+      .set({ estadoLogistico: "en_carga" })
+      .where(eq(trasladosTable.id, trasladoId));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("en_carga");
 
     await db
       .update(dispatchesTable)
@@ -493,10 +535,22 @@ describe("despachos de venta y traslado", () => {
 
     await db
       .update(trasladosTable)
-      .set({ estadoLogistico: "por_planificar" })
+      .set({ estadoLogistico: "en_carga" })
       .where(eq(trasladosTable.id, trasladoId));
-    expect(await reconcileTrasladoEstados([trasladoId])).toBe(1);
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "pre-despacho" })
+      .where(eq(dispatchesTable.id, dispatch!.id));
+    expect(await reconcileTrasladoEstados([trasladoId])).toBe(0);
     let traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("en_carga");
+
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "en-ruta" })
+      .where(eq(dispatchesTable.id, dispatch!.id));
+    expect(await reconcileTrasladoEstados([trasladoId])).toBe(1);
+    traslado = await getTraslado(trasladoId);
     expect(traslado!.estadoLogistico).toBe("en_transito");
     expect(await reconcileTrasladoEstados([trasladoId])).toBe(0);
 

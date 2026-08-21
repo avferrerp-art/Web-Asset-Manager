@@ -31,6 +31,7 @@ import { NuevoDespachoWizard } from "@/components/nuevo-despacho-wizard";
 import { CargoWizard } from "@/components/cargo-wizard";
 import { OdooSyncCard, OdooBadge } from "@/components/odoo-sync-card";
 import { PendingTrasladosCard } from "@/components/pending-traslados-card";
+import { toDatetimeLocal } from "@/lib/datetime-local";
 
 const dispatchSchema = z.object({
   vehiculoId: z.coerce.number().min(1, "Requerido"),
@@ -268,8 +269,8 @@ export default function PreDespacho() {
     form.reset({
       vehiculoId: bestVehicle ? bestVehicle.id : (vehicles?.[0]?.id ?? 0),
       choferId: 0,
-      fechaEstimadaSalida: today.toISOString().slice(0, 16),
-      fechaEstimadaLlegada: tomorrow.toISOString().slice(0, 16),
+      fechaEstimadaSalida: toDatetimeLocal(today),
+      fechaEstimadaLlegada: toDatetimeLocal(tomorrow),
       ruta: sale.destino,
       distanciaKm: matchingRoute?.distanciaTotalKm ?? 100,
       routeId: matchingRoute?.id ?? undefined,
@@ -301,8 +302,8 @@ export default function PreDespacho() {
     form.reset({
       vehiculoId: bestVehicle ? bestVehicle.id : (vehicles?.[0]?.id ?? 0),
       choferId: 0,
-      fechaEstimadaSalida: today.toISOString().slice(0, 16),
-      fechaEstimadaLlegada: tomorrow.toISOString().slice(0, 16),
+      fechaEstimadaSalida: toDatetimeLocal(today),
+      fechaEstimadaLlegada: toDatetimeLocal(tomorrow),
       ruta: `${origen} → ${destino}`,
       distanciaKm: matchingRoute?.distanciaTotalKm ?? 100,
       routeId: matchingRoute?.id ?? undefined,

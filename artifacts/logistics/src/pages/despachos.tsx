@@ -23,6 +23,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { Edit2, X, Save, Loader2, Search } from "lucide-react";
 import { matchesSearch } from "@/lib/search";
+import { toDatetimeLocal } from "@/lib/datetime-local";
 
 const ESTADO_BADGE: Record<string, React.ReactElement> = {
   "pre-despacho": <Badge variant="outline" className="text-yellow-500 border-yellow-500/50">Pre-Despacho</Badge>,
@@ -44,13 +45,6 @@ const editSchema = z.object({
   estado: z.string().min(1, "Requerido"),
   routeId: z.coerce.number().optional(),
 });
-
-function toDatetimeLocal(val: string | null | undefined) {
-  if (!val) return "";
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return "";
-  return d.toISOString().slice(0, 16);
-}
 
 function DetailRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (

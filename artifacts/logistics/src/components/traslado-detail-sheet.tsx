@@ -47,6 +47,7 @@ import {
 } from "lucide-react";
 import { formatTrasladoMedida } from "@/lib/traslado-medidas";
 import { TrasladoStatusBadge } from "@/lib/traslado-status";
+import { toDatetimeLocal } from "@/lib/datetime-local";
 
 function formatDate(iso?: string | null) {
   if (!iso) return "—";
@@ -66,16 +67,6 @@ function formatDateTime(iso?: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-/**
- * Builds a value for a native <input type="datetime-local">, which expects a
- * local "YYYY-MM-DDTHH:mm" string (no timezone). Used for the `max` attribute so
- * arrivals can never be set in the future.
- */
-function toDatetimeLocalValue(date: Date) {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
 function LineasTable({ lines }: { lines: TrasladoLinea[] }) {
@@ -172,7 +163,7 @@ function ActaCard({ despacho, acta, personnel, onSaved }: ActaCardProps) {
   const [recepcionError, setRecepcionError] = useState<string | null>(null);
 
   const now = new Date();
-  const maxDatetime = toDatetimeLocalValue(now);
+  const maxDatetime = toDatetimeLocal(now);
 
   useEffect(() => {
     setEditingLlegada(false);
@@ -182,7 +173,7 @@ function ActaCard({ despacho, acta, personnel, onSaved }: ActaCardProps) {
   }, [despacho.id, acta?.id]);
 
   function beginLlegadaEdit() {
-    setFechaLlegada(acta?.fechaLlegada ? toDatetimeLocalValue(new Date(acta.fechaLlegada)) : toDatetimeLocalValue(new Date()));
+    setFechaLlegada(toDatetimeLocal(acta?.fechaLlegada ?? new Date()));
     setNovedadesViaje(acta?.novedadesViaje ?? "");
     setLlegadaError(null);
     setEditingLlegada(true);

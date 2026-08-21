@@ -157,6 +157,7 @@ export default function DespachoDetailScreen() {
     query: {
       queryKey: getGetDispatchActaQueryKey(dispatchId),
       enabled: Number.isFinite(dispatchId) && isDelivered,
+      retry: false,
     },
   });
 

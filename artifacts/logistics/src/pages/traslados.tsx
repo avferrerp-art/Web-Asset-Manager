@@ -133,7 +133,6 @@ export default function Traslados() {
           <option value="todos">Estado: Todos</option>
           <option value="por_planificar">Por planificar</option>
           <option value="planificado">Planificado</option>
-          <option value="en_carga">En carga</option>
           <option value="en_transito">En tránsito</option>
           <option value="entregado">Entregado</option>
           <option value="confirmado_odoo">Confirmado Odoo</option>

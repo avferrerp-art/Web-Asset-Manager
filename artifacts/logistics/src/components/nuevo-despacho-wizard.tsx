@@ -31,6 +31,7 @@ import {
 import { almacenCiudad, ciudadCoincide } from "@/lib/almacenes";
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
 import { classifyFleet, suggestedVehicle } from "@/lib/fleet";
+import { toDatetimeLocal } from "@/lib/datetime-local";
 
 function fmtDateShort(s: string) {
   return new Date(s).toLocaleDateString("es-VE", {
@@ -50,13 +51,12 @@ interface WizardState {
 }
 
 const defaultToday = () => {
-  const d = new Date();
-  return d.toISOString().slice(0, 16);
+  return toDatetimeLocal(new Date());
 };
 const defaultTomorrow = () => {
   const d = new Date();
   d.setDate(d.getDate() + 1);
-  return d.toISOString().slice(0, 16);
+  return toDatetimeLocal(d);
 };
 
 const STEPS = [
