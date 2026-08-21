@@ -31,7 +31,7 @@ Sistema de gestión logística de flota: planifica despachos de ventas (propias 
 - `lib/api-zod` — schemas Zod + tipos TS generados desde el spec (no editar `src/generated/`)
 - `lib/api-client-react` — hooks React Query generados desde el spec (no editar `src/generated/`)
 - `artifacts/api-server` — API Express; routers en `src/routes/` (registrados en `src/routes/index.ts`), servicios en `src/services/` (incl. sync de Odoo), cliente Odoo en `src/lib/odooClient.ts`
-- Albaranes de Odoo: `src/services/deliverySync.ts` (sync de stock.picking/stock.move → tablas `deliveries` / `delivery_items`) y `src/services/deliveryEstado.ts` (derivación de `sales.estadoEntrega` / `almacenOrigen` / `almacenesMultiples` desde los albaranes en DB)
+- Movimientos Odoo: `src/services/deliverySync.ts` sincroniza pickings `outgoing` e `internal` y sus líneas hacia `deliveries` / `delivery_items`; cada picking interno sin `sale_id` también mantiene su `traslados` de planificación. `deliveryEstado.ts` deriva `sales.estadoEntrega` solo de movimientos tipo venta.
 - `artifacts/logistics` — web de gestión (React + Vite): dashboard, ventas, pre-despacho, despachos, rutas, vehículos, personal, calculadora de carga (`src/pages/carga.tsx`), configuración
 - `artifacts/chofer` — app móvil Expo para choferes (LogiFleet Chofer): auth + tabs + detalle de despacho
 - `artifacts/mockup-sandbox` — canvas de mockups/preview de componentes (solo diseño, no producción)
@@ -64,7 +64,7 @@ _Populate as you build — explicit user instructions worth remembering across s
 - Tras cambiar cualquier lib (`api-zod`, `db`, etc.): reiniciar el workflow del api-server — el servidor bundlea con esbuild al arrancar, no hace hot-reload de las libs.
 - Routers nuevos en `src/routes/index.ts` deben montarse después de `requireAuth` (salvo endpoints públicos como health).
 - **`sales.estado` vs `sales.estadoEntrega` — NO mezclar**: `estado` (pendiente | despachado | entregado | cancelado) es el estado INTERNO de LogiFleet y lo deriva exclusivamente `saleEstadoSync.ts` desde los despachos. `estadoEntrega` (sin_albaran | pendiente | parcial | entregado | cancelado) es el estado REAL de entrega en Odoo, derivado de los albaranes por `deliveryEstado.ts`. Una venta puede estar "despachada" internamente con su albarán aún sin validar en Odoo — es información útil, no un conflicto. Nunca escribir `estado` desde la lógica de albaranes ni viceversa.
-- **Rutina post-apply de sync Odoo (orden de endpoints)**: `POST /api/odoo/sync-products` → `POST /api/odoo/sync` → `POST /api/odoo/backfill-products` → `POST /api/odoo/backfill-destinos` → `POST /api/odoo/sync-deliveries` → `POST /api/odoo/backfill-deliveries`.
+- **Rutina post-apply de sync Odoo (orden de endpoints)**: `POST /api/odoo/sync-products` → `POST /api/odoo/sync` → `POST /api/odoo/backfill-products` → `POST /api/odoo/backfill-destinos` → `POST /api/odoo/sync-deliveries` → `POST /api/odoo/backfill-deliveries` → `POST /api/odoo/backfill-traslados` (solo histórico inicial; no avanza el watermark).
 
 ## Pointers
 

@@ -5,10 +5,11 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
+import type { DeliverySyncResultTransfersByOdooState } from './deliverySyncResultTransfersByOdooState';
 
 export interface DeliverySyncResult {
   ok: boolean;
-  /** New delivery rows inserted */
+  /** New warehouse movement mirror rows inserted */
   created: number;
   /** Existing delivery rows updated (write_date changed in Odoo) */
   updated: number;
@@ -22,10 +23,28 @@ export interface DeliverySyncResult {
   deleted: number;
   /** Sync alerts created (cancelled picking with an active dispatch) */
   alertsCreated: number;
-  /** Pickings skipped because no matching sale was found */
+  /** Sale pickings persisted without a local matching sale yet */
   unmatched: number;
-  /** Total outgoing pickings fetched from Odoo */
+  /** Total outgoing and internal pickings found in Odoo */
   total: number;
+  /** New transfer planning rows inserted */
+  transfersCreated: number;
+  /** Existing transfer planning rows updated */
+  transfersUpdated: number;
+  /** Transfer rows preserved after their delivery mirror disappeared */
+  orphanedTransfers: number;
+  /** Changed internal transfers grouped by raw Odoo picking state */
+  transfersByOdooState: DeliverySyncResultTransfersByOdooState;
+  /** Changed transfers whose resolved canonical warehouses belong to different plazas */
+  interplazaTransfers: number;
+  /** Changed transfers whose resolved canonical warehouses belong to the same plaza */
+  intraplazaTransfers: number;
+  /** Changed transfers with at least one positive Odoo weight contribution */
+  transfersWithWeight: number;
+  /** Changed transfers with at least one positive Odoo volume contribution */
+  transfersWithVolume: number;
+  /** Odoo location prefixes not found in the canonical active warehouse catalog */
+  unknownWarehousePrefixes: string[];
   /** @nullable */
   error?: string | null;
 }

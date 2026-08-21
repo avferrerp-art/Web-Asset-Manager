@@ -624,19 +624,55 @@ export const SyncOdooProductsResponse = zod.object({
 
 
 /**
- * @summary Sync albaranes (stock.picking outgoing) from Odoo into the deliveries table
+ * @summary Sync outgoing and internal stock pickings from Odoo into deliveries and transfers
  */
 export const SyncOdooDeliveriesResponse = zod.object({
   "ok": zod.boolean(),
-  "created": zod.number().describe('New delivery rows inserted'),
+  "created": zod.number().describe('New warehouse movement mirror rows inserted'),
   "updated": zod.number().describe('Existing delivery rows updated (write_date changed in Odoo)'),
   "unchanged": zod.number().describe('Matched pickings skipped because their write_date is unchanged (incremental)'),
   "itemsUpserted": zod.number().describe('Total delivery item rows upserted'),
   "itemsDeleted": zod.number().describe('Local delivery lines removed because their stock.move disappeared'),
   "deleted": zod.number().describe('Local deliveries removed because the picking no longer exists in Odoo'),
   "alertsCreated": zod.number().describe('Sync alerts created (cancelled picking with an active dispatch)'),
-  "unmatched": zod.number().describe('Pickings skipped because no matching sale was found'),
-  "total": zod.number().describe('Total outgoing pickings fetched from Odoo'),
+  "unmatched": zod.number().describe('Sale pickings persisted without a local matching sale yet'),
+  "total": zod.number().describe('Total outgoing and internal pickings found in Odoo'),
+  "transfersCreated": zod.number().describe('New transfer planning rows inserted'),
+  "transfersUpdated": zod.number().describe('Existing transfer planning rows updated'),
+  "orphanedTransfers": zod.number().describe('Transfer rows preserved after their delivery mirror disappeared'),
+  "transfersByOdooState": zod.record(zod.string(), zod.number()).describe('Changed internal transfers grouped by raw Odoo picking state'),
+  "interplazaTransfers": zod.number().describe('Changed transfers whose resolved canonical warehouses belong to different plazas'),
+  "intraplazaTransfers": zod.number().describe('Changed transfers whose resolved canonical warehouses belong to the same plaza'),
+  "transfersWithWeight": zod.number().describe('Changed transfers with at least one positive Odoo weight contribution'),
+  "transfersWithVolume": zod.number().describe('Changed transfers with at least one positive Odoo volume contribution'),
+  "unknownWarehousePrefixes": zod.array(zod.string()).describe('Odoo location prefixes not found in the canonical active warehouse catalog'),
+  "error": zod.string().nullish()
+})
+
+
+/**
+ * @summary Import all historical internal Odoo pickings without advancing the normal delivery watermark
+ */
+export const BackfillOdooInternalTransfersResponse = zod.object({
+  "ok": zod.boolean(),
+  "created": zod.number().describe('New warehouse movement mirror rows inserted'),
+  "updated": zod.number().describe('Existing delivery rows updated (write_date changed in Odoo)'),
+  "unchanged": zod.number().describe('Matched pickings skipped because their write_date is unchanged (incremental)'),
+  "itemsUpserted": zod.number().describe('Total delivery item rows upserted'),
+  "itemsDeleted": zod.number().describe('Local delivery lines removed because their stock.move disappeared'),
+  "deleted": zod.number().describe('Local deliveries removed because the picking no longer exists in Odoo'),
+  "alertsCreated": zod.number().describe('Sync alerts created (cancelled picking with an active dispatch)'),
+  "unmatched": zod.number().describe('Sale pickings persisted without a local matching sale yet'),
+  "total": zod.number().describe('Total outgoing and internal pickings found in Odoo'),
+  "transfersCreated": zod.number().describe('New transfer planning rows inserted'),
+  "transfersUpdated": zod.number().describe('Existing transfer planning rows updated'),
+  "orphanedTransfers": zod.number().describe('Transfer rows preserved after their delivery mirror disappeared'),
+  "transfersByOdooState": zod.record(zod.string(), zod.number()).describe('Changed internal transfers grouped by raw Odoo picking state'),
+  "interplazaTransfers": zod.number().describe('Changed transfers whose resolved canonical warehouses belong to different plazas'),
+  "intraplazaTransfers": zod.number().describe('Changed transfers whose resolved canonical warehouses belong to the same plaza'),
+  "transfersWithWeight": zod.number().describe('Changed transfers with at least one positive Odoo weight contribution'),
+  "transfersWithVolume": zod.number().describe('Changed transfers with at least one positive Odoo volume contribution'),
+  "unknownWarehousePrefixes": zod.array(zod.string()).describe('Odoo location prefixes not found in the canonical active warehouse catalog'),
   "error": zod.string().nullish()
 })
 

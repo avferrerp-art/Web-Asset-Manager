@@ -15,6 +15,7 @@ export * from './deliveryBackfillResult';
 export * from './deliveryBackfillResultDistribution';
 export * from './deliveryItem';
 export * from './deliverySyncResult';
+export * from './deliverySyncResultTransfersByOdooState';
 export * from './dispatch';
 export * from './dispatchCostEstimateInput';
 export * from './dispatchDetail';

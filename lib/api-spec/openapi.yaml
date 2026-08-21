@@ -616,7 +616,7 @@ paths:
     post:
       operationId: syncOdooDeliveries
       tags: [odoo]
-      summary: Sync albaranes (stock.picking outgoing) from Odoo into the deliveries table
+      summary: Sync outgoing and internal stock pickings from Odoo into deliveries and transfers
       responses:
         "200":
           description: Sync completed
@@ -626,6 +626,25 @@ paths:
                 $ref: "#/components/schemas/DeliverySyncResult"
         "400":
           description: Sync failed (missing config or connection error)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySyncResult"
+
+  /odoo/backfill-traslados:
+    post:
+      operationId: backfillOdooInternalTransfers
+      tags: [odoo]
+      summary: Import all historical internal Odoo pickings without advancing the normal delivery watermark
+      responses:
+        "200":
+          description: Historical internal transfer backfill completed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DeliverySyncResult"
+        "400":
+          description: Backfill failed (missing config or connection error)
           content:
             application/json:
               schema:
@@ -1993,13 +2012,13 @@ components:
 
     DeliverySyncResult:
       type: object
-      required: [ok, created, updated, unchanged, itemsUpserted, itemsDeleted, deleted, alertsCreated, unmatched, total]
+      required: [ok, created, updated, unchanged, itemsUpserted, itemsDeleted, deleted, alertsCreated, unmatched, total, transfersCreated, transfersUpdated, orphanedTransfers, transfersByOdooState, interplazaTransfers, intraplazaTransfers, transfersWithWeight, transfersWithVolume, unknownWarehousePrefixes]
       properties:
         ok:
           type: boolean
         created:
           type: integer
-          description: New delivery rows inserted
+          description: New warehouse movement mirror rows inserted
         updated:
           type: integer
           description: Existing delivery rows updated (write_date changed in Odoo)
@@ -2020,10 +2039,41 @@ components:
           description: Sync alerts created (cancelled picking with an active dispatch)
         unmatched:
           type: integer
-          description: Pickings skipped because no matching sale was found
+          description: Sale pickings persisted without a local matching sale yet
         total:
           type: integer
-          description: Total outgoing pickings fetched from Odoo
+          description: Total outgoing and internal pickings found in Odoo
+        transfersCreated:
+          type: integer
+          description: New transfer planning rows inserted
+        transfersUpdated:
+          type: integer
+          description: Existing transfer planning rows updated
+        orphanedTransfers:
+          type: integer
+          description: Transfer rows preserved after their delivery mirror disappeared
+        transfersByOdooState:
+          type: object
+          description: Changed internal transfers grouped by raw Odoo picking state
+          additionalProperties:
+            type: integer
+        interplazaTransfers:
+          type: integer
+          description: Changed transfers whose resolved canonical warehouses belong to different plazas
+        intraplazaTransfers:
+          type: integer
+          description: Changed transfers whose resolved canonical warehouses belong to the same plaza
+        transfersWithWeight:
+          type: integer
+          description: Changed transfers with at least one positive Odoo weight contribution
+        transfersWithVolume:
+          type: integer
+          description: Changed transfers with at least one positive Odoo volume contribution
+        unknownWarehousePrefixes:
+          type: array
+          description: Odoo location prefixes not found in the canonical active warehouse catalog
+          items:
+            type: string
         error:
           type: ["string", "null"]
 

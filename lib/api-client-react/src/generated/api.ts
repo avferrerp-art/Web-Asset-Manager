@@ -2256,7 +2256,7 @@ export const getSyncOdooDeliveriesUrl = () => {
 }
 
 /**
- * @summary Sync albaranes (stock.picking outgoing) from Odoo into the deliveries table
+ * @summary Sync outgoing and internal stock pickings from Odoo into deliveries and transfers
  */
 export const syncOdooDeliveries = async ( options?: RequestInit): Promise<DeliverySyncResult> => {
 
@@ -2304,7 +2304,7 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
     export type SyncOdooDeliveriesMutationError = ErrorType<DeliverySyncResult>
 
     /**
- * @summary Sync albaranes (stock.picking outgoing) from Odoo into the deliveries table
+ * @summary Sync outgoing and internal stock pickings from Odoo into deliveries and transfers
  */
 export const useSyncOdooDeliveries = <TError = ErrorType<DeliverySyncResult>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof syncOdooDeliveries>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -2315,6 +2315,76 @@ export const useSyncOdooDeliveries = <TError = ErrorType<DeliverySyncResult>,
         TContext
       > => {
       return useMutation(getSyncOdooDeliveriesMutationOptions(options));
+    }
+
+export const getBackfillOdooInternalTransfersUrl = () => {
+
+
+
+
+  return `/api/odoo/backfill-traslados`
+}
+
+/**
+ * @summary Import all historical internal Odoo pickings without advancing the normal delivery watermark
+ */
+export const backfillOdooInternalTransfers = async ( options?: RequestInit): Promise<DeliverySyncResult> => {
+
+  return customFetch<DeliverySyncResult>(getBackfillOdooInternalTransfersUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getBackfillOdooInternalTransfersMutationOptions = <TError = ErrorType<DeliverySyncResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof backfillOdooInternalTransfers>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof backfillOdooInternalTransfers>>, TError,void, TContext> => {
+
+const mutationKey = ['backfillOdooInternalTransfers'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof backfillOdooInternalTransfers>>, void> = () => {
+
+
+          return  backfillOdooInternalTransfers(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type BackfillOdooInternalTransfersMutationResult = NonNullable<Awaited<ReturnType<typeof backfillOdooInternalTransfers>>>
+
+    export type BackfillOdooInternalTransfersMutationError = ErrorType<DeliverySyncResult>
+
+    /**
+ * @summary Import all historical internal Odoo pickings without advancing the normal delivery watermark
+ */
+export const useBackfillOdooInternalTransfers = <TError = ErrorType<DeliverySyncResult>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof backfillOdooInternalTransfers>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof backfillOdooInternalTransfers>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getBackfillOdooInternalTransfersMutationOptions(options));
     }
 
 export const getBackfillOdooDeliveriesUrl = () => {

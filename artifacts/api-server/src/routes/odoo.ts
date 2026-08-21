@@ -10,6 +10,7 @@ import {
 } from "../services/odooSync";
 import {
   syncDeliveries,
+  backfillInternalTransfers,
   recordDeliverySyncError,
 } from "../services/deliverySync";
 import { backfillSaleItemProducts } from "../services/productBackfill";
@@ -143,6 +144,15 @@ router.post("/odoo/sync-deliveries", async (req, res): Promise<void> => {
       alertsCreated: result.alertsCreated,
       unmatched: result.unmatched,
       total: result.total,
+      transfersCreated: result.transfersCreated,
+      transfersUpdated: result.transfersUpdated,
+      orphanedTransfers: result.orphanedTransfers,
+      transfersByOdooState: result.transfersByOdooState,
+      interplazaTransfers: result.interplazaTransfers,
+      intraplazaTransfers: result.intraplazaTransfers,
+      transfersWithWeight: result.transfersWithWeight,
+      transfersWithVolume: result.transfersWithVolume,
+      unknownWarehousePrefixes: result.unknownWarehousePrefixes,
       error: null,
     });
   } catch (err) {
@@ -160,6 +170,47 @@ router.post("/odoo/sync-deliveries", async (req, res): Promise<void> => {
       alertsCreated: 0,
       unmatched: 0,
       total: 0,
+      transfersCreated: 0,
+      transfersUpdated: 0,
+      orphanedTransfers: 0,
+      transfersByOdooState: {},
+      interplazaTransfers: 0,
+      intraplazaTransfers: 0,
+      transfersWithWeight: 0,
+      transfersWithVolume: 0,
+      unknownWarehousePrefixes: [],
+      error: message,
+    });
+  }
+});
+
+router.post("/odoo/backfill-traslados", async (req, res): Promise<void> => {
+  try {
+    const result = await backfillInternalTransfers();
+    res.json({ ok: true, ...result, error: null });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    req.log.error({ err }, "Internal transfer backfill failed");
+    res.status(err instanceof OdooError ? 400 : 500).json({
+      ok: false,
+      created: 0,
+      updated: 0,
+      unchanged: 0,
+      itemsUpserted: 0,
+      itemsDeleted: 0,
+      deleted: 0,
+      alertsCreated: 0,
+      unmatched: 0,
+      total: 0,
+      transfersCreated: 0,
+      transfersUpdated: 0,
+      orphanedTransfers: 0,
+      transfersByOdooState: {},
+      interplazaTransfers: 0,
+      intraplazaTransfers: 0,
+      transfersWithWeight: 0,
+      transfersWithVolume: 0,
+      unknownWarehousePrefixes: [],
       error: message,
     });
   }
