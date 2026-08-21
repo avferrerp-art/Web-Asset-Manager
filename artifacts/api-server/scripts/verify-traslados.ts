@@ -88,6 +88,14 @@ const summary = await db.execute(sql`
         AND destino.id IS NOT NULL
     )::int AS intraplaza,
     count(t.peso_calculado_kg)::int AS "conPeso",
+    count(*) FILTER (
+      WHERE t.peso_calculado_kg IS NULL
+        AND t.peso_estimado_kg IS NOT NULL
+    )::int AS "conPesoEstimado",
+    count(*) FILTER (
+      WHERE t.peso_calculado_kg IS NULL
+        AND t.peso_estimado_kg IS NULL
+    )::int AS "sinPeso",
     count(t.volumen_calculado_m3)::int AS "conVolumen"
   FROM traslados t
   LEFT JOIN deliveries d ON d.id = t.delivery_id

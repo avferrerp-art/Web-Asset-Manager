@@ -1,4 +1,4 @@
-import { inArray, sql } from "drizzle-orm";
+import { eq, inArray, sql } from "drizzle-orm";
 import { db, dispatchesTable, salesTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 
@@ -57,10 +57,12 @@ export async function reconcileSaleEstados(): Promise<number> {
     .from(salesTable);
   const dispatches = await db
     .select({ ventaId: dispatchesTable.ventaId, estado: dispatchesTable.estado })
-    .from(dispatchesTable);
+    .from(dispatchesTable)
+    .where(eq(dispatchesTable.tipo, "venta"));
 
   const byVenta = new Map<number, string[]>();
   for (const d of dispatches) {
+    if (d.ventaId === null) continue;
     const list = byVenta.get(d.ventaId) ?? [];
     list.push(d.estado);
     byVenta.set(d.ventaId, list);

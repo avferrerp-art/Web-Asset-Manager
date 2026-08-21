@@ -17,3 +17,4 @@
 - [Medidas por dominio](measurement-domain-semantics.md) — ventas tratan cero como ausencia por capacidad; traslados reservan null; no compartir el predicado.
 - [Expo mobile quirks](chofer-expo-quirks.md) — Orval hooks in Expo need explicit queryKey; keep @types/react catalog pinned to Expo's 19.1.x; mobile auth is Bearer via setAuthTokenGetter; clear query cache on sign-out.
 - [Retiring migration-owned columns](retiring-migration-columns.md) — when a later migration drops columns, earlier repeatable migrations must stop recreating them.
+- [Shared-DB transfer tests](shared-db-transfer-tests.md) — transfer sync tests that delete missing Odoo mirrors must run serially with other transfer fixtures.

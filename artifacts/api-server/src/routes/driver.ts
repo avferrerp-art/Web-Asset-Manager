@@ -172,7 +172,9 @@ router.post(
       res.status(404).json({ error: "Dispatch not found" });
       return;
     }
-    await syncSaleEstadoFromDispatch(updated.ventaId);
+    if (updated.tipo === "venta" && updated.ventaId !== null) {
+      await syncSaleEstadoFromDispatch(updated.ventaId);
+    }
     const row = await buildDispatchRow(updated);
     res.json(row);
   },

@@ -2,13 +2,16 @@ import { pgTable, serial, integer, text, real, timestamp, boolean } from "drizzl
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 import { salesTable } from "./sales";
+import { trasladosTable } from "./traslados";
 import { vehiclesTable } from "./vehicles";
 import { personnelTable } from "./personnel";
 import { tollRoutesTable } from "./toll_routes";
 
 export const dispatchesTable = pgTable("dispatches", {
   id: serial("id").primaryKey(),
-  ventaId: integer("venta_id").notNull().references(() => salesTable.id),
+  tipo: text("tipo").notNull().default("venta"),
+  ventaId: integer("venta_id").references(() => salesTable.id),
+  trasladoId: integer("traslado_id").references(() => trasladosTable.id),
   vehiculoId: integer("vehiculo_id").notNull().references(() => vehiclesTable.id),
   choferId: integer("chofer_id").notNull().references(() => personnelTable.id),
   ayudanteId: integer("ayudante_id").references(() => personnelTable.id),

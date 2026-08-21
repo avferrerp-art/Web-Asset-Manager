@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { TrasladoAlmacen } from './trasladoAlmacen';
+import type { TrasladoSummaryOrigenPeso } from './trasladoSummaryOrigenPeso';
 
 export interface TrasladoSummary {
   id: number;
@@ -41,6 +42,16 @@ export interface TrasladoSummary {
      * @nullable
      */
   pesoCalculadoKg: number | null;
+  /**
+     * Odoo calculated weight when available, otherwise the local estimate
+     * @nullable
+     */
+  pesoEfectivoKg: number | null;
+  /**
+     * Source of pesoEfectivoKg; Odoo always takes priority
+     * @nullable
+     */
+  origenPeso: TrasladoSummaryOrigenPeso;
   /**
      * Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing
      * @nullable

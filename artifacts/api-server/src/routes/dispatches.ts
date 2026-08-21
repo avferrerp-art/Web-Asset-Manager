@@ -3,6 +3,7 @@ import { eq, and, asc, desc } from "drizzle-orm";
 import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable, saleItemsTable } from "@workspace/db";
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
 import { syncSaleEstadoFromDispatch } from "../services/saleEstadoSync";
+import { getTraslado, getTrasladoSummary } from "../services/trasladoQueries";
 import {
   ListDispatchesQueryParams,
   CreateDispatchBody,
@@ -111,10 +112,27 @@ async function resolveDistancia(dispatchData: {
   return dispatchData.distanciaKm ?? null;
 }
 
+export function exceedsDispatchCapacity(
+  capacidad: { capacidadPeso: number; capacidadVolumen: number },
+  carga: { pesoKg: number | null; volumenM3: number | null },
+) {
+  return (
+    (carga.pesoKg !== null && capacidad.capacidadPeso < carga.pesoKg) ||
+    (carga.volumenM3 !== null && capacidad.capacidadVolumen < carga.volumenM3)
+  );
+}
+
 export async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
-  const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, d.ventaId));
-  const [vehicle] = await db.select().from(vehiclesTable).where(eq(vehiclesTable.id, d.vehiculoId));
-  const [driver] = await db.select().from(personnelTable).where(eq(personnelTable.id, d.choferId));
+  const [sale, traslado, vehicle, driver] = await Promise.all([
+    d.tipo === "venta" && d.ventaId !== null
+      ? db.select().from(salesTable).where(eq(salesTable.id, d.ventaId)).then((rows) => rows[0] ?? null)
+      : Promise.resolve(null),
+    d.tipo === "traslado" && d.trasladoId !== null
+      ? getTrasladoSummary(d.trasladoId)
+      : Promise.resolve(null),
+    db.select().from(vehiclesTable).where(eq(vehiclesTable.id, d.vehiculoId)).then((rows) => rows[0] ?? null),
+    db.select().from(personnelTable).where(eq(personnelTable.id, d.choferId)).then((rows) => rows[0] ?? null),
+  ]);
   let assistant = null;
   if (d.ayudanteId) {
     const [a] = await db.select().from(personnelTable).where(eq(personnelTable.id, d.ayudanteId));
@@ -126,27 +144,64 @@ export async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
     choferNombre: driver?.nombre ?? null,
     ayudanteNombre: assistant?.nombre ?? null,
     clienteNombre: sale?.cliente ?? null,
-    destino: sale?.destino ?? null,
+    referencia: sale?.odooRef ?? traslado?.referencia ?? null,
+    origen: sale?.almacenOrigen ?? traslado?.almacenOrigen?.nombre ?? null,
+    destino: sale?.destino ?? traslado?.almacenDestino?.nombre ?? null,
   };
 }
 
 export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect) {
-  const [row, points, costsResult, saleResult, saleItemsResult] = await Promise.all([
+  const [row, points, costsResult] = await Promise.all([
     buildDispatchRow(d),
     db.select().from(routePointsTable).where(eq(routePointsTable.despachoId, d.id)).orderBy(routePointsTable.orden),
     db.select().from(travelCostsTable).where(eq(travelCostsTable.despachoId, d.id)),
-    db.select().from(salesTable).where(eq(salesTable.id, d.ventaId)),
-    db.select().from(saleItemsTable).where(eq(saleItemsTable.ventaId, d.ventaId)),
   ]);
+  if (d.tipo === "traslado" && d.trasladoId !== null) {
+    const traslado = await getTraslado(d.trasladoId);
+    return {
+      ...row,
+      pesoTotal: traslado?.pesoEfectivoKg ?? null,
+      volumenTotal: traslado?.volumenCalculadoM3 ?? null,
+      saleItems: [],
+      cargoItems: (traslado?.lineas ?? []).map((linea) => ({
+        productId: linea.productoId,
+        descripcion: linea.descripcion,
+        cantidad: linea.demanda,
+        unidad: linea.unidad,
+      })),
+      routePoints: points,
+      costs: costsResult[0] ?? null,
+    };
+  }
+
+  const [saleResult, saleItemsResult] =
+    d.ventaId === null
+      ? [[], []] as const
+      : await Promise.all([
+          db.select().from(salesTable).where(eq(salesTable.id, d.ventaId)),
+          db.select().from(saleItemsTable).where(eq(saleItemsTable.ventaId, d.ventaId)),
+        ]);
   const sale = saleResult[0] ?? null;
   return {
     ...row,
     pesoTotal: sale?.pesoTotal ?? null,
     volumenTotal: sale?.volumenTotal ?? null,
     saleItems: saleItemsResult,
+    cargoItems: saleItemsResult.map((item) => ({
+      productId: item.productId,
+      descripcion: item.descripcion,
+      cantidad: item.cantidad,
+      unidad: null,
+    })),
     routePoints: points,
     costs: costsResult[0] ?? null,
   };
+}
+
+async function syncLinkedSale(d: typeof dispatchesTable.$inferSelect) {
+  if (d.tipo === "venta" && d.ventaId !== null) {
+    await syncSaleEstadoFromDispatch(d.ventaId);
+  }
 }
 
 router.get("/dispatches", async (req, res): Promise<void> => {
@@ -167,9 +222,20 @@ router.post("/dispatches", async (req, res): Promise<void> => {
   }
   const { routePoints, ...dispatchData } = parsed.data;
 
-  const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, dispatchData.ventaId));
-  if (!sale) {
+  const sale =
+    dispatchData.tipo === "venta"
+      ? await db.select().from(salesTable).where(eq(salesTable.id, dispatchData.ventaId)).then((rows) => rows[0] ?? null)
+      : null;
+  const traslado =
+    dispatchData.tipo === "traslado"
+      ? await getTraslado(dispatchData.trasladoId)
+      : null;
+  if (dispatchData.tipo === "venta" && !sale) {
     res.status(400).json({ error: "La venta indicada no existe" });
+    return;
+  }
+  if (dispatchData.tipo === "traslado" && !traslado) {
+    res.status(400).json({ error: "El traslado indicado no existe" });
     return;
   }
   const [vehicle] = await db.select().from(vehiclesTable).where(eq(vehiclesTable.id, dispatchData.vehiculoId));
@@ -178,13 +244,19 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     return;
   }
   // null = sin dato en Odoo → no bloquea el despacho (no se puede comparar lo que no se conoce)
-  if (
-    vehicle.capacidadPeso < (sale.pesoTotal ?? 0) ||
-    vehicle.capacidadVolumen < (sale.volumenTotal ?? 0)
-  ) {
+  const pesoCarga =
+    dispatchData.tipo === "venta"
+      ? sale?.pesoTotal ?? null
+      : traslado?.pesoEfectivoKg ?? null;
+  const volumenCarga =
+    dispatchData.tipo === "venta"
+      ? sale?.volumenTotal ?? null
+      : null;
+  if (exceedsDispatchCapacity(vehicle, { pesoKg: pesoCarga, volumenM3: volumenCarga })) {
+    const fuente = dispatchData.tipo === "venta" ? "esta venta" : "este traslado";
     res.status(400).json({
       error: "vehicle_capacity_exceeded",
-      message: `El vehículo ${vehicle.modelo} (capacidad ${vehicle.capacidadPeso}kg / ${vehicle.capacidadVolumen}m³) no alcanza para la carga de esta venta (${sale.pesoTotal ?? "sin dato"}kg / ${sale.volumenTotal ?? "sin dato"}m³).`,
+      message: `El vehículo ${vehicle.modelo} (capacidad ${vehicle.capacidadPeso}kg / ${vehicle.capacidadVolumen}m³) no alcanza para la carga de ${fuente} (${pesoCarga ?? "sin dato"}kg / ${volumenCarga ?? "sin dato"}m³).`,
     });
     return;
   }
@@ -192,7 +264,12 @@ router.post("/dispatches", async (req, res): Promise<void> => {
   const resolvedDistanciaKm = await resolveDistancia(dispatchData);
   const [dispatch] = await db
     .insert(dispatchesTable)
-    .values({ ...dispatchData, distanciaKm: resolvedDistanciaKm })
+    .values({
+      ...dispatchData,
+      ventaId: dispatchData.tipo === "venta" ? dispatchData.ventaId : null,
+      trasladoId: dispatchData.tipo === "traslado" ? dispatchData.trasladoId : null,
+      distanciaKm: resolvedDistanciaKm,
+    })
     .returning();
 
   const initialPeajes = dispatch.totalPeajes ?? 0;
@@ -210,7 +287,7 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     );
   }
 
-  await syncSaleEstadoFromDispatch(dispatch.ventaId);
+  await syncLinkedSale(dispatch);
 
   const row = await buildDispatchRow(dispatch);
   res.status(201).json(row);
@@ -264,7 +341,7 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     return;
   }
   if ("estado" in parsed.data) {
-    await syncSaleEstadoFromDispatch(dispatch.ventaId);
+    await syncLinkedSale(dispatch);
   }
   const row = await buildDispatchRow(dispatch);
   res.json(row);
@@ -281,7 +358,7 @@ router.delete("/dispatches/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Dispatch not found" });
     return;
   }
-  await syncSaleEstadoFromDispatch(dispatch.ventaId);
+  await syncLinkedSale(dispatch);
   res.sendStatus(204);
 });
 
@@ -300,7 +377,7 @@ router.post("/dispatches/:id/approve", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Dispatch not found" });
     return;
   }
-  await syncSaleEstadoFromDispatch(dispatch.ventaId);
+  await syncLinkedSale(dispatch);
   const row = await buildDispatchRow(dispatch);
   res.json(row);
 });

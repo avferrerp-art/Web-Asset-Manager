@@ -8,6 +8,13 @@
 import type { TrasladoLinea } from './trasladoLinea';
 import type { TrasladoSummary } from './trasladoSummary';
 
-export type TrasladoDetail = TrasladoSummary & {
+export type TrasladoDetail = TrasladoSummary & ({
+  /**
+     * Positive local estimate used only when Odoo has no calculated weight
+     * @nullable
+     */
+  pesoEstimadoKg: number | null;
+  /** @nullable */
+  notas: string | null;
   lineas: TrasladoLinea[];
-};
+});

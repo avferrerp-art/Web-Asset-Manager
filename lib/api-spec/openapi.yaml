@@ -518,6 +518,33 @@ paths:
           description: Invalid transfer id
         "404":
           description: Transfer not found
+    patch:
+      operationId: updateTraslado
+      tags: [traslados]
+      summary: Update the local estimate or notes of an internal transfer
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TrasladoUpdate"
+      responses:
+        "200":
+          description: Updated internal transfer detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrasladoDetail"
+        "400":
+          description: Invalid transfer id or estimate
+        "404":
+          description: Transfer not found
 
   /sales/items/{itemId}:
     patch:
@@ -2032,6 +2059,8 @@ components:
         - estadoLogistico
         - cantidadLineas
         - pesoCalculadoKg
+        - pesoEfectivoKg
+        - origenPeso
         - volumenCalculadoM3
       properties:
         id:
@@ -2068,6 +2097,13 @@ components:
         pesoCalculadoKg:
           type: ["number", "null"]
           description: Calculated only from positive product weights in Odoo; null means unavailable, never zero-as-missing
+        pesoEfectivoKg:
+          type: ["number", "null"]
+          description: Odoo calculated weight when available, otherwise the local estimate
+        origenPeso:
+          type: ["string", "null"]
+          enum: [odoo, estimado, null]
+          description: Source of pesoEfectivoKg; Odoo always takes priority
         volumenCalculadoM3:
           type: ["number", "null"]
           description: Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing
@@ -2098,12 +2134,30 @@ components:
       allOf:
         - $ref: "#/components/schemas/TrasladoSummary"
         - type: object
-          required: [lineas]
+          required: [lineas, pesoEstimadoKg, notas]
           properties:
+            pesoEstimadoKg:
+              type: ["number", "null"]
+              description: Positive local estimate used only when Odoo has no calculated weight
+            notas:
+              type: ["string", "null"]
             lineas:
               type: array
               items:
                 $ref: "#/components/schemas/TrasladoLinea"
+
+    TrasladoUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        pesoEstimadoKg:
+          oneOf:
+            - type: number
+              exclusiveMinimum: 0
+            - type: "null"
+        notas:
+          type: ["string", "null"]
 
     # --- DELIVERIES ---
     DeliveryItem:
@@ -2446,12 +2500,17 @@ components:
     # --- DISPATCHES ---
     Dispatch:
       type: object
-      required: [id, ventaId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, createdAt]
+      required: [id, tipo, ventaId, trasladoId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, createdAt]
       properties:
         id:
           type: integer
+        tipo:
+          type: string
+          enum: [venta, traslado]
         ventaId:
-          type: integer
+          type: ["integer", "null"]
+        trasladoId:
+          type: ["integer", "null"]
         vehiculoId:
           type: integer
         choferId:
@@ -2486,17 +2545,26 @@ components:
           type: ["string", "null"]
         clienteNombre:
           type: ["string", "null"]
+        referencia:
+          type: ["string", "null"]
+        origen:
+          type: ["string", "null"]
         destino:
           type: ["string", "null"]
 
     DispatchDetail:
       type: object
-      required: [id, ventaId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, createdAt]
+      required: [id, tipo, ventaId, trasladoId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, createdAt, pesoTotal, volumenTotal, saleItems, cargoItems, routePoints]
       properties:
         id:
           type: integer
+        tipo:
+          type: string
+          enum: [venta, traslado]
         ventaId:
-          type: integer
+          type: ["integer", "null"]
+        trasladoId:
+          type: ["integer", "null"]
         vehiculoId:
           type: integer
         choferId:
@@ -2529,6 +2597,10 @@ components:
           type: ["string", "null"]
         clienteNombre:
           type: ["string", "null"]
+        referencia:
+          type: ["string", "null"]
+        origen:
+          type: ["string", "null"]
         destino:
           type: ["string", "null"]
         pesoTotal:
@@ -2542,6 +2614,11 @@ components:
           description: Line items of the linked sale order
           items:
             $ref: "#/components/schemas/SaleItem"
+        cargoItems:
+          type: array
+          description: Normalized cargo lines from the linked sale or internal transfer
+          items:
+            $ref: "#/components/schemas/DispatchCargoItem"
         routePoints:
           type: array
           items:
@@ -2550,11 +2627,14 @@ components:
           $ref: "#/components/schemas/TravelCost"
 
     DispatchInput:
+      oneOf:
+        - $ref: "#/components/schemas/DispatchSaleInput"
+        - $ref: "#/components/schemas/DispatchTransferInput"
+
+    DispatchInputBase:
       type: object
-      required: [ventaId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada]
+      required: [vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada]
       properties:
-        ventaId:
-          type: integer
         vehiculoId:
           type: integer
         choferId:
@@ -2579,6 +2659,31 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RoutePointInput"
+
+    DispatchSaleInput:
+      allOf:
+        - $ref: "#/components/schemas/DispatchInputBase"
+        - type: object
+          required: [ventaId]
+          properties:
+            tipo:
+              type: string
+              enum: [venta]
+              default: venta
+            ventaId:
+              type: integer
+
+    DispatchTransferInput:
+      allOf:
+        - $ref: "#/components/schemas/DispatchInputBase"
+        - type: object
+          required: [tipo, trasladoId]
+          properties:
+            tipo:
+              type: string
+              enum: [traslado]
+            trasladoId:
+              type: integer
 
     DispatchCostEstimateInput:
       type: object
@@ -2624,6 +2729,19 @@ components:
           type: integer
         totalPeajes:
           type: number
+
+    DispatchCargoItem:
+      type: object
+      required: [productId, descripcion, cantidad, unidad]
+      properties:
+        productId:
+          type: ["integer", "null"]
+        descripcion:
+          type: string
+        cantidad:
+          type: number
+        unidad:
+          type: ["string", "null"]
 
     # --- ROUTE POINTS ---
     RoutePoint:

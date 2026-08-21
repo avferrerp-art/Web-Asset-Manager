@@ -5,10 +5,15 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
+import type { DispatchTipo } from './dispatchTipo';
 
 export interface Dispatch {
   id: number;
-  ventaId: number;
+  tipo: DispatchTipo;
+  /** @nullable */
+  ventaId: number | null;
+  /** @nullable */
+  trasladoId: number | null;
   vehiculoId: number;
   choferId: number;
   /** @nullable */
@@ -35,6 +40,10 @@ export interface Dispatch {
   ayudanteNombre?: string | null;
   /** @nullable */
   clienteNombre?: string | null;
+  /** @nullable */
+  referencia?: string | null;
+  /** @nullable */
+  origen?: string | null;
   /** @nullable */
   destino?: string | null;
 }

@@ -17,6 +17,13 @@ export type TrasladoFilters = {
   search?: string;
 };
 
+export class TrasladoPesoOdooReadonlyError extends Error {
+  constructor() {
+    super("El peso calculado por Odoo es de solo lectura.");
+    this.name = "TrasladoPesoOdooReadonlyError";
+  }
+}
+
 const origenTable = alias(almacenesTable, "traslado_origen");
 const destinoTable = alias(almacenesTable, "traslado_destino");
 
@@ -93,6 +100,8 @@ async function selectTraslados(filters: TrasladoFilters, id?: number) {
       estadoLogistico: trasladosTable.estadoLogistico,
       cantidadLineas: count(deliveryItemsTable.id),
       pesoCalculadoKg: trasladosTable.pesoCalculadoKg,
+      pesoEstimadoKg: trasladosTable.pesoEstimadoKg,
+      notas: trasladosTable.notas,
       volumenCalculadoM3: trasladosTable.volumenCalculadoM3,
     })
     .from(trasladosTable)
@@ -123,6 +132,13 @@ function toSummary(row: Awaited<ReturnType<typeof selectTraslados>>[number]) {
     row.destinoNombre,
     row.destinoPlaza,
   );
+  const pesoEfectivoKg = row.pesoCalculadoKg ?? row.pesoEstimadoKg;
+  const origenPeso =
+    row.pesoCalculadoKg !== null
+      ? "odoo"
+      : row.pesoEstimadoKg !== null
+        ? "estimado"
+        : null;
 
   return {
     id: row.id,
@@ -143,12 +159,19 @@ function toSummary(row: Awaited<ReturnType<typeof selectTraslados>>[number]) {
     estadoLogistico: row.estadoLogistico,
     cantidadLineas: Number(row.cantidadLineas),
     pesoCalculadoKg: row.pesoCalculadoKg,
+    pesoEfectivoKg,
+    origenPeso,
     volumenCalculadoM3: row.volumenCalculadoM3,
   };
 }
 
 export async function listTraslados(filters: TrasladoFilters = {}) {
   return (await selectTraslados(filters)).map(toSummary);
+}
+
+export async function getTrasladoSummary(id: number) {
+  const [row] = await selectTraslados({}, id);
+  return row ? toSummary(row) : null;
 }
 
 export async function getTraslado(id: number) {
@@ -174,9 +197,31 @@ export async function getTraslado(id: number) {
 
   return {
     ...toSummary(row),
+    pesoEstimadoKg: row.pesoEstimadoKg,
+    notas: row.notas,
     lineas: lineas.map((linea) => ({
       ...linea,
       diferencia: linea.demanda - linea.cantidad,
     })),
   };
+}
+
+export async function updateTrasladoLocalFields(
+  id: number,
+  data: { pesoEstimadoKg?: number | null; notas?: string | null },
+) {
+  const [existing] = await db
+    .select()
+    .from(trasladosTable)
+    .where(eq(trasladosTable.id, id));
+  if (!existing) return null;
+  if ("pesoEstimadoKg" in data && existing.pesoCalculadoKg !== null) {
+    throw new TrasladoPesoOdooReadonlyError();
+  }
+
+  await db
+    .update(trasladosTable)
+    .set(data)
+    .where(eq(trasladosTable.id, id));
+  return getTraslado(id);
 }

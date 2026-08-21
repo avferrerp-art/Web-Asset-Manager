@@ -288,6 +288,7 @@ async function createCancelAlerts(
     .from(dispatchesTable)
     .where(
       and(
+        eq(dispatchesTable.tipo, "venta"),
         inArray(dispatchesTable.ventaId, saleIds),
         sql`${dispatchesTable.estado} <> 'cancelado'`,
       ),
@@ -295,6 +296,7 @@ async function createCancelAlerts(
   if (activeDispatches.length === 0) return 0;
   const dispatchBySaleId = new Map<number, (typeof activeDispatches)[number]>();
   for (const d of activeDispatches) {
+    if (d.ventaId === null) continue;
     if (!dispatchBySaleId.has(d.ventaId)) dispatchBySaleId.set(d.ventaId, d);
   }
 

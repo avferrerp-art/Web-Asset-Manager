@@ -1,9 +1,12 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import {
   useGetTraslado,
-  getGetTrasladoQueryKey
+  getGetTrasladoQueryKey,
+  getListTrasladosQueryKey,
+  useUpdateTraslado,
 } from "@workspace/api-client-react";
 import type { TrasladoSummary, TrasladoDetail, TrasladoLinea } from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   Sheet,
   SheetContent,
@@ -11,7 +14,10 @@ import {
   SheetTitle,
 } from "@/components/ui/sheet";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useToast } from "@/hooks/use-toast";
 import {
   Table,
   TableBody,
@@ -22,6 +28,7 @@ import {
 } from "@/components/ui/table";
 import {
   AlertCircle,
+  Loader2,
   Package,
   ArrowRight
 } from "lucide-react";
@@ -102,11 +109,71 @@ export function TrasladoDetailSheet({ traslado: trasladoProp, open, onOpenChange
 }
 
 function TrasladoDetailSheetInner({ trasladoSummary, open, onOpenChange }: { trasladoSummary: TrasladoSummary; open: boolean; onOpenChange: (open: boolean) => void; }) {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+  const updateTraslado = useUpdateTraslado();
+  const [editingPeso, setEditingPeso] = useState(false);
+  const [pesoInput, setPesoInput] = useState("");
+  const [pesoError, setPesoError] = useState<string | null>(null);
   const { data: detailData, isLoading, error } = useGetTraslado(trasladoSummary.id, {
     query: { queryKey: getGetTrasladoQueryKey(trasladoSummary.id) }
   });
 
   const traslado = detailData || (trasladoSummary as TrasladoDetail);
+
+  useEffect(() => {
+    setEditingPeso(false);
+    setPesoInput("");
+    setPesoError(null);
+  }, [trasladoSummary.id, open]);
+
+  function bustTrasladoCache() {
+    queryClient.removeQueries({ queryKey: getGetTrasladoQueryKey(trasladoSummary.id) });
+    queryClient.invalidateQueries({ queryKey: getGetTrasladoQueryKey(trasladoSummary.id) });
+    queryClient.removeQueries({ queryKey: getListTrasladosQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListTrasladosQueryKey() });
+  }
+
+  function beginPesoEdit() {
+    setPesoInput(detailData?.pesoEstimadoKg?.toString() ?? "");
+    setPesoError(null);
+    setEditingPeso(true);
+  }
+
+  function savePesoEstimado(value: number | null) {
+    updateTraslado.mutate(
+      { id: trasladoSummary.id, data: { pesoEstimadoKg: value } },
+      {
+        onSuccess: () => {
+          bustTrasladoCache();
+          setEditingPeso(false);
+          setPesoError(null);
+          toast({ title: value === null ? "Estimación eliminada" : "Peso estimado guardado" });
+        },
+        onError: (mutationError) => {
+          setPesoError(
+            mutationError instanceof Error
+              ? mutationError.message
+              : "No se pudo guardar la estimación.",
+          );
+        },
+      },
+    );
+  }
+
+  function submitPeso() {
+    const trimmed = pesoInput.trim();
+    if (!trimmed) {
+      savePesoEstimado(null);
+      return;
+    }
+    const value = Number(trimmed);
+    if (!Number.isFinite(value) || value <= 0) {
+      setPesoError("Ingresa un peso mayor que cero.");
+      return;
+    }
+    savePesoEstimado(value);
+  }
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -161,9 +228,80 @@ function TrasladoDetailSheetInner({ trasladoSummary, open, onOpenChange }: { tra
             <span>{formatDate(traslado.fechaEfectiva)}</span>
 
             <span className="font-medium text-foreground/70">Peso</span>
-            <span className={traslado.pesoCalculadoKg == null ? "text-muted-foreground italic" : "text-foreground"}>
-              {formatTrasladoMedida(traslado.pesoCalculadoKg, "kg")}
-            </span>
+            <div className="min-w-0">
+              {editingPeso ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      min="0"
+                      step="any"
+                      value={pesoInput}
+                      onChange={(event) => setPesoInput(event.target.value)}
+                      placeholder="Peso en kg"
+                      className="h-8 max-w-36"
+                      data-testid="input-peso-estimado"
+                    />
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={submitPeso}
+                      disabled={updateTraslado.isPending}
+                      data-testid="button-guardar-peso-estimado"
+                    >
+                      {updateTraslado.isPending && <Loader2 className="animate-spin" />}
+                      Guardar
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setEditingPeso(false)}
+                      disabled={updateTraslado.isPending}
+                    >
+                      Cancelar
+                    </Button>
+                  </div>
+                  {traslado.origenPeso === "estimado" && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto min-h-0 p-0 text-xs text-muted-foreground"
+                      onClick={() => savePesoEstimado(null)}
+                      disabled={updateTraslado.isPending}
+                    >
+                      Eliminar estimación
+                    </Button>
+                  )}
+                  {pesoError && <p className="text-xs text-destructive">{pesoError}</p>}
+                </div>
+              ) : traslado.origenPeso === "odoo" ? (
+                <span className="text-foreground">
+                  {formatTrasladoMedida(traslado.pesoEfectivoKg, "kg")}
+                </span>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted-foreground italic">
+                    {traslado.origenPeso === "estimado"
+                      ? `${formatTrasladoMedida(traslado.pesoEfectivoKg, "kg")} (estimado)`
+                      : "sin dato en Odoo"}
+                  </span>
+                  {!isLoading && (
+                    <Button
+                      type="button"
+                      variant="link"
+                      size="sm"
+                      className="h-auto min-h-0 p-0 text-xs"
+                      onClick={beginPesoEdit}
+                      data-testid="button-editar-peso-estimado"
+                    >
+                      {traslado.origenPeso === "estimado" ? "Editar" : "Agregar estimación"}
+                    </Button>
+                  )}
+                </div>
+              )}
+            </div>
 
             <span className="font-medium text-foreground/70">Volumen</span>
             <span className={traslado.volumenCalculadoM3 == null ? "text-muted-foreground italic" : "text-foreground"}>

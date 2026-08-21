@@ -223,8 +223,9 @@ export default function Traslados() {
                       {traslado.cantidadLineas}
                     </TableCell>
                     <TableCell className="text-right whitespace-nowrap">
-                      <span className={traslado.pesoCalculadoKg == null ? "text-xs text-muted-foreground italic" : ""}>
-                        {formatTrasladoMedida(traslado.pesoCalculadoKg, "kg")}
+                      <span className={traslado.origenPeso !== "odoo" ? "text-xs text-muted-foreground italic" : ""}>
+                        {formatTrasladoMedida(traslado.pesoEfectivoKg, "kg")}
+                        {traslado.origenPeso === "estimado" ? " (estimado)" : ""}
                       </span>
                     </TableCell>
                   </TableRow>

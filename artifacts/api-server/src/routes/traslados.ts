@@ -1,5 +1,8 @@
 import { Router, type IRouter } from "express";
 import {
+  UpdateTrasladoBody,
+  UpdateTrasladoParams,
+  UpdateTrasladoResponse,
   GetTrasladoParams,
   GetTrasladoResponse,
   ListTrasladosQueryParams,
@@ -8,7 +11,9 @@ import {
 import {
   getTraslado,
   listTraslados,
+  TrasladoPesoOdooReadonlyError,
   type TrasladoFilters,
+  updateTrasladoLocalFields,
 } from "../services/trasladoQueries";
 
 const router: IRouter = Router();
@@ -48,6 +53,39 @@ router.get("/traslados/:id", async (req, res): Promise<void> => {
   }
 
   res.json(GetTrasladoResponse.parse(traslado));
+});
+
+router.patch("/traslados/:id", async (req, res): Promise<void> => {
+  const params = UpdateTrasladoParams.safeParse(req.params);
+  const body = UpdateTrasladoBody.safeParse(req.body);
+  if (
+    !params.success ||
+    !Number.isInteger(params.data.id) ||
+    params.data.id <= 0 ||
+    !body.success ||
+    Object.keys(body.data).length === 0
+  ) {
+    res.status(400).json({ error: "Datos de traslado inválidos" });
+    return;
+  }
+
+  try {
+    const updated = await updateTrasladoLocalFields(params.data.id, body.data);
+    if (!updated) {
+      res.status(404).json({ error: "Traslado no encontrado" });
+      return;
+    }
+    res.json(UpdateTrasladoResponse.parse(updated));
+  } catch (error) {
+    if (error instanceof TrasladoPesoOdooReadonlyError) {
+      res.status(400).json({
+        error: "peso_odoo_readonly",
+        message: error.message,
+      });
+      return;
+    }
+    throw error;
+  }
 });
 
 export default router;

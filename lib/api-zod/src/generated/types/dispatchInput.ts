@@ -5,19 +5,7 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
-import type { RoutePointInput } from './routePointInput';
+import type { DispatchSaleInput } from './dispatchSaleInput';
+import type { DispatchTransferInput } from './dispatchTransferInput';
 
-export interface DispatchInput {
-  ventaId: number;
-  vehiculoId: number;
-  choferId: number;
-  ayudanteId?: number;
-  fechaEstimadaSalida: string;
-  fechaEstimadaLlegada: string;
-  ruta?: string;
-  distanciaKm?: number;
-  distanciaManual?: boolean;
-  routeId?: number;
-  totalPeajes?: number;
-  routePoints?: RoutePointInput[];
-}
+export type DispatchInput = DispatchSaleInput | DispatchTransferInput;

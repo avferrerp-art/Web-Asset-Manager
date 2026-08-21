@@ -78,6 +78,7 @@ import type {
   TollRouteUpdate,
   TrasladoDetail,
   TrasladoSummary,
+  TrasladoUpdate,
   TravelCost,
   TravelCostInput,
   UnlinkedSaleItem,
@@ -1827,6 +1828,77 @@ export function useGetTraslado<TData = Awaited<ReturnType<typeof getTraslado>>, 
 
 
 
+
+export const getUpdateTrasladoUrl = (id: number,) => {
+
+
+
+
+  return `/api/traslados/${id}`
+}
+
+/**
+ * @summary Update the local estimate or notes of an internal transfer
+ */
+export const updateTraslado = async (id: number,
+    trasladoUpdate: TrasladoUpdate, options?: RequestInit): Promise<TrasladoDetail> => {
+
+  return customFetch<TrasladoDetail>(getUpdateTrasladoUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(trasladoUpdate)
+  }
+);}
+
+
+
+
+export const getUpdateTrasladoMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTraslado>>, TError,{id: number;data: BodyType<TrasladoUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateTraslado>>, TError,{id: number;data: BodyType<TrasladoUpdate>}, TContext> => {
+
+const mutationKey = ['updateTraslado'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateTraslado>>, {id: number;data: BodyType<TrasladoUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateTraslado(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateTrasladoMutationResult = NonNullable<Awaited<ReturnType<typeof updateTraslado>>>
+    export type UpdateTrasladoMutationBody = BodyType<TrasladoUpdate>
+    export type UpdateTrasladoMutationError = ErrorType<void>
+
+    /**
+ * @summary Update the local estimate or notes of an internal transfer
+ */
+export const useUpdateTraslado = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTraslado>>, TError,{id: number;data: BodyType<TrasladoUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateTraslado>>,
+        TError,
+        {id: number;data: BodyType<TrasladoUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateTrasladoMutationOptions(options));
+    }
 
 export const getUpdateSaleItemUrl = (itemId: number,) => {
 

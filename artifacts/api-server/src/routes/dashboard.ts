@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, travelCostsTable, routePointsTable } from "@workspace/db";
 import { GetVehicleScheduleQueryParams } from "@workspace/api-zod";
+import { buildDispatchRow } from "./dispatches";
 
 const router: IRouter = Router();
 
@@ -53,6 +54,7 @@ router.get("/dashboard/vehicle-schedule", async (req, res): Promise<void> => {
 
   const vehicles = await db.select().from(vehiclesTable);
   const dispatches = await db.select().from(dispatchesTable);
+  const dispatchRows = await Promise.all(dispatches.map(buildDispatchRow));
   const sales = await db.select().from(salesTable);
 
   const weekDays: string[] = [];
@@ -75,12 +77,12 @@ router.get("/dashboard/vehicle-schedule", async (req, res): Promise<void> => {
           return salida <= fecha && fecha <= llegada;
         });
         if (!dispatch) return null;
-        const sale = sales.find((s) => s.id === dispatch.ventaId);
+         const row = dispatchRows.find((candidate) => candidate.id === dispatch.id);
         return {
           fecha,
           despachoId: dispatch.id,
           estado: dispatch.estado,
-          destino: sale?.destino ?? "Sin destino",
+           destino: row?.destino ?? "Sin destino",
         };
       })
       .filter(Boolean);
@@ -106,7 +108,7 @@ router.get("/dashboard/active-dispatches", async (_req, res): Promise<void> => {
     dispatches.map(async (d) => {
       const [vehicle] = await db.select().from(vehiclesTable).where(eq(vehiclesTable.id, d.vehiculoId));
       const [driver] = await db.select().from(personnelTable).where(eq(personnelTable.id, d.choferId));
-      const [sale] = await db.select().from(salesTable).where(eq(salesTable.id, d.ventaId));
+      const row = await buildDispatchRow(d);
 
       let assistantName = null;
       if (d.ayudanteId) {
@@ -128,7 +130,7 @@ router.get("/dashboard/active-dispatches", async (_req, res): Promise<void> => {
         vehiculoModelo: vehicle?.modelo ?? "Desconocido",
         choferNombre: driver?.nombre ?? "Desconocido",
         ayudanteNombre: assistantName,
-        destino: sale?.destino ?? "Desconocido",
+        destino: row.destino ?? "Desconocido",
         fechaEstimadaSalida: d.fechaEstimadaSalida,
         fechaEstimadaLlegada: d.fechaEstimadaLlegada,
         estado: d.estado,

@@ -251,6 +251,18 @@ export interface TrasladoAlmacen {
   plaza: string;
 }
 
+/**
+ * Source of pesoEfectivoKg; Odoo always takes priority
+ * @nullable
+ */
+export type TrasladoSummaryOrigenPeso = typeof TrasladoSummaryOrigenPeso[keyof typeof TrasladoSummaryOrigenPeso] | null;
+
+
+export const TrasladoSummaryOrigenPeso = {
+  odoo: 'odoo',
+  estimado: 'estimado',
+} as const;
+
 export interface TrasladoSummary {
   id: number;
   /**
@@ -286,6 +298,16 @@ export interface TrasladoSummary {
      */
   pesoCalculadoKg: number | null;
   /**
+     * Odoo calculated weight when available, otherwise the local estimate
+     * @nullable
+     */
+  pesoEfectivoKg: number | null;
+  /**
+     * Source of pesoEfectivoKg; Odoo always takes priority
+     * @nullable
+     */
+  origenPeso: TrasladoSummaryOrigenPeso;
+  /**
      * Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing
      * @nullable
      */
@@ -310,9 +332,22 @@ export interface TrasladoLinea {
   diferencia: number;
 }
 
-export type TrasladoDetail = TrasladoSummary & {
+export type TrasladoDetail = TrasladoSummary & ({
+  /**
+     * Positive local estimate used only when Odoo has no calculated weight
+     * @nullable
+     */
+  pesoEstimadoKg: number | null;
+  /** @nullable */
+  notas: string | null;
   lineas: TrasladoLinea[];
-};
+});
+
+export interface TrasladoUpdate {
+  pesoEstimadoKg?: number | null;
+  /** @nullable */
+  notas?: string | null;
+}
 
 export interface DeliveryItem {
   id: number;
@@ -582,9 +617,21 @@ export interface LinkSaleItemInput {
   productId: number;
 }
 
+export type DispatchTipo = typeof DispatchTipo[keyof typeof DispatchTipo];
+
+
+export const DispatchTipo = {
+  venta: 'venta',
+  traslado: 'traslado',
+} as const;
+
 export interface Dispatch {
   id: number;
-  ventaId: number;
+  tipo: DispatchTipo;
+  /** @nullable */
+  ventaId: number | null;
+  /** @nullable */
+  trasladoId: number | null;
   vehiculoId: number;
   choferId: number;
   /** @nullable */
@@ -612,7 +659,28 @@ export interface Dispatch {
   /** @nullable */
   clienteNombre?: string | null;
   /** @nullable */
+  referencia?: string | null;
+  /** @nullable */
+  origen?: string | null;
+  /** @nullable */
   destino?: string | null;
+}
+
+export type DispatchDetailTipo = typeof DispatchDetailTipo[keyof typeof DispatchDetailTipo];
+
+
+export const DispatchDetailTipo = {
+  venta: 'venta',
+  traslado: 'traslado',
+} as const;
+
+export interface DispatchCargoItem {
+  /** @nullable */
+  productId: number | null;
+  descripcion: string;
+  cantidad: number;
+  /** @nullable */
+  unidad: string | null;
 }
 
 export interface RoutePoint {
@@ -641,7 +709,11 @@ export interface TravelCost {
 
 export interface DispatchDetail {
   id: number;
-  ventaId: number;
+  tipo: DispatchDetailTipo;
+  /** @nullable */
+  ventaId: number | null;
+  /** @nullable */
+  trasladoId: number | null;
   vehiculoId: number;
   choferId: number;
   /** @nullable */
@@ -668,20 +740,26 @@ export interface DispatchDetail {
   /** @nullable */
   clienteNombre?: string | null;
   /** @nullable */
+  referencia?: string | null;
+  /** @nullable */
+  origen?: string | null;
+  /** @nullable */
   destino?: string | null;
   /**
      * Total cargo weight in kg from the linked sale
      * @nullable
      */
-  pesoTotal?: number | null;
+  pesoTotal: number | null;
   /**
      * Total cargo volume in m³ from the linked sale
      * @nullable
      */
-  volumenTotal?: number | null;
+  volumenTotal: number | null;
   /** Line items of the linked sale order */
-  saleItems?: SaleItem[];
-  routePoints?: RoutePoint[];
+  saleItems: SaleItem[];
+  /** Normalized cargo lines from the linked sale or internal transfer */
+  cargoItems: DispatchCargoItem[];
+  routePoints: RoutePoint[];
   costs?: TravelCost;
 }
 
@@ -692,8 +770,7 @@ export interface RoutePointInput {
   longitud?: number;
 }
 
-export interface DispatchInput {
-  ventaId: number;
+export interface DispatchInputBase {
   vehiculoId: number;
   choferId: number;
   ayudanteId?: number;
@@ -706,6 +783,32 @@ export interface DispatchInput {
   totalPeajes?: number;
   routePoints?: RoutePointInput[];
 }
+
+export type DispatchSaleInputTipo = typeof DispatchSaleInputTipo[keyof typeof DispatchSaleInputTipo];
+
+
+export const DispatchSaleInputTipo = {
+  venta: 'venta',
+} as const;
+
+export type DispatchSaleInput = DispatchInputBase & {
+  tipo?: DispatchSaleInputTipo;
+  ventaId: number;
+};
+
+export type DispatchTransferInputTipo = typeof DispatchTransferInputTipo[keyof typeof DispatchTransferInputTipo];
+
+
+export const DispatchTransferInputTipo = {
+  traslado: 'traslado',
+} as const;
+
+export type DispatchTransferInput = DispatchInputBase & {
+  tipo: DispatchTransferInputTipo;
+  trasladoId: number;
+};
+
+export type DispatchInput = DispatchSaleInput | DispatchTransferInput;
 
 export interface DispatchCostEstimateInput {
   vehiculoId: number;

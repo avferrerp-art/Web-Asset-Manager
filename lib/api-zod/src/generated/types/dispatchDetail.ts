@@ -5,13 +5,19 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
+import type { DispatchCargoItem } from './dispatchCargoItem';
+import type { DispatchDetailTipo } from './dispatchDetailTipo';
 import type { RoutePoint } from './routePoint';
 import type { SaleItem } from './saleItem';
 import type { TravelCost } from './travelCost';
 
 export interface DispatchDetail {
   id: number;
-  ventaId: number;
+  tipo: DispatchDetailTipo;
+  /** @nullable */
+  ventaId: number | null;
+  /** @nullable */
+  trasladoId: number | null;
   vehiculoId: number;
   choferId: number;
   /** @nullable */
@@ -38,19 +44,25 @@ export interface DispatchDetail {
   /** @nullable */
   clienteNombre?: string | null;
   /** @nullable */
+  referencia?: string | null;
+  /** @nullable */
+  origen?: string | null;
+  /** @nullable */
   destino?: string | null;
   /**
      * Total cargo weight in kg from the linked sale
      * @nullable
      */
-  pesoTotal?: number | null;
+  pesoTotal: number | null;
   /**
      * Total cargo volume in m³ from the linked sale
      * @nullable
      */
-  volumenTotal?: number | null;
+  volumenTotal: number | null;
   /** Line items of the linked sale order */
-  saleItems?: SaleItem[];
-  routePoints?: RoutePoint[];
+  saleItems: SaleItem[];
+  /** Normalized cargo lines from the linked sale or internal transfer */
+  cargoItems: DispatchCargoItem[];
+  routePoints: RoutePoint[];
   costs?: TravelCost;
 }
