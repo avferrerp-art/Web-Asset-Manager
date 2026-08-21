@@ -198,8 +198,10 @@ export interface Product {
   categoria?: string | null;
   /** @nullable */
   uom?: string | null;
-  pesoOdoo: number;
-  volumenOdoo: number;
+  /** @nullable */
+  pesoOdoo: number | null;
+  /** @nullable */
+  volumenOdoo: number | null;
   activo: boolean;
   /** @nullable */
   lastSyncAt?: string | null;

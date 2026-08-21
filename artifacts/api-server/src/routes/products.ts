@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, eq, ilike, or } from "drizzle-orm";
+import { and, eq, ilike, isNull, or } from "drizzle-orm";
 import { db, productsTable } from "@workspace/db";
 import {
   ListProductsQueryParams,
@@ -29,8 +29,7 @@ router.get("/products", async (req, res): Promise<void> => {
     );
   }
   if (sinPesoOdoo) {
-    // "Sin peso en Odoo": accionable para compras — pesoOdoo 0 significa sin dato
-    conditions.push(eq(productsTable.pesoOdoo, 0));
+    conditions.push(isNull(productsTable.pesoOdoo));
   }
 
   const products = await db

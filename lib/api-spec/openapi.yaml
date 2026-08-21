@@ -1852,9 +1852,9 @@ components:
         uom:
           type: ["string", "null"]
         pesoOdoo:
-          type: number
+          type: ["number", "null"]
         volumenOdoo:
-          type: number
+          type: ["number", "null"]
         activo:
           type: boolean
         lastSyncAt:

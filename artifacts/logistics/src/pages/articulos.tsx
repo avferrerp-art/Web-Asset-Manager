@@ -161,7 +161,7 @@ export default function Articulos() {
                       <td className="px-4 py-2.5 font-medium">{p.nombre}</td>
                       <td className="px-4 py-2.5 text-muted-foreground">{p.categoria ?? "—"}</td>
                       <td className="px-4 py-2.5 text-right" data-testid={`text-peso-${p.id}`}>
-                        {p.pesoOdoo > 0
+                        {p.pesoOdoo !== null
                           ? <span className="font-medium">{p.pesoOdoo}</span>
                           : (
                             <Badge className="bg-yellow-500/15 text-yellow-500 border-yellow-500/30 gap-1" variant="outline">
@@ -170,7 +170,7 @@ export default function Articulos() {
                           )}
                       </td>
                       <td className="px-4 py-2.5 text-right" data-testid={`text-volumen-${p.id}`}>
-                        {p.volumenOdoo > 0
+                        {p.volumenOdoo !== null
                           ? <span className="text-muted-foreground">{p.volumenOdoo}</span>
                           : <span className="text-muted-foreground/60 text-xs">sin dato en Odoo</span>}
                       </td>

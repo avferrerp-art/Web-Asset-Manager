@@ -17,10 +17,6 @@ ALTER TABLE "deliveries"
   ALTER COLUMN "tipo" SET DEFAULT 'venta',
   ALTER COLUMN "tipo" SET NOT NULL;
 
-ALTER TABLE "products"
-  ADD COLUMN IF NOT EXISTS "peso_kg_odoo" real,
-  ADD COLUMN IF NOT EXISTS "volumen_m3_odoo" real;
-
 CREATE TABLE IF NOT EXISTS "traslados" (
   "id" serial PRIMARY KEY NOT NULL,
   "delivery_id" integer,

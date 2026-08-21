@@ -17,6 +17,7 @@ import * as salesTotalesNullable from "./0005_sales_totales_nullable";
 import * as almacenes from "./0006_almacenes";
 import * as almacenesNombres from "./0007_almacenes_nombres";
 import * as traslados from "./0008_traslados";
+import * as productMeasurements from "./0009_product_measurements";
 
 export interface Migration {
   name: string;
@@ -33,4 +34,5 @@ export const migrations: Migration[] = [
   almacenes,
   almacenesNombres,
   traslados,
+  productMeasurements,
 ];

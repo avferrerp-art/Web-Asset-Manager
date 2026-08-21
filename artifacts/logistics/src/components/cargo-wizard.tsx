@@ -337,7 +337,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                                           <div className="font-medium truncate">{p.nombre}</div>
                                           <div className="text-muted-foreground">
                                             {p.odooRef ?? "sin ref."}
-                                            {p.pesoOdoo > 0 ? ` · ${p.pesoOdoo} kg (Odoo)` : " · sin peso en Odoo"}
+                                            {p.pesoOdoo !== null ? ` · ${p.pesoOdoo} kg (Odoo)` : " · sin peso en Odoo"}
                                           </div>
                                         </div>
                                         <Button

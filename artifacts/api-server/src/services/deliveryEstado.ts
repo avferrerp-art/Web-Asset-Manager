@@ -1,4 +1,4 @@
-import { inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, salesTable, deliveriesTable } from "@workspace/db";
 import { logger } from "../lib/logger";
 
@@ -100,17 +100,22 @@ export async function recomputeDeliveryDerivedState(
 
   const deliveries = await db
     .select({
-      ventaId: deliveriesTable.ventaId,
+      ventaId: sql<number>`${deliveriesTable.ventaId}`,
       estado: deliveriesTable.estado,
       almacenOrigen: deliveriesTable.almacenOrigen,
       fechaProgramada: deliveriesTable.fechaProgramada,
     })
     .from(deliveriesTable)
-    .where(saleIds ? inArray(deliveriesTable.ventaId, saleIds) : sql`true`);
+    .where(
+      and(
+        eq(deliveriesTable.tipo, "venta"),
+        isNotNull(deliveriesTable.ventaId),
+        saleIds ? inArray(deliveriesTable.ventaId, saleIds) : undefined,
+      ),
+    );
 
   const byVenta = new Map<number, DeliveryForDerivation[]>();
   for (const d of deliveries) {
-    if (d.ventaId === null) continue;
     const list = byVenta.get(d.ventaId) ?? [];
     list.push(d);
     byVenta.set(d.ventaId, list);

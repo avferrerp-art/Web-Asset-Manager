@@ -29,7 +29,8 @@ vi.mock("../../artifacts/api-server/src/lib/odooClient", async (importOriginal) 
 });
 
 import { syncOdooProducts } from "../../artifacts/api-server/src/services/productSync";
-import { db, productsTable, runMigrations } from "@workspace/db";
+import { db, pool, productsTable, runMigrations } from "@workspace/db";
+import { sql as productMeasurementsMigrationSql } from "../../lib/db/src/migrations/0009_product_measurements";
 
 // Unique odooIds far away from real data to avoid collisions.
 const BASE = 90_500_000 + Math.floor(Math.random() * 1000) * 100;
@@ -68,6 +69,143 @@ beforeAll(async () => {
 afterAll(cleanup);
 
 describe("Odoo product sync", () => {
+  it("keeps only nullable canonical measurement columns and the migration is repeatable", async () => {
+    await pool.query(productMeasurementsMigrationSql);
+
+    const { rows: columns } = await pool.query<{ column_name: string; is_nullable: string }>(`
+      SELECT column_name, is_nullable
+      FROM information_schema.columns
+      WHERE table_schema = 'public'
+        AND table_name = 'products'
+        AND column_name IN (
+          'peso_odoo',
+          'volumen_odoo',
+          'peso_kg_odoo',
+          'volumen_m3_odoo'
+        )
+      ORDER BY column_name
+    `);
+    expect(columns).toEqual([
+      { column_name: "peso_odoo", is_nullable: "YES" },
+      { column_name: "volumen_odoo", is_nullable: "YES" },
+    ]);
+
+    const { rows: invalidMeasurements } = await pool.query<{ count: number }>(`
+      SELECT count(*)::int AS count
+      FROM products
+      WHERE peso_odoo IS NOT NULL AND peso_odoo <= 0
+         OR volumen_odoo IS NOT NULL AND volumen_odoo <= 0
+    `);
+    expect(invalidMeasurements[0]!.count).toBe(0);
+  });
+
+  it("refuses to drop duplicate measurement columns when they contradict canonical data", async () => {
+    const client = await pool.connect();
+    const schemaName = `product_measurements_${process.pid}_${Math.floor(Math.random() * 1_000_000)}`;
+
+    try {
+      await client.query(`CREATE SCHEMA "${schemaName}"`);
+      await client.query(`SET search_path TO "${schemaName}"`);
+      await client.query(`
+        CREATE TABLE "products" (
+          "id" integer PRIMARY KEY,
+          "peso_odoo" real DEFAULT 0 NOT NULL,
+          "volumen_odoo" real DEFAULT 0 NOT NULL,
+          "peso_kg_odoo" real,
+          "volumen_m3_odoo" real
+        );
+        INSERT INTO "products" (
+          "id",
+          "peso_odoo",
+          "volumen_odoo",
+          "peso_kg_odoo",
+          "volumen_m3_odoo"
+        ) VALUES (1, 10, 2, 11, 2);
+      `);
+
+      await expect(client.query(productMeasurementsMigrationSql)).rejects.toThrow(
+        /duplicate columns contain different data/,
+      );
+
+      const { rows } = await client.query<{ column_name: string }>(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'products'
+          AND column_name IN ('peso_kg_odoo', 'volumen_m3_odoo')
+        ORDER BY column_name
+      `);
+      expect(rows.map((row) => row.column_name)).toEqual([
+        "peso_kg_odoo",
+        "volumen_m3_odoo",
+      ]);
+    } finally {
+      await client.query("SET search_path TO public").catch(() => {});
+      await client.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`).catch(() => {});
+      client.release();
+    }
+  });
+
+  it("preserves matching legacy measurements, normalizes sentinels, and drops duplicates", async () => {
+    const client = await pool.connect();
+    const schemaName = `product_measurements_ok_${process.pid}_${Math.floor(Math.random() * 1_000_000)}`;
+
+    try {
+      await client.query(`CREATE SCHEMA "${schemaName}"`);
+      await client.query(`SET search_path TO "${schemaName}"`);
+      await client.query(`
+        CREATE TABLE "products" (
+          "id" integer PRIMARY KEY,
+          "peso_odoo" real DEFAULT 0 NOT NULL,
+          "volumen_odoo" real DEFAULT 0 NOT NULL,
+          "peso_kg_odoo" real,
+          "volumen_m3_odoo" real
+        );
+        INSERT INTO "products" (
+          "id",
+          "peso_odoo",
+          "volumen_odoo",
+          "peso_kg_odoo",
+          "volumen_m3_odoo"
+        ) VALUES
+          (1, 10, 2, 10, 2),
+          (2, 0, -1, NULL, NULL),
+          (3, 5, 0, NULL, NULL);
+      `);
+
+      await client.query(productMeasurementsMigrationSql);
+      await client.query(productMeasurementsMigrationSql);
+
+      const { rows: products } = await client.query<{
+        id: number;
+        peso_odoo: number | null;
+        volumen_odoo: number | null;
+      }>(`
+        SELECT id, peso_odoo, volumen_odoo
+        FROM products
+        ORDER BY id
+      `);
+      expect(products).toEqual([
+        { id: 1, peso_odoo: 10, volumen_odoo: 2 },
+        { id: 2, peso_odoo: null, volumen_odoo: null },
+        { id: 3, peso_odoo: 5, volumen_odoo: null },
+      ]);
+
+      const { rows: duplicateColumns } = await client.query<{ column_name: string }>(`
+        SELECT column_name
+        FROM information_schema.columns
+        WHERE table_schema = current_schema()
+          AND table_name = 'products'
+          AND column_name IN ('peso_kg_odoo', 'volumen_m3_odoo')
+      `);
+      expect(duplicateColumns).toHaveLength(0);
+    } finally {
+      await client.query("SET search_path TO public").catch(() => {});
+      await client.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`).catch(() => {});
+      client.release();
+    }
+  });
+
   it("requests only products of type 'product' or 'consu' (excludes services)", async () => {
     mockProductBatch([odooRecord(ODOO_IDS[0]!)]);
     await syncOdooProducts();
@@ -124,8 +262,6 @@ describe("Odoo product sync", () => {
     expect(row!.nombre).toBe("Nombre Actualizado Odoo");
     expect(row!.pesoOdoo).toBe(99);
     expect(row!.volumenOdoo).toBe(9);
-    expect(row!.pesoKgOdoo).toBe(99);
-    expect(row!.volumenM3Odoo).toBe(9);
     // …manual field untouched.
     expect(row!.notas).toBe("nota manual");
   });
@@ -140,8 +276,8 @@ describe("Odoo product sync", () => {
       .select()
       .from(productsTable)
       .where(eq(productsTable.odooId, odooId));
-    expect(row!.pesoKgOdoo).toBeNull();
-    expect(row!.volumenM3Odoo).toBeNull();
+    expect(row!.pesoOdoo).toBeNull();
+    expect(row!.volumenOdoo).toBeNull();
 
     mockProductBatch([odooRecord(odooId, { weight: 12.5, volume: 0.75 })]);
     await syncOdooProducts();
@@ -149,8 +285,8 @@ describe("Odoo product sync", () => {
       .select()
       .from(productsTable)
       .where(eq(productsTable.odooId, odooId));
-    expect(row!.pesoKgOdoo).toBe(12.5);
-    expect(row!.volumenM3Odoo).toBe(0.75);
+    expect(row!.pesoOdoo).toBe(12.5);
+    expect(row!.volumenOdoo).toBe(0.75);
 
     mockProductBatch([odooRecord(odooId, { weight: undefined, volume: 0 })]);
     await syncOdooProducts();
@@ -158,7 +294,7 @@ describe("Odoo product sync", () => {
       .select()
       .from(productsTable)
       .where(eq(productsTable.odooId, odooId));
-    expect(row!.pesoKgOdoo).toBeNull();
-    expect(row!.volumenM3Odoo).toBeNull();
+    expect(row!.pesoOdoo).toBeNull();
+    expect(row!.volumenOdoo).toBeNull();
   });
 });

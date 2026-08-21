@@ -45,8 +45,8 @@ async function createProduct(overrides: Partial<typeof productsTable.$inferInser
     .values({
       odooId: BASE + createdProductIds.length + 1,
       nombre: "Artículo Test",
-      pesoOdoo: 0,
-      volumenOdoo: 0,
+      pesoOdoo: null,
+      volumenOdoo: null,
       activo: true,
       ...overrides,
     })

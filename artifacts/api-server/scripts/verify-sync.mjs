@@ -156,8 +156,8 @@ async function syncOdooProducts() {
       nombre: p.name,
       categoria: p.categ_id ? p.categ_id[1] : null,
       uom: p.uom_id ? p.uom_id[1] : null,
-      pesoOdoo: p.weight ?? 0,
-      volumenOdoo: p.volume ?? 0,
+      pesoOdoo: typeof p.weight === "number" && Number.isFinite(p.weight) && p.weight > 0 ? p.weight : null,
+      volumenOdoo: typeof p.volume === "number" && Number.isFinite(p.volume) && p.volume > 0 ? p.volume : null,
       activo: p.active !== false,
       lastSyncAt: now,
       dimensionesConfirmadas: false
@@ -168,8 +168,8 @@ async function syncOdooProducts() {
         nombre: p.name,
         categoria: p.categ_id ? p.categ_id[1] : null,
         uom: p.uom_id ? p.uom_id[1] : null,
-        pesoOdoo: p.weight ?? 0,
-        volumenOdoo: p.volume ?? 0,
+        pesoOdoo: typeof p.weight === "number" && Number.isFinite(p.weight) && p.weight > 0 ? p.weight : null,
+        volumenOdoo: typeof p.volume === "number" && Number.isFinite(p.volume) && p.volume > 0 ? p.volume : null,
         activo: p.active !== false,
         lastSyncAt: now,
         updatedAt: now

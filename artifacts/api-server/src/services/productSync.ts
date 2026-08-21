@@ -97,10 +97,8 @@ export async function syncOdooProducts(): Promise<ProductSyncResult> {
         nombre: p.name,
         categoria: p.categ_id ? p.categ_id[1] : null,
         uom: p.uom_id ? p.uom_id[1] : null,
-        pesoOdoo: p.weight ?? 0,
-        volumenOdoo: p.volume ?? 0,
-        pesoKgOdoo: positiveOdooValue(p.weight),
-        volumenM3Odoo: positiveOdooValue(p.volume),
+        pesoOdoo: positiveOdooValue(p.weight),
+        volumenOdoo: positiveOdooValue(p.volume),
         activo: p.active !== false,
         lastSyncAt: now,
         dimensionesConfirmadas: false,
@@ -112,10 +110,8 @@ export async function syncOdooProducts(): Promise<ProductSyncResult> {
           nombre: p.name,
           categoria: p.categ_id ? p.categ_id[1] : null,
           uom: p.uom_id ? p.uom_id[1] : null,
-          pesoOdoo: p.weight ?? 0,
-          volumenOdoo: p.volume ?? 0,
-          pesoKgOdoo: positiveOdooValue(p.weight),
-          volumenM3Odoo: positiveOdooValue(p.volume),
+          pesoOdoo: positiveOdooValue(p.weight),
+          volumenOdoo: positiveOdooValue(p.volume),
           activo: p.active !== false,
           lastSyncAt: now,
           updatedAt: now,
@@ -180,7 +176,7 @@ export async function getProductStats(): Promise<{
   const [row] = await db
     .select({
       total: sql<number>`count(*)::int`,
-      conPesoOdoo: sql<number>`count(*) filter (where ${productsTable.pesoOdoo} > 0)::int`,
+      conPesoOdoo: sql<number>`count(${productsTable.pesoOdoo})::int`,
     })
     .from(productsTable);
   const total = row?.total ?? 0;

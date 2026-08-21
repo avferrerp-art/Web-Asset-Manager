@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, desc } from "drizzle-orm";
+import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
 import { db, salesTable, deliveriesTable } from "@workspace/db";
 import {
   ListSalesQueryParams,
@@ -12,6 +12,28 @@ import {
 
 const router: IRouter = Router();
 
+export async function getSaleDeliveryNames(): Promise<Map<number, string[]>> {
+  const albaranes = await db
+    .select({
+      ventaId: sql<number>`${deliveriesTable.ventaId}`,
+      nombre: deliveriesTable.nombre,
+    })
+    .from(deliveriesTable)
+    .where(
+      and(
+        eq(deliveriesTable.tipo, "venta"),
+        isNotNull(deliveriesTable.ventaId),
+      ),
+    );
+  const nombresByVenta = new Map<number, string[]>();
+  for (const a of albaranes) {
+    const list = nombresByVenta.get(a.ventaId) ?? [];
+    list.push(a.nombre);
+    nombresByVenta.set(a.ventaId, list);
+  }
+  return nombresByVenta;
+}
+
 router.get("/sales", async (req, res): Promise<void> => {
   const query = ListSalesQueryParams.safeParse(req.query);
   let results = await db.select().from(salesTable).orderBy(desc(salesTable.createdAt));
@@ -19,16 +41,7 @@ router.get("/sales", async (req, res): Promise<void> => {
     results = results.filter((s) => s.estado === query.data.status);
   }
   // Albarán names per sale, so the list search can match e.g. "CCS/OUT/00278"
-  const albaranes = await db
-    .select({ ventaId: deliveriesTable.ventaId, nombre: deliveriesTable.nombre })
-    .from(deliveriesTable);
-  const nombresByVenta = new Map<number, string[]>();
-  for (const a of albaranes) {
-    if (a.ventaId === null) continue;
-    const list = nombresByVenta.get(a.ventaId) ?? [];
-    list.push(a.nombre);
-    nombresByVenta.set(a.ventaId, list);
-  }
+  const nombresByVenta = await getSaleDeliveryNames();
   res.json(results.map((s) => ({ ...s, albaranNombres: nombresByVenta.get(s.id) ?? [] })));
 });
 

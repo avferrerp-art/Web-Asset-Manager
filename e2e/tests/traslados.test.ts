@@ -10,9 +10,11 @@ import {
   trasladosTable,
 } from "@workspace/db";
 import { sql as trasladosMigrationSql } from "../../lib/db/src/migrations/0008_traslados";
+import { recomputeDeliveryDerivedState } from "../../artifacts/api-server/src/services/deliveryEstado";
+import { getSaleDeliveryNames } from "../../artifacts/api-server/src/routes/sales";
 
 const BASE = 92_100_000 + Math.floor(Math.random() * 1000) * 100;
-const ODOO_IDS = [BASE + 1, BASE + 2];
+const ODOO_IDS = [BASE + 1, BASE + 2, BASE + 3];
 let saleId: number | null = null;
 
 beforeAll(async () => {
@@ -135,6 +137,7 @@ describe("Modelo persistente de traslados", () => {
         odooId: ODOO_IDS[0]!,
         nombre: `TEST/OUT/${ODOO_IDS[0]}`,
         estado: "assigned",
+        almacenOrigen: "CCS/Existencias",
       })
       .returning();
     expect(saleDelivery!.tipo).toBe("venta");
@@ -159,6 +162,30 @@ describe("Modelo persistente de traslados", () => {
       almacenDestino: "LEC/Existencias",
       almacenDestinoCodigo: "LEC",
     });
+
+    await db.insert(deliveriesTable).values({
+      ventaId: sale.id,
+      odooId: ODOO_IDS[2]!,
+      tipo: "traslado",
+      nombre: `TEST/INT/${ODOO_IDS[2]}`,
+      estado: "done",
+      almacenOrigen: "LEC/Existencias",
+      fechaProgramada: new Date("2030-01-01T00:00:00Z"),
+    });
+
+    await recomputeDeliveryDerivedState([sale.id]);
+    const [derivedSale] = await db
+      .select()
+      .from(salesTable)
+      .where(eq(salesTable.id, sale.id));
+    expect(derivedSale).toMatchObject({
+      estadoEntrega: "pendiente",
+      almacenOrigen: "CCS/Existencias",
+      almacenesMultiples: false,
+    });
+
+    const nombresByVenta = await getSaleDeliveryNames();
+    expect(nombresByVenta.get(sale.id)).toEqual([saleDelivery.nombre]);
 
     const warehouses = await db
       .select({ id: almacenesTable.id, codigo: almacenesTable.codigo })
