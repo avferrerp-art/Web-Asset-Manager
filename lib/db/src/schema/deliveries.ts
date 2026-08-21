@@ -1,14 +1,15 @@
 import { pgTable, serial, text, integer, timestamp } from "drizzle-orm/pg-core";
 import { salesTable } from "./sales";
 
-// Albaranes (stock.picking de Odoo): una fila por entrega/despacho de almacén.
+// Movimientos de almacén (stock.picking de Odoo): ventas y traslados internos.
 export const deliveriesTable = pgTable("deliveries", {
   id: serial("id").primaryKey(),
   ventaId: integer("venta_id")
-    .notNull()
     .references(() => salesTable.id, { onDelete: "cascade" }),
   // id del stock.picking en Odoo
   odooId: integer("odoo_id").notNull().unique(),
+  // venta | traslado
+  tipo: text("tipo").notNull().default("venta"),
   // Referencia del albarán ("CCS/OUT/00307")
   nombre: text("nombre").notNull(),
   // state crudo de Odoo: draft|waiting|confirmed|assigned|done|cancel
@@ -19,6 +20,10 @@ export const deliveriesTable = pgTable("deliveries", {
   almacenOrigen: text("almacen_origen"),
   // Prefijo derivado de almacenOrigen ("CCS")
   almacenCodigo: text("almacen_codigo"),
+  // location_dest_id[1] completo ("LEC/Existencias")
+  almacenDestino: text("almacen_destino"),
+  // Prefijo derivado de almacenDestino ("LEC")
+  almacenDestinoCodigo: text("almacen_destino_codigo"),
   fechaProgramada: timestamp("fecha_programada", { withTimezone: true }),
   // date_done — nullable, Odoo devuelve false si no entregado
   fechaEfectiva: timestamp("fecha_efectiva", { withTimezone: true }),

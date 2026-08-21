@@ -7,6 +7,7 @@ import {
   runMigrations,
 } from "@workspace/db";
 import { sql as almacenesMigrationSql } from "../../lib/db/src/migrations/0006_almacenes";
+import { sql as almacenesNombresMigrationSql } from "../../lib/db/src/migrations/0007_almacenes_nombres";
 
 vi.mock("../../artifacts/api-server/src/middlewares/requireAuth", () => ({
   requireAuth: (
@@ -27,7 +28,11 @@ vi.mock("../../artifacts/api-server/src/middlewares/requireAuth", () => ({
 }));
 
 import app from "../../artifacts/api-server/src/app";
-import { resolveAlmacenPorLocation } from "../../artifacts/api-server/src/services/almacenes";
+import {
+  cargarCatalogoAlmacenesActivos,
+  crearResolverAlmacenes,
+  resolveAlmacenPorLocation,
+} from "../../artifacts/api-server/src/services/almacenes";
 
 const TEST_CODE = "TEST-INACTIVO";
 let server: ReturnType<typeof app.listen>;
@@ -40,6 +45,8 @@ beforeAll(async () => {
   // DDL and seed must remain safe and must not duplicate canonical rows.
   await pool.query(almacenesMigrationSql);
   await pool.query(almacenesMigrationSql);
+  await pool.query(almacenesNombresMigrationSql);
+  await pool.query(almacenesNombresMigrationSql);
 
   await db.delete(almacenesTable).where(eq(almacenesTable.codigo, TEST_CODE));
   await db.insert(almacenesTable).values({
@@ -85,23 +92,39 @@ describe("Catálogo de almacenes", () => {
       expect.arrayContaining([
         { codigo: "URB", odooPrefix: "Urbin", nombre: "Urbina" },
         { codigo: "CCS", odooPrefix: "CCS", nombre: "Caracas" },
-        { codigo: "LEC", odooPrefix: "LEC", nombre: "Lecheria" },
+        { codigo: "LEC", odooPrefix: "LEC", nombre: "Lechería" },
         { codigo: "NVBLA", odooPrefix: "NVBLA", nombre: "Nueva Barcelona" },
       ]),
     );
+    expect(
+      await db
+        .select({ codigo: almacenesTable.codigo, plaza: almacenesTable.plaza })
+        .from(almacenesTable)
+        .where(eq(almacenesTable.codigo, "NVBLA")),
+    ).toEqual([{ codigo: "NVBLA", plaza: "Lechería" }]);
   });
 
-  it("resolves the exact Odoo prefix and never creates unknown warehouses", async () => {
+  it("loads the active catalog once and resolves prefixes in memory", async () => {
     const before = await db.select({ id: almacenesTable.id }).from(almacenesTable);
+    const firstCatalog = await cargarCatalogoAlmacenesActivos();
+    const secondCatalog = await cargarCatalogoAlmacenesActivos();
+    const resolver = await crearResolverAlmacenes();
 
     const urbina = await resolveAlmacenPorLocation("Urbin/Existencias");
-    const unknown = await resolveAlmacenPorLocation("DESCONOCIDO/Existencias");
+    const lecheria = resolver("LEC/Existencias");
+    const unknown = resolver("DESCONOCIDO/Existencias");
 
     const after = await db.select({ id: almacenesTable.id }).from(almacenesTable);
+    expect(secondCatalog).toBe(firstCatalog);
     expect(urbina).toMatchObject({
       codigo: "URB",
       odooPrefix: "Urbin",
       nombre: "Urbina",
+    });
+    expect(lecheria).toMatchObject({
+      codigo: "LEC",
+      nombre: "Lechería",
+      plaza: "Lechería",
     });
     expect(unknown).toBeNull();
     expect(after).toHaveLength(before.length);
@@ -119,9 +142,16 @@ describe("Catálogo de almacenes", () => {
     const rows = (await authorized.json()) as Array<{
       codigo: string;
       activo: boolean;
+      nombre: string;
+      plaza: string;
     }>;
     expect(rows).toHaveLength(4);
     expect(rows.every((row) => row.activo)).toBe(true);
     expect(rows.some((row) => row.codigo === TEST_CODE)).toBe(false);
+    expect(rows.map((row) => row.codigo)).toEqual(["CCS", "URB", "LEC", "NVBLA"]);
+    expect(rows.find((row) => row.codigo === "LEC")).toMatchObject({
+      nombre: "Lechería",
+      plaza: "Lechería",
+    });
   });
 });

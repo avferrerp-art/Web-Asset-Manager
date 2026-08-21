@@ -12,6 +12,9 @@ export const productsTable = pgTable("products", {
   uom: text("uom"),
   pesoOdoo: real("peso_odoo").notNull().default(0),
   volumenOdoo: real("volumen_odoo").notNull().default(0),
+  // Campos confiables para planificación: null significa "sin dato en Odoo".
+  pesoKgOdoo: real("peso_kg_odoo"),
+  volumenM3Odoo: real("volumen_m3_odoo"),
   activo: boolean("activo").notNull().default(true),
   lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
   // --- Campos manuales (el sync NUNCA los toca) ---

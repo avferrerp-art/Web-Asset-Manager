@@ -24,6 +24,7 @@ router.get("/sales", async (req, res): Promise<void> => {
     .from(deliveriesTable);
   const nombresByVenta = new Map<number, string[]>();
   for (const a of albaranes) {
+    if (a.ventaId === null) continue;
     const list = nombresByVenta.get(a.ventaId) ?? [];
     list.push(a.nombre);
     nombresByVenta.set(a.ventaId, list);

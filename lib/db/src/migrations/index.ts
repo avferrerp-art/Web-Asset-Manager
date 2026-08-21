@@ -15,6 +15,8 @@ import * as syncStateDeliveries from "./0003_sync_state_deliveries";
 import * as salesEstadoEntrega from "./0004_sales_estado_entrega";
 import * as salesTotalesNullable from "./0005_sales_totales_nullable";
 import * as almacenes from "./0006_almacenes";
+import * as almacenesNombres from "./0007_almacenes_nombres";
+import * as traslados from "./0008_traslados";
 
 export interface Migration {
   name: string;
@@ -29,4 +31,6 @@ export const migrations: Migration[] = [
   salesEstadoEntrega,
   salesTotalesNullable,
   almacenes,
+  almacenesNombres,
+  traslados,
 ];

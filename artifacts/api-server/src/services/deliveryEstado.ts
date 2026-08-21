@@ -110,6 +110,7 @@ export async function recomputeDeliveryDerivedState(
 
   const byVenta = new Map<number, DeliveryForDerivation[]>();
   for (const d of deliveries) {
+    if (d.ventaId === null) continue;
     const list = byVenta.get(d.ventaId) ?? [];
     list.push(d);
     byVenta.set(d.ventaId, list);

@@ -29,6 +29,12 @@ interface OdooProductRecord {
 
 const FETCH_BATCH_SIZE = 200;
 
+function positiveOdooValue(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : null;
+}
+
 async function fetchOdooProducts(
   config: OdooConfig,
   uid: number,
@@ -93,6 +99,8 @@ export async function syncOdooProducts(): Promise<ProductSyncResult> {
         uom: p.uom_id ? p.uom_id[1] : null,
         pesoOdoo: p.weight ?? 0,
         volumenOdoo: p.volume ?? 0,
+        pesoKgOdoo: positiveOdooValue(p.weight),
+        volumenM3Odoo: positiveOdooValue(p.volume),
         activo: p.active !== false,
         lastSyncAt: now,
         dimensionesConfirmadas: false,
@@ -106,6 +114,8 @@ export async function syncOdooProducts(): Promise<ProductSyncResult> {
           uom: p.uom_id ? p.uom_id[1] : null,
           pesoOdoo: p.weight ?? 0,
           volumenOdoo: p.volume ?? 0,
+          pesoKgOdoo: positiveOdooValue(p.weight),
+          volumenM3Odoo: positiveOdooValue(p.volume),
           activo: p.active !== false,
           lastSyncAt: now,
           updatedAt: now,

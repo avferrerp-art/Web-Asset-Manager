@@ -29,11 +29,11 @@ vi.mock("../../artifacts/api-server/src/lib/odooClient", async (importOriginal) 
 });
 
 import { syncOdooProducts } from "../../artifacts/api-server/src/services/productSync";
-import { db, productsTable } from "@workspace/db";
+import { db, productsTable, runMigrations } from "@workspace/db";
 
 // Unique odooIds far away from real data to avoid collisions.
 const BASE = 90_500_000 + Math.floor(Math.random() * 1000) * 100;
-const ODOO_IDS = [BASE + 1, BASE + 2];
+const ODOO_IDS = [BASE + 1, BASE + 2, BASE + 3];
 
 function odooRecord(id: number, overrides: Record<string, unknown> = {}) {
   return {
@@ -61,7 +61,10 @@ async function cleanup() {
   await db.delete(productsTable).where(inArray(productsTable.odooId, ODOO_IDS));
 }
 
-beforeAll(cleanup);
+beforeAll(async () => {
+  await runMigrations();
+  await cleanup();
+});
 afterAll(cleanup);
 
 describe("Odoo product sync", () => {
@@ -80,7 +83,7 @@ describe("Odoo product sync", () => {
   });
 
   it("running the sync twice does not duplicate products (upsert by odooId)", async () => {
-    mockProductBatch(ODOO_IDS.map((id) => odooRecord(id)));
+    mockProductBatch(ODOO_IDS.slice(0, 2).map((id) => odooRecord(id)));
 
     const first = await syncOdooProducts();
     expect(first.total).toBe(2);
@@ -121,7 +124,41 @@ describe("Odoo product sync", () => {
     expect(row!.nombre).toBe("Nombre Actualizado Odoo");
     expect(row!.pesoOdoo).toBe(99);
     expect(row!.volumenOdoo).toBe(9);
+    expect(row!.pesoKgOdoo).toBe(99);
+    expect(row!.volumenM3Odoo).toBe(9);
     // …manual field untouched.
     expect(row!.notas).toBe("nota manual");
+  });
+
+  it("stores non-positive or absent Odoo measurements as null on create and update", async () => {
+    const odooId = ODOO_IDS[2]!;
+
+    mockProductBatch([odooRecord(odooId, { weight: 0, volume: -1 })]);
+    await syncOdooProducts();
+
+    let [row] = await db
+      .select()
+      .from(productsTable)
+      .where(eq(productsTable.odooId, odooId));
+    expect(row!.pesoKgOdoo).toBeNull();
+    expect(row!.volumenM3Odoo).toBeNull();
+
+    mockProductBatch([odooRecord(odooId, { weight: 12.5, volume: 0.75 })]);
+    await syncOdooProducts();
+    [row] = await db
+      .select()
+      .from(productsTable)
+      .where(eq(productsTable.odooId, odooId));
+    expect(row!.pesoKgOdoo).toBe(12.5);
+    expect(row!.volumenM3Odoo).toBe(0.75);
+
+    mockProductBatch([odooRecord(odooId, { weight: undefined, volume: 0 })]);
+    await syncOdooProducts();
+    [row] = await db
+      .select()
+      .from(productsTable)
+      .where(eq(productsTable.odooId, odooId));
+    expect(row!.pesoKgOdoo).toBeNull();
+    expect(row!.volumenM3Odoo).toBeNull();
   });
 });

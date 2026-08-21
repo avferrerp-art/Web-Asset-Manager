@@ -17,3 +17,4 @@ export * from "./sync_alerts";
 export * from "./deliveries";
 export * from "./delivery_items";
 export * from "./almacenes";
+export * from "./traslados";

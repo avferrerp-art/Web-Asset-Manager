@@ -10,7 +10,7 @@ router.get("/almacenes", async (_req, res): Promise<void> => {
     .select()
     .from(almacenesTable)
     .where(eq(almacenesTable.activo, true))
-    .orderBy(asc(almacenesTable.codigo));
+    .orderBy(asc(almacenesTable.plaza), asc(almacenesTable.nombre));
 
   const response = ListAlmacenesResponse.parse(
     almacenes.map((almacen) => ({

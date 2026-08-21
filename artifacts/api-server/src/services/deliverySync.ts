@@ -415,7 +415,11 @@ export async function syncDeliveries(): Promise<DeliverySyncResult> {
   let itemsDeleted = 0;
   let alertsCreated = 0;
   const now = new Date();
-  const touchedSaleIds = new Set<number>(deletedLocal.map((d) => d.ventaId));
+  const touchedSaleIds = new Set<number>(
+    deletedLocal
+      .map((d) => d.ventaId)
+      .filter((ventaId): ventaId is number => ventaId !== null),
+  );
 
   if (changed.length > 0) {
     // ── Fetch moves ONLY for changed pickings ──────────────────────────────
