@@ -112,6 +112,45 @@ export const DriverStatusUpdateInputEstado = {
 export interface DriverStatusUpdateInput {
   /** New status the driver sets for the dispatch */
   estado: DriverStatusUpdateInputEstado;
+  /** Actual arrival time; valid only when estado is entregado */
+  fechaLlegada?: string;
+  /**
+     * Driver-reported journey notes; valid only when estado is entregado
+     * @nullable
+     */
+  novedadesViaje?: string | null;
+}
+
+export interface ActaLlegada {
+  id: number;
+  despachoId: number;
+  fechaLlegada: string;
+  /** @nullable */
+  registradaPorId: number | null;
+  /** @nullable */
+  novedadesViaje: string | null;
+  /** @nullable */
+  recibidoPor: string | null;
+  /** @nullable */
+  confirmadaPorId: number | null;
+  /** @nullable */
+  confirmadaAt: string | null;
+  /** @nullable */
+  novedadesRecepcion: string | null;
+  createdAt: string;
+}
+
+export interface ActaLlegadaInput {
+  fechaLlegada: string;
+  /** @nullable */
+  novedadesViaje?: string | null;
+}
+
+export interface ActaLlegadaReceptionUpdate {
+  /** @nullable */
+  recibidoPor?: string | null;
+  /** @nullable */
+  novedadesRecepcion?: string | null;
 }
 
 export interface OdooStatus {
@@ -312,6 +351,8 @@ export interface TrasladoSummary {
      * @nullable
      */
   volumenCalculadoM3: number | null;
+  /** True after 24 hours when LogiFleet says delivered but Odoo has not validated receipt */
+  recepcionSinValidar: boolean;
 }
 
 export interface TrasladoLinea {
@@ -340,6 +381,7 @@ export type TrasladoDetail = TrasladoSummary & ({
   pesoEstimadoKg: number | null;
   /** @nullable */
   notas: string | null;
+  acta: ActaLlegada | null;
   lineas: TrasladoLinea[];
 });
 

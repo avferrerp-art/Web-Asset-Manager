@@ -1,8 +1,7 @@
 import { Router, type IRouter } from "express";
-import { eq, desc, sql, and } from "drizzle-orm";
-import { getAuth, clerkClient } from "@clerk/express";
+import { eq, desc, and } from "drizzle-orm";
 import type { Request, Response } from "express";
-import { db, personnelTable, dispatchesTable, routePointsTable } from "@workspace/db";
+import { db, dispatchesTable, routePointsTable, type Personnel } from "@workspace/db";
 import {
   GetDriverDispatchParams,
   UpdateDriverDispatchStatusParams,
@@ -12,39 +11,37 @@ import {
 } from "@workspace/api-zod";
 import { buildDispatchRow, buildDispatchDetail } from "./dispatches";
 import { syncLinkedDispatchEntity } from "../services/dispatchEstadoSync";
+import {
+  parseFechaLlegada,
+  registrarLlegada,
+} from "../services/actasLlegada";
+import { resolveCurrentPerson } from "../services/currentPerson";
 
 const router: IRouter = Router();
 
-async function resolveDriver(req: Request, res: Response) {
-  const auth = getAuth(req);
-  const userId = auth?.userId;
-  if (!userId) {
+async function resolveDriver(
+  req: Request,
+  res: Response,
+): Promise<Personnel | null> {
+  const currentPerson = await resolveCurrentPerson(req);
+  if (currentPerson.ok) return currentPerson.person;
+
+  if (currentPerson.reason === "unauthorized") {
     res.status(401).json({ error: "Unauthorized" });
     return null;
   }
-  const user = await clerkClient.users.getUser(userId);
-  const email =
-    user.primaryEmailAddress?.emailAddress ??
-    user.emailAddresses[0]?.emailAddress;
-  if (!email) {
+  if (currentPerson.reason === "no_email") {
     res.status(404).json({
       error: "no_email",
       message: "Tu cuenta no tiene un email asociado.",
     });
     return null;
   }
-  const [person] = await db
-    .select()
-    .from(personnelTable)
-    .where(sql`lower(${personnelTable.email}) = ${email.toLowerCase()}`);
-  if (!person) {
-    res.status(404).json({
-      error: "not_linked",
-      message: `No hay un chofer registrado con el email ${email}. Pide al administrador que agregue tu email en Personal.`,
-    });
-    return null;
-  }
-  return person;
+  res.status(404).json({
+    error: "not_linked",
+    message: `No hay un chofer registrado con el email ${currentPerson.email}. Pide al administrador que agregue tu email en Personal.`,
+  });
+  return null;
 }
 
 router.get("/driver/me", async (req, res): Promise<void> => {
@@ -141,9 +138,35 @@ router.post(
       res.status(400).json({ error: params.error.message });
       return;
     }
+    const inputKeys =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? Object.keys(req.body)
+        : [];
+    const hasOnlyAllowedFields = inputKeys.every(
+      (key) =>
+        key === "estado" ||
+        key === "fechaLlegada" ||
+        key === "novedadesViaje",
+    );
+    const includesActaFields =
+      inputKeys.includes("fechaLlegada") ||
+      inputKeys.includes("novedadesViaje");
+    if (includesActaFields && req.body?.estado !== "entregado") {
+      res.status(400).json({ error: "acta_fuera_de_contexto" });
+      return;
+    }
+    const fechaLlegada = includesActaFields
+      ? parseFechaLlegada(req.body?.fechaLlegada)
+      : null;
     const body = UpdateDriverDispatchStatusBody.safeParse(req.body);
-    if (!body.success) {
-      res.status(400).json({ error: body.error.message });
+    if (!body.success || !hasOnlyAllowedFields) {
+      res.status(400).json({
+        error: body.success ? "datos_estado_invalidos" : body.error.message,
+      });
+      return;
+    }
+    if (includesActaFields && !fechaLlegada) {
+      res.status(400).json({ error: "fecha_llegada_requerida" });
       return;
     }
     const [dispatch] = await db
@@ -173,6 +196,13 @@ router.post(
       return;
     }
     await syncLinkedDispatchEntity(updated);
+    if (nuevoEstado === "entregado" && fechaLlegada) {
+      await registrarLlegada(updated.id, {
+        fechaLlegada,
+        novedadesViaje: body.data.novedadesViaje,
+        registradaPorId: person.id,
+      });
+    }
     const row = await buildDispatchRow(updated);
     res.json(row);
   },

@@ -1000,6 +1000,85 @@ paths:
         "404":
           description: Not found
 
+  /dispatches/{id}/acta:
+    get:
+      operationId: getDispatchActa
+      tags: [dispatches]
+      summary: Get the arrival record for a dispatch
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Arrival record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActaLlegada"
+        "400":
+          description: Invalid dispatch id
+        "404":
+          description: Dispatch or arrival record not found
+    post:
+      operationId: registerDispatchActa
+      tags: [dispatches]
+      summary: Register or correct the driver half of a dispatch arrival record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActaLlegadaInput"
+      responses:
+        "200":
+          description: Registered arrival record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActaLlegada"
+        "400":
+          description: Invalid dispatch id or arrival data
+        "404":
+          description: Dispatch not found
+    patch:
+      operationId: confirmDispatchActa
+      tags: [dispatches]
+      summary: Confirm or correct the warehouse half of an arrival record
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ActaLlegadaReceptionUpdate"
+      responses:
+        "200":
+          description: Confirmed arrival record
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ActaLlegada"
+        "400":
+          description: Invalid dispatch id or reception data
+        "404":
+          description: Dispatch not found
+        "409":
+          description: Arrival has not been registered
+
   /dispatches/{id}/approve:
     post:
       operationId: approveDispatch
@@ -1833,11 +1912,78 @@ components:
     DriverStatusUpdateInput:
       type: object
       required: [estado]
+      additionalProperties: false
       properties:
         estado:
           type: string
           enum: [en-ruta, entregado]
           description: New status the driver sets for the dispatch
+        fechaLlegada:
+          type: string
+          format: date-time
+          description: Actual arrival time; valid only when estado is entregado
+        novedadesViaje:
+          type: ["string", "null"]
+          description: Driver-reported journey notes; valid only when estado is entregado
+
+    ActaLlegada:
+      type: object
+      required:
+        - id
+        - despachoId
+        - fechaLlegada
+        - registradaPorId
+        - novedadesViaje
+        - recibidoPor
+        - confirmadaPorId
+        - confirmadaAt
+        - novedadesRecepcion
+        - createdAt
+      properties:
+        id:
+          type: integer
+        despachoId:
+          type: integer
+        fechaLlegada:
+          type: string
+          format: date-time
+        registradaPorId:
+          type: ["integer", "null"]
+        novedadesViaje:
+          type: ["string", "null"]
+        recibidoPor:
+          type: ["string", "null"]
+        confirmadaPorId:
+          type: ["integer", "null"]
+        confirmadaAt:
+          type: ["string", "null"]
+          format: date-time
+        novedadesRecepcion:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    ActaLlegadaInput:
+      type: object
+      required: [fechaLlegada]
+      additionalProperties: false
+      properties:
+        fechaLlegada:
+          type: string
+          format: date-time
+        novedadesViaje:
+          type: ["string", "null"]
+
+    ActaLlegadaReceptionUpdate:
+      type: object
+      minProperties: 1
+      additionalProperties: false
+      properties:
+        recibidoPor:
+          type: ["string", "null"]
+        novedadesRecepcion:
+          type: ["string", "null"]
 
     # --- SALES ---
     OdooStatus:
@@ -2062,6 +2208,7 @@ components:
         - pesoEfectivoKg
         - origenPeso
         - volumenCalculadoM3
+        - recepcionSinValidar
       properties:
         id:
           type: integer
@@ -2107,6 +2254,9 @@ components:
         volumenCalculadoM3:
           type: ["number", "null"]
           description: Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing
+        recepcionSinValidar:
+          type: boolean
+          description: True after 24 hours when LogiFleet says delivered but Odoo has not validated receipt
 
     TrasladoLinea:
       type: object
@@ -2134,13 +2284,17 @@ components:
       allOf:
         - $ref: "#/components/schemas/TrasladoSummary"
         - type: object
-          required: [lineas, pesoEstimadoKg, notas]
+          required: [lineas, pesoEstimadoKg, notas, acta]
           properties:
             pesoEstimadoKg:
               type: ["number", "null"]
               description: Positive local estimate used only when Odoo has no calculated weight
             notas:
               type: ["string", "null"]
+            acta:
+              oneOf:
+                - $ref: "#/components/schemas/ActaLlegada"
+                - type: "null"
             lineas:
               type: array
               items:

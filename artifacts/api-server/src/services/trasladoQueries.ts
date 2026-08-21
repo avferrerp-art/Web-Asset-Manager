@@ -1,13 +1,20 @@
 import {
+  actasLlegadaTable,
   almacenesTable,
   db,
   deliveriesTable,
   deliveryItemsTable,
+  dispatchesTable,
   productsTable,
   trasladosTable,
 } from "@workspace/db";
-import { and, count, desc, eq, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import { and, count, desc, eq, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
+import {
+  HORAS_RECEPCION_SIN_VALIDAR,
+  getActaPorDespacho,
+  serializeActaLlegada,
+} from "./actasLlegada";
 
 export type TrasladoFilters = {
   almacenOrigenId?: number;
@@ -103,6 +110,14 @@ async function selectTraslados(filters: TrasladoFilters, id?: number) {
       pesoEstimadoKg: trasladosTable.pesoEstimadoKg,
       notas: trasladosTable.notas,
       volumenCalculadoM3: trasladosTable.volumenCalculadoM3,
+      actaVencida: sql<boolean>`EXISTS (
+        SELECT 1
+        FROM dispatches d
+        JOIN actas_llegada a ON a.despacho_id = d.id
+        WHERE d.traslado_id = ${trasladosTable.id}
+          AND d.estado <> 'cancelado'
+          AND a.fecha_llegada < now() - (${HORAS_RECEPCION_SIN_VALIDAR} * interval '1 hour')
+      )`,
     })
     .from(trasladosTable)
     .leftJoin(deliveriesTable, eq(deliveriesTable.id, trasladosTable.deliveryId))
@@ -157,6 +172,10 @@ function toSummary(row: Awaited<ReturnType<typeof selectTraslados>>[number]) {
     fechaEfectiva: row.fechaEfectiva?.toISOString() ?? null,
     estadoOdoo: row.estadoOdoo,
     estadoLogistico: row.estadoLogistico,
+    recepcionSinValidar:
+      row.estadoLogistico === "entregado" &&
+      row.estadoOdoo !== "done" &&
+      row.actaVencida,
     cantidadLineas: Number(row.cantidadLineas),
     pesoCalculadoKg: row.pesoCalculadoKg,
     pesoEfectivoKg,
@@ -194,11 +213,30 @@ export async function getTraslado(id: number) {
           .leftJoin(productsTable, eq(productsTable.id, deliveryItemsTable.productId))
           .where(eq(deliveryItemsTable.deliveryId, row.deliveryId))
           .orderBy(deliveryItemsTable.id);
+  const [activeActa] = await db
+    .select({ despachoId: actasLlegadaTable.despachoId })
+    .from(actasLlegadaTable)
+    .innerJoin(
+      dispatchesTable,
+      eq(dispatchesTable.id, actasLlegadaTable.despachoId),
+    )
+    .where(
+      and(
+        eq(dispatchesTable.trasladoId, id),
+        ne(dispatchesTable.estado, "cancelado"),
+      ),
+    )
+    .orderBy(desc(actasLlegadaTable.createdAt))
+    .limit(1);
+  const acta = activeActa
+    ? await getActaPorDespacho(activeActa.despachoId)
+    : null;
 
   return {
     ...toSummary(row),
     pesoEstimadoKg: row.pesoEstimadoKg,
     notas: row.notas,
+    acta: acta ? serializeActaLlegada(acta) : null,
     lineas: lineas.map((linea) => ({
       ...linea,
       diferencia: linea.demanda - linea.cantidad,

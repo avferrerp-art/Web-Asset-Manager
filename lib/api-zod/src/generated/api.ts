@@ -526,7 +526,8 @@ export const ListTrasladosResponseItem = zod.object({
   "pesoCalculadoKg": zod.number().nullable().describe('Calculated only from positive product weights in Odoo; null means unavailable, never zero-as-missing'),
   "pesoEfectivoKg": zod.number().nullable().describe('Odoo calculated weight when available, otherwise the local estimate'),
   "origenPeso": zod.union([zod.literal('odoo'),zod.literal('estimado'),zod.literal(null)]).nullable().describe('Source of pesoEfectivoKg; Odoo always takes priority'),
-  "volumenCalculadoM3": zod.number().nullable().describe('Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing')
+  "volumenCalculadoM3": zod.number().nullable().describe('Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing'),
+  "recepcionSinValidar": zod.boolean().describe('True after 24 hours when LogiFleet says delivered but Odoo has not validated receipt')
 })
 export const ListTrasladosResponse = zod.array(ListTrasladosResponseItem)
 
@@ -563,10 +564,23 @@ export const GetTrasladoResponse = zod.object({
   "pesoCalculadoKg": zod.number().nullable().describe('Calculated only from positive product weights in Odoo; null means unavailable, never zero-as-missing'),
   "pesoEfectivoKg": zod.number().nullable().describe('Odoo calculated weight when available, otherwise the local estimate'),
   "origenPeso": zod.union([zod.literal('odoo'),zod.literal('estimado'),zod.literal(null)]).nullable().describe('Source of pesoEfectivoKg; Odoo always takes priority'),
-  "volumenCalculadoM3": zod.number().nullable().describe('Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing')
+  "volumenCalculadoM3": zod.number().nullable().describe('Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing'),
+  "recepcionSinValidar": zod.boolean().describe('True after 24 hours when LogiFleet says delivered but Odoo has not validated receipt')
 }).and(zod.object({
   "pesoEstimadoKg": zod.number().nullable().describe('Positive local estimate used only when Odoo has no calculated weight'),
   "notas": zod.string().nullable(),
+  "acta": zod.union([zod.object({
+  "id": zod.number(),
+  "despachoId": zod.number(),
+  "fechaLlegada": zod.coerce.date(),
+  "registradaPorId": zod.number().nullable(),
+  "novedadesViaje": zod.string().nullable(),
+  "recibidoPor": zod.string().nullable(),
+  "confirmadaPorId": zod.number().nullable(),
+  "confirmadaAt": zod.coerce.date().nullable(),
+  "novedadesRecepcion": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}),zod.null()]),
   "lineas": zod.array(zod.object({
   "productoId": zod.number().nullable(),
   "codigo": zod.string().nullable().describe('Product reference from the local Odoo catalog'),
@@ -620,10 +634,23 @@ export const UpdateTrasladoResponse = zod.object({
   "pesoCalculadoKg": zod.number().nullable().describe('Calculated only from positive product weights in Odoo; null means unavailable, never zero-as-missing'),
   "pesoEfectivoKg": zod.number().nullable().describe('Odoo calculated weight when available, otherwise the local estimate'),
   "origenPeso": zod.union([zod.literal('odoo'),zod.literal('estimado'),zod.literal(null)]).nullable().describe('Source of pesoEfectivoKg; Odoo always takes priority'),
-  "volumenCalculadoM3": zod.number().nullable().describe('Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing')
+  "volumenCalculadoM3": zod.number().nullable().describe('Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing'),
+  "recepcionSinValidar": zod.boolean().describe('True after 24 hours when LogiFleet says delivered but Odoo has not validated receipt')
 }).and(zod.object({
   "pesoEstimadoKg": zod.number().nullable().describe('Positive local estimate used only when Odoo has no calculated weight'),
   "notas": zod.string().nullable(),
+  "acta": zod.union([zod.object({
+  "id": zod.number(),
+  "despachoId": zod.number(),
+  "fechaLlegada": zod.coerce.date(),
+  "registradaPorId": zod.number().nullable(),
+  "novedadesViaje": zod.string().nullable(),
+  "recibidoPor": zod.string().nullable(),
+  "confirmadaPorId": zod.number().nullable(),
+  "confirmadaAt": zod.coerce.date().nullable(),
+  "novedadesRecepcion": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+}),zod.null()]),
   "lineas": zod.array(zod.object({
   "productoId": zod.number().nullable(),
   "codigo": zod.string().nullable().describe('Product reference from the local Odoo catalog'),
@@ -1194,6 +1221,79 @@ export const DeleteDispatchResponse = zod.void()
 
 
 /**
+ * @summary Get the arrival record for a dispatch
+ */
+export const GetDispatchActaParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetDispatchActaResponse = zod.object({
+  "id": zod.number(),
+  "despachoId": zod.number(),
+  "fechaLlegada": zod.coerce.date(),
+  "registradaPorId": zod.number().nullable(),
+  "novedadesViaje": zod.string().nullable(),
+  "recibidoPor": zod.string().nullable(),
+  "confirmadaPorId": zod.number().nullable(),
+  "confirmadaAt": zod.coerce.date().nullable(),
+  "novedadesRecepcion": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Register or correct the driver half of a dispatch arrival record
+ */
+export const RegisterDispatchActaParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RegisterDispatchActaBody = zod.object({
+  "fechaLlegada": zod.coerce.date(),
+  "novedadesViaje": zod.string().nullish()
+})
+
+export const RegisterDispatchActaResponse = zod.object({
+  "id": zod.number(),
+  "despachoId": zod.number(),
+  "fechaLlegada": zod.coerce.date(),
+  "registradaPorId": zod.number().nullable(),
+  "novedadesViaje": zod.string().nullable(),
+  "recibidoPor": zod.string().nullable(),
+  "confirmadaPorId": zod.number().nullable(),
+  "confirmadaAt": zod.coerce.date().nullable(),
+  "novedadesRecepcion": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
+ * @summary Confirm or correct the warehouse half of an arrival record
+ */
+export const ConfirmDispatchActaParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ConfirmDispatchActaBody = zod.object({
+  "recibidoPor": zod.string().nullish(),
+  "novedadesRecepcion": zod.string().nullish()
+})
+
+export const ConfirmDispatchActaResponse = zod.object({
+  "id": zod.number(),
+  "despachoId": zod.number(),
+  "fechaLlegada": zod.coerce.date(),
+  "registradaPorId": zod.number().nullable(),
+  "novedadesViaje": zod.string().nullable(),
+  "recibidoPor": zod.string().nullable(),
+  "confirmadaPorId": zod.number().nullable(),
+  "confirmadaAt": zod.coerce.date().nullable(),
+  "novedadesRecepcion": zod.string().nullable(),
+  "createdAt": zod.coerce.date()
+})
+
+
+/**
  * @summary Approve a dispatch (changes status to approved/en-route)
  */
 export const ApproveDispatchParams = zod.object({
@@ -1521,7 +1621,9 @@ export const UpdateDriverDispatchStatusParams = zod.object({
 })
 
 export const UpdateDriverDispatchStatusBody = zod.object({
-  "estado": zod.enum(['en-ruta', 'entregado']).describe('New status the driver sets for the dispatch')
+  "estado": zod.enum(['en-ruta', 'entregado']).describe('New status the driver sets for the dispatch'),
+  "fechaLlegada": zod.coerce.date().optional().describe('Actual arrival time; valid only when estado is entregado'),
+  "novedadesViaje": zod.string().nullish().describe('Driver-reported journey notes; valid only when estado is entregado')
 })
 
 export const UpdateDriverDispatchStatusResponse = zod.object({

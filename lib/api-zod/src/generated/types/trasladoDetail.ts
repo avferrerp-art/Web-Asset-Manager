@@ -5,6 +5,7 @@
  * Corporate Logistics Management System API
  * OpenAPI spec version: 0.1.0
  */
+import type { ActaLlegada } from './actaLlegada';
 import type { TrasladoLinea } from './trasladoLinea';
 import type { TrasladoSummary } from './trasladoSummary';
 
@@ -16,5 +17,6 @@ export type TrasladoDetail = TrasladoSummary & ({
   pesoEstimadoKg: number | null;
   /** @nullable */
   notas: string | null;
+  acta: ActaLlegada | null;
   lineas: TrasladoLinea[];
 });

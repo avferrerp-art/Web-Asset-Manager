@@ -18,3 +18,4 @@ export * from "./deliveries";
 export * from "./delivery_items";
 export * from "./almacenes";
 export * from "./traslados";
+export * from "./actas_llegada";

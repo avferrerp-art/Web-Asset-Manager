@@ -57,4 +57,6 @@ export interface TrasladoSummary {
      * @nullable
      */
   volumenCalculadoM3: number | null;
+  /** True after 24 hours when LogiFleet says delivered but Odoo has not validated receipt */
+  recepcionSinValidar: boolean;
 }

@@ -6,6 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 
+export * from './actaLlegada';
+export * from './actaLlegadaInput';
+export * from './actaLlegadaReceptionUpdate';
 export * from './activeDispatch';
 export * from './almacen';
 export * from './costEstimate';

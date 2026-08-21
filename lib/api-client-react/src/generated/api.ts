@@ -20,6 +20,9 @@ import type {
 } from '@tanstack/react-query';
 
 import type {
+  ActaLlegada,
+  ActaLlegadaInput,
+  ActaLlegadaReceptionUpdate,
   ActiveDispatch,
   Almacen,
   CostEstimate,
@@ -3526,6 +3529,225 @@ export const useDeleteDispatch = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteDispatchMutationOptions(options));
+    }
+
+export const getGetDispatchActaUrl = (id: number,) => {
+
+
+
+
+  return `/api/dispatches/${id}/acta`
+}
+
+/**
+ * @summary Get the arrival record for a dispatch
+ */
+export const getDispatchActa = async (id: number, options?: RequestInit): Promise<ActaLlegada> => {
+
+  return customFetch<ActaLlegada>(getGetDispatchActaUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetDispatchActaQueryKey = (id: number,) => {
+    return [
+    `/api/dispatches/${id}/acta`
+    ] as const;
+    }
+
+
+export const getGetDispatchActaQueryOptions = <TData = Awaited<ReturnType<typeof getDispatchActa>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDispatchActa>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetDispatchActaQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getDispatchActa>>> = ({ signal }) => getDispatchActa(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getDispatchActa>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetDispatchActaQueryResult = NonNullable<Awaited<ReturnType<typeof getDispatchActa>>>
+export type GetDispatchActaQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get the arrival record for a dispatch
+ */
+
+export function useGetDispatchActa<TData = Awaited<ReturnType<typeof getDispatchActa>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getDispatchActa>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetDispatchActaQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getRegisterDispatchActaUrl = (id: number,) => {
+
+
+
+
+  return `/api/dispatches/${id}/acta`
+}
+
+/**
+ * @summary Register or correct the driver half of a dispatch arrival record
+ */
+export const registerDispatchActa = async (id: number,
+    actaLlegadaInput: ActaLlegadaInput, options?: RequestInit): Promise<ActaLlegada> => {
+
+  return customFetch<ActaLlegada>(getRegisterDispatchActaUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(actaLlegadaInput)
+  }
+);}
+
+
+
+
+export const getRegisterDispatchActaMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerDispatchActa>>, TError,{id: number;data: BodyType<ActaLlegadaInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof registerDispatchActa>>, TError,{id: number;data: BodyType<ActaLlegadaInput>}, TContext> => {
+
+const mutationKey = ['registerDispatchActa'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof registerDispatchActa>>, {id: number;data: BodyType<ActaLlegadaInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  registerDispatchActa(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RegisterDispatchActaMutationResult = NonNullable<Awaited<ReturnType<typeof registerDispatchActa>>>
+    export type RegisterDispatchActaMutationBody = BodyType<ActaLlegadaInput>
+    export type RegisterDispatchActaMutationError = ErrorType<void>
+
+    /**
+ * @summary Register or correct the driver half of a dispatch arrival record
+ */
+export const useRegisterDispatchActa = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof registerDispatchActa>>, TError,{id: number;data: BodyType<ActaLlegadaInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof registerDispatchActa>>,
+        TError,
+        {id: number;data: BodyType<ActaLlegadaInput>},
+        TContext
+      > => {
+      return useMutation(getRegisterDispatchActaMutationOptions(options));
+    }
+
+export const getConfirmDispatchActaUrl = (id: number,) => {
+
+
+
+
+  return `/api/dispatches/${id}/acta`
+}
+
+/**
+ * @summary Confirm or correct the warehouse half of an arrival record
+ */
+export const confirmDispatchActa = async (id: number,
+    actaLlegadaReceptionUpdate: ActaLlegadaReceptionUpdate, options?: RequestInit): Promise<ActaLlegada> => {
+
+  return customFetch<ActaLlegada>(getConfirmDispatchActaUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(actaLlegadaReceptionUpdate)
+  }
+);}
+
+
+
+
+export const getConfirmDispatchActaMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmDispatchActa>>, TError,{id: number;data: BodyType<ActaLlegadaReceptionUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof confirmDispatchActa>>, TError,{id: number;data: BodyType<ActaLlegadaReceptionUpdate>}, TContext> => {
+
+const mutationKey = ['confirmDispatchActa'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof confirmDispatchActa>>, {id: number;data: BodyType<ActaLlegadaReceptionUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  confirmDispatchActa(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ConfirmDispatchActaMutationResult = NonNullable<Awaited<ReturnType<typeof confirmDispatchActa>>>
+    export type ConfirmDispatchActaMutationBody = BodyType<ActaLlegadaReceptionUpdate>
+    export type ConfirmDispatchActaMutationError = ErrorType<void>
+
+    /**
+ * @summary Confirm or correct the warehouse half of an arrival record
+ */
+export const useConfirmDispatchActa = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof confirmDispatchActa>>, TError,{id: number;data: BodyType<ActaLlegadaReceptionUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof confirmDispatchActa>>,
+        TError,
+        {id: number;data: BodyType<ActaLlegadaReceptionUpdate>},
+        TContext
+      > => {
+      return useMutation(getConfirmDispatchActaMutationOptions(options));
     }
 
 export const getApproveDispatchUrl = (id: number,) => {

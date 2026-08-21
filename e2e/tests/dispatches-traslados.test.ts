@@ -1,9 +1,11 @@
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
+  actasLlegadaTable,
   almacenesTable,
   db,
   deliveriesTable,
+  deliveryItemsTable,
   dispatchesTable,
   personnelTable,
   pool,
@@ -12,8 +14,14 @@ import {
   trasladosTable,
   vehiclesTable,
 } from "@workspace/db";
-import { UpdateTrasladoBody } from "../../lib/api-zod/src/generated/api";
+import {
+  GetTrasladoResponse,
+  ListTrasladosResponseItem,
+  RegisterDispatchActaResponse,
+  UpdateTrasladoBody,
+} from "../../lib/api-zod/src/generated/api";
 import { sql as dispatchesMigrationSql } from "../../lib/db/src/migrations/0010_dispatches_polimorficos";
+import { sql as actasMigrationSql } from "../../lib/db/src/migrations/0011_actas_llegada";
 import {
   buildDispatchDetail,
   buildDispatchRow,
@@ -21,9 +29,14 @@ import {
 } from "../../artifacts/api-server/src/routes/dispatches";
 import {
   getTraslado,
+  getTrasladoSummary,
   TrasladoPesoOdooReadonlyError,
   updateTrasladoLocalFields,
 } from "../../artifacts/api-server/src/services/trasladoQueries";
+import {
+  confirmarRecepcion,
+  registrarLlegada,
+} from "../../artifacts/api-server/src/services/actasLlegada";
 import {
   deriveTrasladoEstadoFromDispatch,
   reconcileTrasladoEstados,
@@ -498,5 +511,517 @@ describe("despachos de venta y traslado", () => {
     expect(await reconcileTrasladoEstados([trasladoId])).toBe(0);
     traslado = await getTraslado(trasladoId);
     expect(traslado!.estadoLogistico).toBe("confirmado_odoo");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Arrival-record task regression coverage
+// ---------------------------------------------------------------------------
+
+describe("migración 0011 actas_llegada", () => {
+  it("es idempotente y crea exactamente un UNIQUE por despacho", async () => {
+    const client = await pool.connect();
+    const schemaName = `actas_llegada_mig_${process.pid}`;
+    try {
+      await client.query("BEGIN");
+      await client.query(`CREATE SCHEMA "${schemaName}"`);
+      await client.query(`SET LOCAL search_path TO "${schemaName}"`);
+
+      // Stub the referenced tables so FK constraints resolve
+      await client.query(`
+        CREATE TABLE personnel (id serial PRIMARY KEY);
+        CREATE TABLE dispatches (id serial PRIMARY KEY);
+      `);
+
+      // Run the migration twice – must not throw
+      await client.query(actasMigrationSql);
+      await client.query(actasMigrationSql);
+
+      // Exactly one UNIQUE constraint on despacho_id
+      const { rows } = await client.query<{ count: string }>(`
+        SELECT count(*)::text AS count
+        FROM pg_constraint
+        WHERE conrelid = 'actas_llegada'::regclass
+          AND contype = 'u'
+          AND conname = 'actas_llegada_despacho_id_unique'
+      `);
+      expect(Number(rows[0]!.count)).toBe(1);
+
+      // The FK must cascade when a dispatch is removed.
+      await client.query(`INSERT INTO dispatches DEFAULT VALUES`);
+      await client.query(`
+        INSERT INTO actas_llegada (despacho_id, fecha_llegada)
+        VALUES (1, now())
+      `);
+      await client.query(`DELETE FROM dispatches WHERE id = 1`);
+      const cascaded = await client.query(
+        `SELECT count(*)::int AS count FROM actas_llegada`,
+      );
+      expect(cascaded.rows[0]!.count).toBe(0);
+
+      // Inserting two records with the same despacho_id must fail.
+      await client.query(`INSERT INTO dispatches DEFAULT VALUES`);
+      await client.query(`
+        INSERT INTO actas_llegada (despacho_id, fecha_llegada)
+        VALUES (2, now())
+      `);
+      await expect(
+        client.query(`
+          INSERT INTO actas_llegada (despacho_id, fecha_llegada)
+          VALUES (2, now())
+        `),
+      ).rejects.toThrow();
+    } finally {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+    }
+  });
+});
+
+describe("registrarLlegada y confirmarRecepcion", () => {
+  // Track actas created in this suite so we can clean up
+  const actaDispatchIds: number[] = [];
+
+  afterEach(async () => {
+    if (actaDispatchIds.length > 0) {
+      await db
+        .delete(actasLlegadaTable)
+        .where(inArray(actasLlegadaTable.despachoId, actaDispatchIds));
+      actaDispatchIds.length = 0;
+    }
+  });
+
+  it("registrarLlegada: upsert preserva la confirmación del almacén y convierte texto en blanco en null", async () => {
+    const despachoId = dispatchIds[0]!;
+    actaDispatchIds.push(despachoId);
+
+    // First registration – driver side
+    const primera = await registrarLlegada(despachoId, {
+      fechaLlegada: new Date("2035-06-01T10:00:00Z"),
+      novedadesViaje: "Retraso en aduana",
+      registradaPorId: null,
+    });
+    expect(primera).toBeDefined();
+    expect(primera!.novedadesViaje).toBe("Retraso en aduana");
+    expect(primera!.confirmadaAt).toBeNull();
+
+    // Confirm through the warehouse service so attribution and capture time are covered.
+    const confirmada = await confirmarRecepcion(despachoId, {
+      recibidoPor: "Juan",
+      novedadesRecepcion: "Recibido conforme",
+      confirmadaPorId: driverId,
+    });
+    expect(confirmada!.confirmadaAt).not.toBeNull();
+    expect(confirmada!.confirmadaPorId).toBe(driverId);
+
+    // Upsert with blank novelty text → must stay as null and NOT wipe warehouse confirmation
+    const segunda = await registrarLlegada(despachoId, {
+      fechaLlegada: new Date("2035-06-01T10:30:00Z"),
+      novedadesViaje: "   ",
+      registradaPorId: null,
+    });
+    expect(segunda!.id).toBe(primera!.id);
+    expect(segunda!.novedadesViaje).toBeNull();
+    expect(segunda!.fechaLlegada.toISOString()).toBe(
+      "2035-06-01T10:30:00.000Z",
+    );
+
+    // Warehouse confirmation fields are preserved by upsert (only driver fields overwritten)
+    const [raw] = await db
+      .select()
+      .from(actasLlegadaTable)
+      .where(eq(actasLlegadaTable.despachoId, despachoId));
+    expect(raw!.confirmadaAt).not.toBeNull();
+    expect(raw!.confirmadaPorId).toBe(driverId);
+    expect(raw!.novedadesRecepcion).toBe("Recibido conforme");
+
+    // Validate against generated contract schema
+    expect(RegisterDispatchActaResponse.safeParse(segunda!).success).toBe(true);
+  });
+
+  it("confirmarRecepcion devuelve null cuando no existe acta previa", async () => {
+    // Use a dispatch that definitely has no acta (the second one, which
+    // hasn't had registrarLlegada called yet in this suite run)
+    const despachoId = dispatchIds[1]!;
+
+    // Ensure there is no acta for this dispatch
+    await db
+      .delete(actasLlegadaTable)
+      .where(eq(actasLlegadaTable.despachoId, despachoId));
+
+    const result = await confirmarRecepcion(despachoId, {
+      recibidoPor: "Juan",
+      novedadesRecepcion: "Sin novedad",
+      confirmadaPorId: null,
+    });
+    expect(result).toBeNull();
+  });
+});
+
+describe("recepcionSinValidar matrix", () => {
+  // We create a dedicated dispatch+traslado pair per scenario and clean up after.
+  const localDispatchIds: number[] = [];
+  const localActaDispatchIds: number[] = [];
+  const localTrasladoIds: number[] = [];
+  const localDeliveryIds: number[] = [];
+
+  afterEach(async () => {
+    if (localActaDispatchIds.length > 0) {
+      await db
+        .delete(actasLlegadaTable)
+        .where(inArray(actasLlegadaTable.despachoId, localActaDispatchIds));
+      localActaDispatchIds.length = 0;
+    }
+    if (localDispatchIds.length > 0) {
+      await db
+        .delete(dispatchesTable)
+        .where(inArray(dispatchesTable.id, localDispatchIds));
+      localDispatchIds.length = 0;
+    }
+    if (localTrasladoIds.length > 0) {
+      await db
+        .delete(trasladosTable)
+        .where(inArray(trasladosTable.id, localTrasladoIds));
+      localTrasladoIds.length = 0;
+    }
+    if (localDeliveryIds.length > 0) {
+      await db
+        .delete(deliveriesTable)
+        .where(inArray(deliveriesTable.id, localDeliveryIds));
+      localDeliveryIds.length = 0;
+    }
+  });
+
+  async function makeTransferDispatch(
+    estadoOdoo: string,
+    estadoLogistico: string,
+    dispatchEstado: string,
+  ) {
+    const [delivery] = await db
+      .insert(deliveriesTable)
+      .values({
+        ventaId: null,
+        odooId: negativeOdooId - 100 - Math.floor(Math.random() * 10_000),
+        tipo: "traslado",
+        nombre: `QA/RSV-${suffix}-${Math.random()}`,
+        estado: estadoOdoo,
+      })
+      .returning({ id: deliveriesTable.id });
+    localDeliveryIds.push(delivery!.id);
+
+    const [traslado] = await db
+      .insert(trasladosTable)
+      .values({
+        deliveryId: delivery!.id,
+        odooPickingId: negativeOdooId - 200 - Math.floor(Math.random() * 10_000),
+        almacenOrigenId: warehouseIds[0]!,
+        almacenDestinoId: warehouseIds[1]!,
+        estadoLogistico,
+      })
+      .returning({ id: trasladosTable.id });
+    localTrasladoIds.push(traslado!.id);
+
+    const [dispatch] = await db
+      .insert(dispatchesTable)
+      .values({
+        tipo: "traslado",
+        ventaId: null,
+        trasladoId: traslado!.id,
+        vehiculoId: vehicleId!,
+        choferId: driverId!,
+        fechaEstimadaSalida: "2035-06-01T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-06-01T18:00:00.000Z",
+        estado: dispatchEstado,
+      })
+      .returning({ id: dispatchesTable.id });
+    localDispatchIds.push(dispatch!.id);
+
+    return { trasladoId: traslado!.id, dispatchId: dispatch!.id };
+  }
+
+  it("true: estadoLogistico=entregado, estadoOdoo=assigned, acta con 30h de antigüedad", async () => {
+    const { trasladoId, dispatchId } = await makeTransferDispatch(
+      "assigned",
+      "entregado",
+      "entregado",
+    );
+    localActaDispatchIds.push(dispatchId);
+
+    // Insert an acta with fecha_llegada 30 hours ago
+    await db.insert(actasLlegadaTable).values({
+      despachoId: dispatchId,
+      fechaLlegada: new Date(Date.now() - 30 * 60 * 60 * 1000),
+      registradaPorId: null,
+    });
+
+    const summary = await getTrasladoSummary(trasladoId);
+    expect(summary).not.toBeNull();
+    expect(ListTrasladosResponseItem.safeParse(summary).success).toBe(true);
+    expect(summary!.recepcionSinValidar).toBe(true);
+  });
+
+  it("false: acta solo tiene 2h de antigüedad (dentro del plazo)", async () => {
+    const { trasladoId, dispatchId } = await makeTransferDispatch(
+      "assigned",
+      "entregado",
+      "entregado",
+    );
+    localActaDispatchIds.push(dispatchId);
+
+    await db.insert(actasLlegadaTable).values({
+      despachoId: dispatchId,
+      fechaLlegada: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      registradaPorId: null,
+    });
+
+    const summary = await getTrasladoSummary(trasladoId);
+    expect(summary!.recepcionSinValidar).toBe(false);
+  });
+
+  it("false: estadoOdoo=done aunque hayan pasado 30h", async () => {
+    const { trasladoId, dispatchId } = await makeTransferDispatch(
+      "done",
+      "entregado",
+      "entregado",
+    );
+    localActaDispatchIds.push(dispatchId);
+
+    await db.insert(actasLlegadaTable).values({
+      despachoId: dispatchId,
+      fechaLlegada: new Date(Date.now() - 30 * 60 * 60 * 1000),
+      registradaPorId: null,
+    });
+
+    const summary = await getTrasladoSummary(trasladoId);
+    expect(summary!.recepcionSinValidar).toBe(false);
+  });
+
+  it("false: estadoLogistico no es entregado (en_transito)", async () => {
+    const { trasladoId, dispatchId } = await makeTransferDispatch(
+      "assigned",
+      "en_transito",
+      "en-ruta",
+    );
+    localActaDispatchIds.push(dispatchId);
+
+    await db.insert(actasLlegadaTable).values({
+      despachoId: dispatchId,
+      fechaLlegada: new Date(Date.now() - 30 * 60 * 60 * 1000),
+      registradaPorId: null,
+    });
+
+    const summary = await getTrasladoSummary(trasladoId);
+    expect(summary!.recepcionSinValidar).toBe(false);
+  });
+
+  it("false: solo existe acta sobre un despacho cancelado", async () => {
+    // Cancelled dispatch must be ignored for actaVencida
+    const { trasladoId, dispatchId } = await makeTransferDispatch(
+      "assigned",
+      "entregado",
+      "cancelado",
+    );
+    localActaDispatchIds.push(dispatchId);
+
+    await db.insert(actasLlegadaTable).values({
+      despachoId: dispatchId,
+      fechaLlegada: new Date(Date.now() - 30 * 60 * 60 * 1000),
+      registradaPorId: null,
+    });
+
+    const summary = await getTrasladoSummary(trasladoId);
+    expect(summary!.recepcionSinValidar).toBe(false);
+  });
+});
+
+describe("detalle del traslado ignora despachos cancelados para el acta", () => {
+  const localDispatchIds: number[] = [];
+  const localActaDispatchIds: number[] = [];
+
+  afterEach(async () => {
+    if (localActaDispatchIds.length > 0) {
+      await db
+        .delete(actasLlegadaTable)
+        .where(inArray(actasLlegadaTable.despachoId, localActaDispatchIds));
+      localActaDispatchIds.length = 0;
+    }
+    if (localDispatchIds.length > 0) {
+      await db
+        .delete(dispatchesTable)
+        .where(inArray(dispatchesTable.id, localDispatchIds));
+      localDispatchIds.length = 0;
+    }
+  });
+
+  it("getTraslado devuelve acta=null si el único despacho con acta está cancelado", async () => {
+    const trasladoId = trasladoIds[0]!;
+
+    // Create a cancelled dispatch with an acta
+    const [cancelledDispatch] = await db
+      .insert(dispatchesTable)
+      .values({
+        tipo: "traslado",
+        ventaId: null,
+        trasladoId,
+        vehiculoId: vehicleId!,
+        choferId: driverId!,
+        fechaEstimadaSalida: "2035-07-01T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-07-01T18:00:00.000Z",
+        estado: "cancelado",
+      })
+      .returning({ id: dispatchesTable.id });
+    localDispatchIds.push(cancelledDispatch!.id);
+    localActaDispatchIds.push(cancelledDispatch!.id);
+
+    await db.insert(actasLlegadaTable).values({
+      despachoId: cancelledDispatch!.id,
+      fechaLlegada: new Date("2035-07-01T14:00:00Z"),
+      novedadesViaje: "Acta de despacho cancelado",
+      registradaPorId: null,
+    });
+
+    const detail = await getTraslado(trasladoId);
+    expect(detail).not.toBeNull();
+    expect(detail!.acta).toBeNull();
+
+    // Validate response shape against generated contract
+    expect(GetTrasladoResponse.safeParse(detail).success).toBe(true);
+  });
+
+  it("getTraslado devuelve el acta del despacho activo cuando conviven uno activo y uno cancelado", async () => {
+    const trasladoId = trasladoIds[0]!;
+
+    // Active dispatch with acta
+    const [activeDispatch] = await db
+      .insert(dispatchesTable)
+      .values({
+        tipo: "traslado",
+        ventaId: null,
+        trasladoId,
+        vehiculoId: vehicleId!,
+        choferId: driverId!,
+        fechaEstimadaSalida: "2035-07-02T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-07-02T18:00:00.000Z",
+        estado: "entregado",
+      })
+      .returning({ id: dispatchesTable.id });
+    localDispatchIds.push(activeDispatch!.id);
+    localActaDispatchIds.push(activeDispatch!.id);
+
+    await db.insert(actasLlegadaTable).values({
+      despachoId: activeDispatch!.id,
+      fechaLlegada: new Date("2035-07-02T14:00:00Z"),
+      novedadesViaje: "Acta del despacho activo",
+      registradaPorId: null,
+    });
+
+    // Cancelled dispatch with acta (should be ignored)
+    const [cancelledDispatch] = await db
+      .insert(dispatchesTable)
+      .values({
+        tipo: "traslado",
+        ventaId: null,
+        trasladoId,
+        vehiculoId: vehicleId!,
+        choferId: driverId!,
+        fechaEstimadaSalida: "2035-07-03T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-07-03T18:00:00.000Z",
+        estado: "cancelado",
+      })
+      .returning({ id: dispatchesTable.id });
+    localDispatchIds.push(cancelledDispatch!.id);
+    localActaDispatchIds.push(cancelledDispatch!.id);
+
+    await db.insert(actasLlegadaTable).values({
+      despachoId: cancelledDispatch!.id,
+      fechaLlegada: new Date("2035-07-01T09:00:00Z"),
+      novedadesViaje: "Acta descartada",
+      registradaPorId: null,
+    });
+
+    const detail = await getTraslado(trasladoId);
+    expect(detail!.acta).not.toBeNull();
+    expect(detail!.acta!.novedadesViaje).toBe("Acta del despacho activo");
+  });
+});
+
+describe("cantidadLineas no se multiplica con múltiples despachos", () => {
+  const localDispatchIds: number[] = [];
+  const localItemIds: number[] = [];
+
+  afterEach(async () => {
+    if (localDispatchIds.length > 0) {
+      await db
+        .delete(dispatchesTable)
+        .where(inArray(dispatchesTable.id, localDispatchIds));
+      localDispatchIds.length = 0;
+    }
+    if (localItemIds.length > 0) {
+      await db
+        .delete(deliveryItemsTable)
+        .where(inArray(deliveryItemsTable.id, localItemIds));
+      localItemIds.length = 0;
+    }
+  });
+
+  it("dos despachos sobre el mismo traslado no duplican cantidadLineas", async () => {
+    const trasladoId = trasladoIds[0]!;
+    const delivery = await db
+      .select({ id: deliveriesTable.id })
+      .from(trasladosTable)
+      .innerJoin(
+        deliveriesTable,
+        eq(deliveriesTable.id, trasladosTable.deliveryId),
+      )
+      .where(eq(trasladosTable.id, trasladoId));
+    const deliveryId = delivery[0]!.id;
+
+    // Insert 2 delivery items (odooMoveId must be unique and NOT NULL)
+    const baseOdooMoveId = -(2_000_000_000) + Math.floor(Math.random() * 100_000);
+    const items = await db
+      .insert(deliveryItemsTable)
+      .values([
+        {
+          deliveryId,
+          odooMoveId: baseOdooMoveId,
+          descripcion: "Producto A",
+          cantidadDemanda: 10,
+          cantidadEntregada: 10,
+          uom: "kg",
+        },
+        {
+          deliveryId,
+          odooMoveId: baseOdooMoveId - 1,
+          descripcion: "Producto B",
+          cantidadDemanda: 5,
+          cantidadEntregada: 5,
+          uom: "kg",
+        },
+      ])
+      .returning({ id: deliveryItemsTable.id });
+    for (const item of items) localItemIds.push(item.id);
+
+    // Add a second dispatch for the same traslado
+    const [secondDispatch] = await db
+      .insert(dispatchesTable)
+      .values({
+        tipo: "traslado",
+        ventaId: null,
+        trasladoId,
+        vehiculoId: vehicleId!,
+        choferId: driverId!,
+        fechaEstimadaSalida: "2035-08-01T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-08-01T18:00:00.000Z",
+        estado: "pre-despacho",
+      })
+      .returning({ id: dispatchesTable.id });
+    localDispatchIds.push(secondDispatch!.id);
+
+    const summary = await getTrasladoSummary(trasladoId);
+    // Must be exactly 2, not 4 (2 items × 2 dispatches)
+    expect(summary!.cantidadLineas).toBe(2);
+
+    // Also validate contract compliance
+    expect(ListTrasladosResponseItem.safeParse(summary).success).toBe(true);
   });
 });

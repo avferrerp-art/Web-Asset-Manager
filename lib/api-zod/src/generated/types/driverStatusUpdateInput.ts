@@ -10,4 +10,11 @@ import type { DriverStatusUpdateInputEstado } from './driverStatusUpdateInputEst
 export interface DriverStatusUpdateInput {
   /** New status the driver sets for the dispatch */
   estado: DriverStatusUpdateInputEstado;
+  /** Actual arrival time; valid only when estado is entregado */
+  fechaLlegada?: Date;
+  /**
+     * Driver-reported journey notes; valid only when estado is entregado
+     * @nullable
+     */
+  novedadesViaje?: string | null;
 }
