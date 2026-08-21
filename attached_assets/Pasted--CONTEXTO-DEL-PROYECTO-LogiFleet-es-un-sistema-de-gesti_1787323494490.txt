@@ -1,0 +1,260 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas y albaranes
+desde Odoo, planifica despachos (vehículo + chofer + ruta), calcula costos de
+peajes y combustible, y tiene una app móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO desde el spec — NO editar
+  lib/api-client-react/ GENERADO desde el spec — NO editar
+  artifacts/api-server/ API Express 5 (routers en src/routes/, servicios en src/services/)
+  artifacts/logistics/  Web React + Vite
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` en la raíz y `.agents/memory/`. CRÍTICOS para esta tarea:
+  - .agents/memory/odoo-deliveries-incremental.md  (watermark y borrados)
+  - .agents/memory/odoo-stock-picking.md           (quirks de Odoo 19)
+  - .agents/memory/sales-totales-null.md           (null = sin dato)
+  - .agents/memory/drizzle-any-array-params.md
+  - .agents/memory/api-server-restart-after-codegen.md
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: cambios de API en lib/api-spec/openapi.yaml + luego
+     `pnpm --filter @workspace/api-spec run codegen`. Los `generated/` NUNCA se
+     editan a mano.
+  2. Schema = archivo + migración numerada e idempotente en lib/db/src/migrations/,
+     registrada en su index.ts.
+     PLANTILLA: copia el estilo de `0006_almacenes.ts` (~30 líneas). NO copies
+     `0008_traslados.ts`: quedó sobre-blindada con manejo manual de secuencias.
+     (Esta tarea probablemente no necesita migración nueva.)
+  3. Routers nuevos van DESPUÉS de requireAuth en src/routes/index.ts.
+  4. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  5. null = "sin dato". NUNCA representar ausencia de dato con 0.
+
+════════ QUÉ SON LOS TRASLADOS INTERNOS ════════
+
+En Odoo existen como stock.picking con picking_type_id.code = 'internal'. Hay un
+tipo de operación por almacén ("Urbina: Traslados internos", "Caracas: Traslados
+internos", etc.). Ejemplo real, Urbin/INT/00001:
+
+  Tipo de operación:     Urbina: Traslados internos
+  Ubicación de origen:   Urbin/Existencias      (location_id)
+  Ubicación de destino:  LEC/Existencias        (location_dest_id)
+  Fecha programada:      10 mar 4:33 pm         (scheduled_date)
+  Fecha efectiva:        17 mar 2:55 pm         (date_done)
+  Estado:                Hecho                  (state)
+  Documento origen:      vacío
+  Líneas (move_ids):     producto, Demanda (product_uom_qty), Cantidad (quantity)
+
+Son estructuralmente idénticos a un albarán de venta salvo que NO tienen sale_id
+y sí tienen almacén de destino. Por eso se AMPLÍA deliverySync.ts en lugar de
+escribir un servicio nuevo.
+
+En Odoo marcan "Hecho" cuando la mercancía LLEGA a destino. Durante todo el viaje
+el picking dice "Listo": Odoo no tiene estado de tránsito. Ese hueco es lo que
+LogiFleet aporta con `traslados.estadoLogistico`.
+
+════════ QUÉ YA EXISTE (tareas previas) ════════
+
+  lib/db/src/schema/almacenes.ts    tabla `almacenes`, 4 filas:
+                                    URB→Urbin, CCS→CCS, LEC→LEC, NVBLA→NVBLA
+  lib/db/src/schema/deliveries.ts   `ventaId` NULLABLE, `tipo` ('venta'|'traslado',
+                                    default 'venta'), `almacenDestino`,
+                                    `almacenDestinoCodigo`
+  lib/db/src/schema/traslados.ts    deliveryId (UNIQUE, ON DELETE SET NULL),
+                                    odooPickingId (UNIQUE, nullable),
+                                    almacenOrigenId, almacenDestinoId,
+                                    estadoLogistico (default 'por_planificar'),
+                                    pesoCalculadoKg, volumenCalculadoM3,
+                                    pesoEstimadoKg, notas
+  lib/db/src/schema/products.ts     `pesoOdoo` y `volumenOdoo` nullable
+                                    (null = sin dato en Odoo)
+  services/almacenes.ts             crearResolverAlmacenes(): carga el catálogo
+                                    UNA vez y devuelve un resolver en memoria
+
+La tabla `traslados` está vacía: nada la escribe todavía. Esa es esta tarea.
+
+Si algo de lo anterior falta, detente y repórtalo.
+
+════════ TAREA ════════
+
+1. AMPLIAR EL DOMINIO DE ODOO — EN LOS DOS LUGARES
+
+   deliverySync.ts consulta Odoo en DOS puntos distintos, y AMBOS filtran hoy por
+   `picking_type_id.code = 'outgoing'`:
+
+     a) ~línea 91: el listado id-only de TODOS los pickings, que sirve para
+        DETECTAR BORRADOS (lo que está local y ya no está en Odoo se elimina).
+     b) ~línea 108: el fetch incremental con campos, filtrado por write_date.
+
+   Los dos deben pasar a `["picking_type_id.code", "in", ["outgoing", "internal"]]`.
+
+   ⚠ SI AMPLÍAS SOLO (b) Y OLVIDAS (a), EL SYNC VA A BORRAR TODOS LOS TRASLADOS
+   EN CADA CORRIDA: el listado de control no los vería y los interpretaría como
+   "desaparecidos de Odoo". Corre cada 5 minutos. Verifícalo explícitamente.
+
+   Filtrar POR CÓDIGO, nunca por el nombre del tipo de operación: si alguien
+   renombra "Urbina: Traslados internos" en Odoo, un filtro por nombre se rompe
+   en silencio.
+
+   Renombrar `fetchOutgoingPickings` y afines a nombres que ya no digan
+   "outgoing" (ej. fetchPickings / listAllPickingIds).
+
+2. LEER location_dest_id
+
+   - Agregarlo a la lista de `fields` del search_read (~línea 119).
+   - Agregarlo a la interfaz OdooPickingRecord (~línea 45), con el mismo tipo
+     `[number, string] | false`.
+   - Extender el guard de `fields_get` (~línea 297) que hoy verifica
+     `location_id`: debe abortar igual si falta `location_dest_id`.
+   - Persistir en deliveries.almacenDestino (el string completo) y
+     almacenDestinoCodigo (el prefijo), con el mismo criterio que ya se usa para
+     almacenOrigen / almacenCodigo.
+
+3. CLASIFICAR VENTA VS TRASLADO
+
+   - `sale_id === false`  → tipo = 'traslado', ventaId = null
+   - `sale_id !== false`  → tipo = 'venta', comportamiento actual sin cambios
+
+   OJO CON LA DISTINCIÓN: hoy (~línea 386) el código hace
+   `if (p.sale_id !== false) saleId = saleByOdooId.get(p.sale_id[0])`, y saleId
+   puede quedar undefined si la venta no está importada localmente. Eso es una
+   VENTA HUÉRFANA, no un traslado. No las confundas: un picking con sale_id sigue
+   siendo tipo 'venta' aunque no encuentres la venta local.
+
+4. RESOLVER LOS ALMACENES UNA VEZ POR CORRIDA
+
+   Llamar `crearResolverAlmacenes()` al inicio de syncDeliveries() y usar el
+   resolver devuelto para origen y destino. NO llames resolveAlmacenPorLocation()
+   dentro del loop: son dos lookups por picking y el catálogo no cambia durante
+   una corrida.
+
+   El origen y el destino salen SIEMPRE de location_id y location_dest_id.
+   NUNCA los derives del nombre del tipo de operación ni del prefijo de la
+   referencia — ver la verificación de Urbin/INT/00003 más abajo.
+
+   Si un prefijo no resuelve a ningún almacén: NO crees la fila. Guarda el
+   traslado con almacenOrigenId/almacenDestinoId en null y acumula el prefijo
+   desconocido para reportarlo al final de la corrida.
+
+5. UPSERT EN `traslados`
+
+   Por cada picking de tipo 'traslado', crear o actualizar su fila en `traslados`
+   (idempotente por odooPickingId), enlazando deliveryId y resolviendo origen y
+   destino.
+
+   NUNCA borres filas de `traslados` cuando el picking desaparece de Odoo. El FK
+   es ON DELETE SET NULL a propósito: el traslado y su futuro despacho deben
+   sobrevivir, porque el camión sí hizo el viaje. Reporta cuántos quedaron
+   huérfanos en el resultado del sync.
+
+6. DERIVAR estadoLogistico
+
+   - Odoo 'done'   → confirmado_odoo
+   - Odoo 'cancel' → cancelado
+   - Odoo 'assigned' | 'confirmed' | 'waiting' → por_planificar, SOLO si el
+     traslado está hoy en 'por_planificar'
+   - Odoo 'draft'  → se importa, queda en 'por_planificar', no entra a la cola
+
+   ⚠ REGLA DE ORO: el sync NUNCA retrocede un estadoLogistico que LogiFleet ya
+   avanzó. Si LogiFleet dice 'en_transito' y Odoo sigue en 'assigned', se respeta
+   'en_transito'. Solo 'done' y 'cancel' de Odoo pisan el estado local.
+   El sync corre por polling cada 5 minutos: sin esta regla borraría el progreso
+   del viaje en cada corrida. Es la misma disciplina que ya separa sales.estado
+   de sales.estadoEntrega.
+
+7. ORIGEN == DESTINO
+
+   Si almacenOrigenId == almacenDestinoId, el traslado se importa igual pero no
+   debe entrar a la cola de planificación (son reubicaciones dentro del mismo
+   almacén o registros mal hechos; ej. Urbin/INT/00014, que va de
+   Urbin/Existencias a Urbin/Existencias en Borrador).
+   No agregues columna: se deriva comparando ambos ids.
+
+8. CALCULAR PESO Y VOLUMEN
+
+   Tras sincronizar las líneas, calcular por traslado:
+     pesoCalculadoKg     = Σ (delivery_items.cantidadDemanda × products.pesoOdoo)
+     volumenCalculadoM3  = Σ (delivery_items.cantidadDemanda × products.volumenOdoo)
+
+   Usar cantidadDemanda (lo que debe moverse), no cantidadEntregada: el peso se
+   usa para PLANIFICAR, o sea antes de que exista cantidad entregada.
+
+   Líneas cuyo producto tiene pesoOdoo null se OMITEN de la suma — nunca cuentan
+   como 0. Si NINGUNA línea tiene peso, el total es null, no 0.
+   El total puede ser parcial; la señal de "incompleto" se derivará más adelante
+   contando líneas sin peso al leer. No agregues columnas para eso ahora.
+
+9. ENDPOINT POST /odoo/backfill-traslados
+
+   Corrida única que ignora el watermark y lee TODOS los pickings internal
+   históricos.
+
+   POR QUÉ HACE FALTA: el watermark se calcula (~línea 337) como el máximo
+   odooWriteDate de las filas locales de `deliveries`. Al ampliar el dominio, ese
+   máximo ya refleja los albaranes de venta recientes, así que los ~73 pickings
+   internos históricos —con write_date más viejo— NUNCA entrarían por el fetch
+   incremental. Sin este backfill importarías cero traslados y el síntoma
+   parecería "no hay datos" en vez de un bug.
+
+   El backfill NO debe mover el watermark global hacia atrás ni alterar el sync
+   de albaranes de venta.
+   Definir el endpoint primero en openapi.yaml, correr el codegen, y montar el
+   router después de requireAuth (o agregarlo al router de odoo ya existente).
+
+10. ACTUALIZAR replit.md
+
+    La rutina post-apply documentada pasa a ser:
+    sync-products → sync → backfill-products → backfill-destinos →
+    sync-deliveries → backfill-deliveries → backfill-traslados
+    Documentar también, en la sección de arquitectura, que `deliveries` ahora
+    espeja ventas y traslados, y qué significa estadoLogistico.
+
+════════ NO HAGAS ════════
+- NO escribas nada hacia Odoo. Solo lectura.
+- NO crees un servicio de sync paralelo. Se amplía deliverySync.ts.
+- NO toques odooSync.ts (sale.order) ni saleEstadoSync.ts.
+- NO agregues pantallas ni endpoints de listado de traslados: eso es la tarea
+  siguiente. Solo el backfill.
+- NO edites directorios `generated/`.
+- NO cambies el comportamiento del sync de albaranes de venta. Los tests
+  existentes de deliveries deben seguir pasando sin modificarlos.
+
+════════ VERIFICACIÓN ════════
+- Reiniciar el api-server, sin SCHEMA MISMATCH. `pnpm run typecheck` limpio.
+- `pnpm --filter @workspace/e2e run test:api` en verde, incluidos los tests
+  previos de deliveries y traslados sin modificarlos.
+- Correr en orden: sync-products → sync → backfill-products → backfill-destinos
+  → sync-deliveries → backfill-deliveries → backfill-traslados
+
+- ⚠ PRUEBA DE BORRADO (la más importante): correr sync-deliveries DOS VECES
+  seguidas después del backfill y verificar que el conteo de filas en
+  `traslados` y en `deliveries where tipo='traslado'` NO cambia. Si baja a cero,
+  el listado id-only del punto 1a quedó filtrando solo 'outgoing'.
+
+- ⚠ PRUEBA DE NO-RETROCESO: poner a mano un traslado en estadoLogistico
+  'en_transito' cuyo picking en Odoo esté en 'assigned', correr el sync, y
+  verificar que sigue en 'en_transito'.
+
+- Comprobaciones SQL:
+  · deliveries agrupado por tipo → debe haber filas 'traslado'
+  · traslados con almacenOrigenId o almacenDestinoId en NULL → deben ser 0.
+    Si hay, reporta los prefijos desconocidos. NO crees almacenes automáticamente.
+  · Urbin/INT/00001 → origen URB, destino LEC, estado Odoo 'done',
+    estadoLogistico 'confirmado_odoo', 7 líneas.
+  · Urbin/INT/00003 → origen CCS, destino LEC. NO Urbina.
+    La referencia y el tipo de operación dicen "Urbin" pero el origen real es
+    CCS/Existencias. Si tu resultado dice URB, estás derivando el origen del
+    nombre en vez de location_id. Es un bug: arréglalo.
+  · Urbin/INT/00014 → almacenOrigenId == almacenDestinoId.
+  · pesoCalculadoKg o volumenCalculadoM3 con valor 0 → deben ser 0 filas
+    (o tienen dato, o son null).
+
+- Reportar al final:
+  · cuántos traslados se importaron, agrupados por estado de Odoo
+  · cuántos cruzan plaza (Caracas ↔ Lechería) y cuántos son intraplaza
+  · cuántos tienen pesoCalculadoKg con dato / total
+  · prefijos de location desconocidos, si hubo
