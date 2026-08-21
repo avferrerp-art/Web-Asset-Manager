@@ -1,0 +1,94 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet: gestión logística de flota. Monorepo pnpm, Node 24, TS 5.9.
+`artifacts/api-server` = API Express 5 (routers en src/routes, servicios en
+src/services). `dispatches` ya es polimórfico (tipo 'venta'|'traslado',
+ventaId/trasladoId nullable con constraint de exclusividad) desde la tarea
+"Generaliza despachos para ventas y traslados con peso efectivo editable".
+
+REGLAS: null = "sin dato", nunca 0. Reiniciar el workflow del api-server tras
+tocar cualquier lib. No toques `generated/`. Esta tarea es 100% backend, no
+toques nada en `artifacts/logistics`.
+
+════════ POR QUÉ ════════
+
+Dos huecos quedaron al generalizar despachos a traslados:
+
+1. `syncLinkedSale()` en `artifacts/api-server/src/routes/dispatches.ts` solo
+   sincroniza `sales.estado` (vía `syncSaleEstadoFromDispatch`) cuando
+   `tipo === 'venta'`. Para `tipo === 'traslado'` no hace nada — no existe el
+   equivalente, así que `traslados.estadoLogistico` se queda en
+   'por_planificar' para siempre aunque el traslado ya tenga despacho,
+   esté en ruta o entregado.
+
+2. En `POST /dispatches`, la validación de capacidad hardcodea
+   `volumenCarga = null` cuando `tipo === 'traslado'` (busca la línea que dice
+   exactamente eso) — el volumen de un traslado NUNCA se compara contra la
+   capacidad del vehículo, solo el peso. Para ventas sí se compara.
+
+════════ TAREA ════════
+
+1. Nuevo servicio `artifacts/api-server/src/services/trasladoEstadoSync.ts`,
+   espejo de `saleEstadoSync.ts` pero con el vocabulario de traslados:
+
+   - `syncTrasladoEstadoFromDispatch(trasladoId: number): Promise<void>` —
+     UPDATE atómico en una sola sentencia SQL (mismo patrón que
+     `syncSaleEstadoFromDispatch`), con esta prioridad:
+       a. Si `estado_logistico` YA es 'confirmado_odoo' o 'cancelado' (son
+          estados que solo escribe el sync de Odoo, ver PROMPT 1 — "regla de
+          oro": nunca se retroceden), NO TOCAR — deja el valor como está.
+       b. Si no, y existe un despacho con `traslado_id = X` y
+          `estado = 'entregado'` → 'entregado'.
+       c. Si no, y existe un despacho con `traslado_id = X` y
+          `estado = 'en-ruta'` → 'en_transito'.
+       d. Si no, y existe un despacho con `traslado_id = X` y
+          `estado <> 'cancelado'` → 'planificado'.
+       e. Si no → 'por_planificar'.
+
+   - `reconcileTrasladoEstados(): Promise<number>` — reconciliación
+     idempotente al arrancar, mismo espíritu que `reconcileSaleEstados()`:
+     recorre traslados con despachos y corrige su `estadoLogistico` según la
+     misma prioridad de arriba (sin tocar los que ya están en
+     'confirmado_odoo' o 'cancelado'). Devuelve cuántos corrigió.
+
+2. En `dispatches.ts`, la función `syncLinkedSale(d)` debe llamar también a
+   `syncTrasladoEstadoFromDispatch(d.trasladoId)` cuando
+   `d.tipo === 'traslado' && d.trasladoId !== null` (hoy solo cubre el caso
+   'venta'). Es un solo punto de cambio: los 4 call sites (POST, PATCH,
+   DELETE, approve) ya pasan por esta función, no hace falta tocarlos.
+
+3. En `POST /dispatches`, cambia:
+     `const volumenCarga = dispatchData.tipo === "venta" ? sale?.volumenTotal ?? null : null;`
+   por:
+     `const volumenCarga = dispatchData.tipo === "venta" ? sale?.volumenTotal ?? null : traslado?.volumenCalculadoM3 ?? null;`
+   (usa `volumenCalculadoM3`, NO `pesoEfectivoKg` — el volumen no tiene
+   concepto de estimado local, solo el dato de Odoo o null).
+
+4. En `index.ts` (boot del servidor), importa `reconcileTrasladoEstados` y
+   llámalo igual que `reconcileSaleEstados` — fire-and-forget con su propio
+   `.catch(err => logger.error(...))`, mismo bloque donde ya se llama a
+   `reconcileSaleEstados()`.
+
+════════ NO HAGAS ════════
+- NO agregues una migración — `estadoLogistico` ya existe como columna, esto
+  es lógica de aplicación pura.
+- NO toques `syncSaleEstadoFromDispatch` ni el comportamiento para ventas.
+- NO toques `artifacts/logistics` (frontend). El wizard ya compensa este
+  hueco del lado del cliente; esta tarea es para que el dato de backend deje
+  de estar mal, no cambia nada visible hoy.
+
+════════ VERIFICACIÓN ════════
+- `pnpm run typecheck` limpio, api-server reiniciado sin errores.
+- Crear un despacho de traslado → `traslados.estadoLogistico` pasa a
+  'planificado' de inmediato (verifícalo por SQL o por GET /traslados/{id}).
+- Cambiar ese despacho a estado 'en-ruta' → el traslado pasa a 'en_transito'.
+- Cambiarlo a 'entregado' → el traslado pasa a 'entregado'.
+- Cancelar el despacho (o borrarlo) → el traslado vuelve a 'por_planificar'.
+- Un traslado cuyo `estadoLogistico` ya es 'confirmado_odoo' (llegó a Odoo
+  como 'done') NUNCA debe retroceder a 'planificado'/'entregado' aunque se le
+  cree o cambie un despacho después.
+- Reiniciar el server dos veces seguidas: `reconcileTrasladoEstados` no debe
+  fallar ni oscilar el estado de traslados ya correctos.
+- Crear un despacho de traslado con un vehículo cuyo `capacidadVolumen` sea
+  menor al `volumenCalculadoM3` del traslado → el servidor debe rechazarlo
+  con `vehicle_capacity_exceeded` (hoy lo deja pasar).
