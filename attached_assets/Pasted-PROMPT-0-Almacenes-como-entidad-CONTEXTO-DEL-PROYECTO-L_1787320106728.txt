@@ -1,0 +1,106 @@
+PROMPT 0 — Almacenes como entidad
+
+```
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas desde Odoo,
+planifica despachos (vehículo + chofer + ruta), calcula costos de peajes y
+combustible, y tiene una app móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO desde el spec (Zod + tipos) — NO editar
+  lib/api-client-react/ GENERADO desde el spec (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5 (routers en src/routes/, servicios en src/services/)
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui
+  artifacts/chofer/     App móvil Expo
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` en la raíz y los archivos de `.agents/memory/` antes de empezar.
+Para esta tarea son especialmente relevantes:
+  - .agents/memory/db-migrations-boot.md
+  - .agents/memory/clerk-auth-setup.md
+  - .agents/memory/api-server-restart-after-codegen.md
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: todo cambio de API se edita en lib/api-spec/openapi.yaml y
+     luego se corre `pnpm --filter @workspace/api-spec run codegen`. Los
+     directorios `generated/` NUNCA se editan a mano.
+  2. Schema = archivo + migración: tras tocar lib/db/src/schema/ hay que agregar
+     una migración numerada e idempotente en lib/db/src/migrations/ y registrarla
+     en su index.ts. `drizzle-kit push` por sí solo NO sobrevive el merge a main.
+     El api-server aplica las migraciones al arrancar y verifica el schema.
+  3. La autorización es el ORDEN de los routers en src/routes/index.ts: solo
+     healthRouter va antes de requireAuth. Todo router nuevo va DESPUÉS.
+  4. Tras tocar cualquier lib hay que reiniciar el workflow del api-server: el
+     servidor bundlea con esbuild al arrancar, no hace hot-reload de las libs.
+  5. null = "sin dato". NUNCA representar la ausencia de dato con 0.
+
+════════ POR QUÉ ESTA TAREA ════════
+
+Vamos a integrar los traslados internos entre almacenes (hoy la app solo maneja
+despachos a clientes). Un traslado se define por el par origen→destino, así que
+primero necesitamos los almacenes como entidad real.
+
+Hoy el almacén es texto libre derivado del prefijo de location_id de Odoo
+(`deliveries.almacenCodigo`, `sales.almacenOrigen`). Esta tarea NO cambia eso —
+solo agrega la tabla nueva.
+
+════════ TAREA ════════
+
+1. Nuevo schema `lib/db/src/schema/almacenes.ts` (Drizzle), tabla `almacenes`:
+   - id serial PK
+   - codigo text NOT NULL UNIQUE      -- código corto para la UI
+   - odooPrefix text NOT NULL UNIQUE  -- prefijo EXACTO de location_id en Odoo
+   - nombre text NOT NULL
+   - plaza text NOT NULL              -- 'Caracas' | 'Lecheria'
+   - direccion text
+   - latitud real
+   - longitud real
+   - activo boolean NOT NULL DEFAULT true
+   - createdAt timestamptz NOT NULL DEFAULT now()
+   Exportarlo desde `lib/db/src/schema/index.ts`.
+
+2. Migración `lib/db/src/migrations/0006_almacenes.ts`, SQL idempotente
+   (CREATE TABLE IF NOT EXISTS), registrada en `lib/db/src/migrations/index.ts`.
+   (Las migraciones existentes van de 0000 a 0005 — esta es la 0006.)
+   Incluir el seed de las 4 filas con ON CONFLICT (codigo) DO NOTHING:
+
+     codigo | odooPrefix | nombre           | plaza
+     URB    | Urbin      | Urbina           | Caracas
+     CCS    | CCS        | Caracas          | Caracas
+     LEC    | LEC        | Lecheria         | Lecheria
+     NVBLA  | NVBLA      | Nueva Barcelona  | Lecheria
+
+   OJO: el odooPrefix de Urbina es "Urbin", NO "URB". Es el prefijo literal que
+   Odoo usa en location_id ("Urbin/Existencias"). No lo normalices ni lo
+   "corrijas". Las cuatro ubicaciones en Odoo son: Urbin/Existencias,
+   CCS/Existencias, LEC/Existencias, NVBLA/Existencias.
+
+3. Helper `resolveAlmacenPorLocation(location: string)` en el api-server:
+   recibe el string completo de Odoo ("Urbin/Existencias") y devuelve el
+   almacén cuyo `odooPrefix` coincide con el segmento anterior al primer "/".
+   Devuelve null si no hay match — no inventes ni crees filas al vuelo.
+
+4. Endpoint `GET /almacenes` que lista los almacenes activos:
+   - Definirlo PRIMERO en lib/api-spec/openapi.yaml
+   - Correr `pnpm --filter @workspace/api-spec run codegen`
+   - Router nuevo src/routes/almacenes.ts, montado en src/routes/index.ts
+     DESPUÉS de requireAuth
+
+════════ NO HAGAS ════════
+- NO toques `sales.almacenOrigen` ni `deliveries.almacenCodigo`. Siguen siendo
+  texto y siguen funcionando igual. Migrarlos a FK es una tarea posterior.
+- NO edites nada dentro de directorios `generated/`.
+- NO uses drizzle-kit push como único mecanismo: la migración numerada es
+  obligatoria.
+- NO agregues UI en esta tarea.
+
+════════ VERIFICACIÓN ════════
+- Reiniciar el workflow del api-server y confirmar que no loguea SCHEMA MISMATCH.
+- `pnpm run typecheck` sin errores.
+- GET /almacenes devuelve exactamente 4 filas.
+- Correr las migraciones dos veces seguidas: la segunda no debe fallar ni duplicar.
+```
