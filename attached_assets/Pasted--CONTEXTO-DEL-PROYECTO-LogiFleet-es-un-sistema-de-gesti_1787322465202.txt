@@ -1,0 +1,153 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas desde Odoo,
+planifica despachos (vehículo + chofer + ruta), calcula costos, y tiene una app
+móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO desde el spec — NO editar
+  lib/api-client-react/ GENERADO desde el spec (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5
+  artifacts/logistics/  Web React + Vite
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` en la raíz y `.agents/memory/`. Relevantes acá:
+  - .agents/memory/sales-totales-null.md   (null = sin dato — la regla central)
+  - .agents/memory/db-migrations-boot.md
+  - .agents/memory/api-server-restart-after-codegen.md
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: cambios de API en lib/api-spec/openapi.yaml + luego
+     `pnpm --filter @workspace/api-spec run codegen`. Los `generated/` NUNCA se
+     editan a mano.
+  2. Schema = archivo + migración numerada e idempotente en lib/db/src/migrations/
+     registrada en su index.ts.
+
+     PLANTILLA DE MIGRACIÓN: copia el estilo de `0006_almacenes.ts` (~30 líneas,
+     CREATE/ALTER con IF NOT EXISTS y constraints en bloques DO $$ con EXCEPTION).
+     NO uses `0008_traslados.ts` como plantilla: quedó sobre-blindada con manejo
+     manual de secuencias y deduplicación de ids por ctid, defendiendo un
+     escenario que no existe. Funciona, pero no es el patrón a replicar.
+  3. Routers nuevos van DESPUÉS de requireAuth en src/routes/index.ts.
+  4. Reiniciar el workflow del api-server tras tocar cualquier lib (bundlea con
+     esbuild al arrancar, sin hot-reload).
+  5. null = "sin dato". NUNCA representar ausencia de dato con 0.
+
+════════ POR QUÉ ESTA TAREA ════════
+
+Estamos integrando traslados internos entre almacenes. La tarea anterior agregó
+`products.pesoKgOdoo` y `products.volumenM3Odoo` (nullable, con mapeo `<=0 → null`)
+sin advertir que la tabla YA tenía `products.pesoOdoo` y `products.volumenOdoo`,
+sincronizados desde los mismos campos de Odoo (`weight` y `volume`) pero usando 0
+como centinela de "sin dato".
+
+Resultado: cuatro columnas para dos hechos. Antes de que la lógica de traslados
+agregue lecturas nuevas hay que dejar una sola verdad.
+
+Esta tarea NO agrega funcionalidad. Es consolidación.
+
+════════ TAREA ════════
+
+1. UNIFICAR EL PESO Y VOLUMEN DE PRODUCTOS EN UNA SOLA PAREJA NULLABLE
+
+   Sobreviven `pesoOdoo` y `volumenOdoo` (son las que ya usa la UI y la API).
+   Cambian de "0 = sin dato" a "null = sin dato". Desaparecen `pesoKgOdoo` y
+   `volumenM3Odoo`.
+
+   1a. Migración `lib/db/src/migrations/0009_products_peso_nullable.ts`,
+       idempotente, registrada en su index.ts:
+         - peso_odoo y volumen_odoo: DROP NOT NULL y DROP DEFAULT
+         - UPDATE products SET peso_odoo = NULL WHERE peso_odoo = 0
+         - UPDATE products SET volumen_odoo = NULL WHERE volumen_odoo = 0
+         - DROP COLUMN IF EXISTS peso_kg_odoo, volumen_m3_odoo
+
+       Antes de borrar las columnas nuevas, verifica que peso_odoo/volumen_odoo
+       quedaron con el mismo dato que peso_kg_odoo/volumen_m3_odoo. Si no
+       coinciden, detente y reporta en vez de perder datos.
+
+   1b. `lib/db/src/schema/products.ts`: peso_odoo y volumen_odoo pasan a
+       `real("peso_odoo")` sin .notNull().default(0). Eliminar pesoKgOdoo y
+       volumenM3Odoo. Actualizar el comentario del bloque: los campos
+       sincronizados desde Odoo usan null para "sin dato en Odoo".
+
+   1c. `artifacts/api-server/src/services/productSync.ts`:
+         - conservar el helper positiveOdooValue() y escribir su resultado
+           directamente en pesoOdoo y volumenOdoo (eliminar los `?? 0`)
+         - eliminar la escritura de pesoKgOdoo / volumenM3Odoo
+         - en getProductStats(), cambiar
+           `count(*) filter (where peso_odoo > 0)` por
+           `count(*) filter (where peso_odoo is not null)`
+
+   1d. `artifacts/api-server/src/routes/products.ts` (~línea 32): el filtro
+       sinPesoOdoo pasa de `eq(productsTable.pesoOdoo, 0)` a
+       `isNull(productsTable.pesoOdoo)`. Actualizar el comentario.
+       NO renombres el query param `sinPesoOdoo`: es contrato público y lo usa
+       la UI de Artículos.
+
+   1e. `lib/api-spec/openapi.yaml`: en el schema Product (~línea 1840),
+       pesoOdoo y volumenOdoo pasan a `type: ["number", "null"]`.
+       Se quedan en la lista `required` — siguen presentes en el payload, solo
+       admiten null (mismo patrón que direccion en el schema Almacen).
+       Después: `pnpm --filter @workspace/api-spec run codegen`
+
+   1f. Sitios de lectura en la web — cambiar la guarda de `> 0` a `!= null`,
+       conservando exactamente el texto que ya muestran:
+         - artifacts/logistics/src/pages/articulos.tsx (~líneas 164 y 173)
+         - artifacts/logistics/src/components/cargo-wizard.tsx (~línea 340)
+
+   1g. Tests:
+         - e2e/tests/product-sync.test.ts: las aserciones sobre pesoKgOdoo /
+           volumenM3Odoo pasan a pesoOdoo / volumenOdoo. Conservar el caso que
+           verifica la transición 12.5 → 0 → null: es el más importante.
+         - e2e/tests/backfill-totals.test.ts (~líneas 48-49): los fixtures que
+           insertan pesoOdoo: 0 / volumenOdoo: 0 pasan a null, salvo que el test
+           dependa del 0 — en ese caso revísalo y explica por qué.
+
+2. BAJAR A SQL LA EXCLUSIÓN DE TRASLADOS
+
+   La tarea anterior excluyó los traslados con un `if (ventaId === null) continue`
+   dentro del loop. Funciona, pero ambas consultas leen todas las filas de
+   traslado en cada llamada para descartarlas. Debe filtrarse en el WHERE.
+
+   2a. `artifacts/api-server/src/services/deliveryEstado.ts` (~línea 110):
+       agregar `eq(deliveriesTable.tipo, "venta")` a la consulta que trae los
+       albaranes para la derivación, y quitar la guarda del loop.
+
+   2b. `artifacts/api-server/src/routes/sales.ts` (~línea 24): el `select` sobre
+       deliveriesTable que arma nombresByVenta debe filtrar
+       `eq(deliveriesTable.tipo, "venta")`. Quitar la guarda del loop.
+
+   Filtrar por `tipo` y no por `ventaId is not null` es deliberado: dice POR QUÉ
+   se excluyen esas filas, no solo que se excluyen.
+
+════════ NO HAGAS ════════
+- NO toques las columnas manuales dormidas de products (peso_kg, largo_cm,
+  ancho_cm, alto_cm, apilable, fragil, dimensiones_confirmadas). Siguen
+  dormidas con sus datos.
+- NO toques deliverySync.ts. El sync de traslados es la tarea siguiente.
+- NO agregues endpoints ni pantallas nuevas.
+- NO renombres el query param sinPesoOdoo ni el campo sinPesoOdoo de las stats.
+- NO edites directorios `generated/`.
+- NO cambies el texto que ve el usuario ("sin peso en Odoo", "sin dato en Odoo").
+
+════════ VERIFICACIÓN ════════
+- Reiniciar el api-server: sin SCHEMA MISMATCH en el log.
+- `pnpm run typecheck` limpio.
+- Migraciones idempotentes: correrlas dos veces seguidas sin fallo.
+- `pnpm --filter @workspace/e2e run test:api` en verde.
+- SQL: `select count(*) from products where peso_odoo = 0 or volumen_odoo = 0`
+  → debe dar 0.
+- SQL: confirmar que las columnas peso_kg_odoo y volumen_m3_odoo ya no existen
+  en information_schema.columns.
+- GET /products/stats: conPesoOdoo + sinPesoOdoo debe seguir sumando total, y
+  conPesoOdoo debe dar el mismo número que antes de la migración.
+- GET /products?sinPesoOdoo=true devuelve los productos sin peso.
+- Reportar la cobertura final del catálogo:
+  · productos con peso_odoo no nulo / total
+  · productos con volumen_odoo no nulo / total
+- Grep de control: `pesoKgOdoo`, `volumenM3Odoo`, `peso_kg_odoo` y
+  `volumen_m3_odoo` no deben aparecer en ningún archivo fuera de la migración
+  0008 (histórica) y la 0009.
