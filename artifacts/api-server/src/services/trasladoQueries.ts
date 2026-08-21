@@ -213,29 +213,29 @@ export async function getTraslado(id: number) {
           .leftJoin(productsTable, eq(productsTable.id, deliveryItemsTable.productId))
           .where(eq(deliveryItemsTable.deliveryId, row.deliveryId))
           .orderBy(deliveryItemsTable.id);
-  const [activeActa] = await db
-    .select({ despachoId: actasLlegadaTable.despachoId })
-    .from(actasLlegadaTable)
-    .innerJoin(
-      dispatchesTable,
-      eq(dispatchesTable.id, actasLlegadaTable.despachoId),
-    )
+  const [despachoActivo] = await db
+    .select({
+      id: dispatchesTable.id,
+      estado: dispatchesTable.estado,
+    })
+    .from(dispatchesTable)
     .where(
       and(
         eq(dispatchesTable.trasladoId, id),
         ne(dispatchesTable.estado, "cancelado"),
       ),
     )
-    .orderBy(desc(actasLlegadaTable.createdAt))
+    .orderBy(desc(dispatchesTable.createdAt))
     .limit(1);
-  const acta = activeActa
-    ? await getActaPorDespacho(activeActa.despachoId)
+  const acta = despachoActivo
+    ? await getActaPorDespacho(despachoActivo.id)
     : null;
 
   return {
     ...toSummary(row),
     pesoEstimadoKg: row.pesoEstimadoKg,
     notas: row.notas,
+    despachoActivo: despachoActivo ?? null,
     acta: acta ? serializeActaLlegada(acta) : null,
     lineas: lineas.map((linea) => ({
       ...linea,

@@ -12,6 +12,7 @@ import {
 import { buildDispatchRow, buildDispatchDetail } from "./dispatches";
 import { syncLinkedDispatchEntity } from "../services/dispatchEstadoSync";
 import {
+  isFechaLlegadaFutura,
   parseFechaLlegada,
   registrarLlegada,
 } from "../services/actasLlegada";
@@ -167,6 +168,10 @@ router.post(
     }
     if (includesActaFields && !fechaLlegada) {
       res.status(400).json({ error: "fecha_llegada_requerida" });
+      return;
+    }
+    if (fechaLlegada && isFechaLlegadaFutura(fechaLlegada)) {
+      res.status(400).json({ error: "fecha_llegada_futura" });
       return;
     }
     const [dispatch] = await db

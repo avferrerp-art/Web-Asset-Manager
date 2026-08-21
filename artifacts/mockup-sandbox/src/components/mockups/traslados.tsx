@@ -1,5 +1,5 @@
 import React from "react";
-import { ArrowRight, ArrowRightLeft, Info, Search, TriangleAlert } from "lucide-react";
+import { ArrowRight, ArrowRightLeft, ClipboardCheck, Clock, Info, Search, TriangleAlert } from "lucide-react";
 import { Badge } from "../ui/badge";
 import { Card, CardContent } from "../ui/card";
 import { Input } from "../ui/input";
@@ -29,17 +29,19 @@ const transfers = [
     peso: null,
     interplaza: true,
     mismoAlmacen: false,
+    recepcionPendiente: false,
   },
   {
     referencia: "Urbin/INT/00045",
     origen: "Lechería",
     destino: "Urbina",
     fecha: "03 jul 2026",
-    estado: "Cancelado",
+    estado: "Entregado",
     lineas: 1,
     peso: "96 kg",
     interplaza: true,
     mismoAlmacen: false,
+    recepcionPendiente: true,
   },
   {
     referencia: "Urbin/INT/00014",
@@ -51,6 +53,7 @@ const transfers = [
     peso: null,
     interplaza: false,
     mismoAlmacen: true,
+    recepcionPendiente: false,
   },
   {
     referencia: "Urbin/INT/00003",
@@ -62,6 +65,7 @@ const transfers = [
     peso: null,
     interplaza: true,
     mismoAlmacen: false,
+    recepcionPendiente: false,
   },
 ];
 
@@ -72,10 +76,24 @@ function Status({ value }: { value: string }) {
       className={
         value === "Cancelado"
           ? "border-red-500/50 text-red-500"
-          : "border-orange-500/50 text-orange-500"
+          : value === "Entregado"
+            ? "border-green-500/50 bg-green-500/10 text-green-500"
+            : "border-orange-500/50 text-orange-500"
       }
     >
       {value}
+    </Badge>
+  );
+}
+
+function RecepcionPendienteBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="gap-1 whitespace-nowrap border-amber-500/50 bg-amber-500/10 text-[10px] text-amber-400"
+    >
+      <Clock className="h-3 w-3" />
+      Recepción pendiente
     </Badge>
   );
 }
@@ -100,7 +118,7 @@ export default function TrasladosPreview() {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input className="pl-9" value="lecheria" readOnly />
             </div>
-            {["Origen: Todos", "Destino: Lechería", "Estado: Todos"].map((label) => (
+            {["Origen: Todos", "Destino: Lechería", "Estado: Todos", "Recepción: Todas"].map((label) => (
               <div
                 key={label}
                 className="rounded-md border border-input bg-background px-3 py-2 text-sm"
@@ -134,7 +152,7 @@ export default function TrasladosPreview() {
                           transfer.mismoAlmacen
                             ? "bg-muted/20 opacity-55"
                             : transfer.referencia === "Urbin/INT/00003"
-                              ? "bg-primary/5"
+                              ? ""
                               : ""
                         }
                       >
@@ -142,7 +160,7 @@ export default function TrasladosPreview() {
                           <span className="inline-flex items-center gap-2">
                             {transfer.referencia}
                             {transfer.mismoAlmacen && (
-                              <Tooltip defaultOpen>
+                              <Tooltip>
                                 <TooltipTrigger>
                                   <Info className="h-3.5 w-3.5" />
                                 </TooltipTrigger>
@@ -170,7 +188,10 @@ export default function TrasladosPreview() {
                         </TableCell>
                         <TableCell>{transfer.fecha}</TableCell>
                         <TableCell>
-                          <Status value={transfer.estado} />
+                          <div className="flex items-center gap-1.5">
+                            <Status value={transfer.estado} />
+                            {transfer.recepcionPendiente && <RecepcionPendienteBadge />}
+                          </div>
                         </TableCell>
                         <TableCell className="text-right">{transfer.lineas}</TableCell>
                         <TableCell className="text-right">
@@ -192,9 +213,9 @@ export default function TrasladosPreview() {
                 <div className="flex flex-wrap items-center gap-2">
                   <div>
                     <p className="text-xs text-muted-foreground">Traslado seleccionado</p>
-                    <h2 className="text-xl font-semibold">Urbin/INT/00003</h2>
+                    <h2 className="text-xl font-semibold">Urbin/INT/00045</h2>
                   </div>
-                  <Status value="Cancelado" />
+                  <Status value="Entregado" />
                   <Badge
                     variant="outline"
                     className="border-purple-500/50 bg-purple-500/10 text-purple-400"
@@ -208,30 +229,54 @@ export default function TrasladosPreview() {
                     <p className="text-[10px] font-semibold uppercase text-muted-foreground">
                       Almacén de origen
                     </p>
-                    <p className="font-medium">Caracas</p>
+                     <p className="font-medium">Lechería</p>
                   </div>
                   <ArrowRight className="h-5 w-5 text-muted-foreground" />
                   <div>
                     <p className="text-[10px] font-semibold uppercase text-muted-foreground">
                       Almacén de destino
                     </p>
-                    <p className="font-medium">Lechería</p>
+                     <p className="font-medium">Urbina</p>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-2 gap-x-8 gap-y-2 text-sm">
                   <span className="text-muted-foreground">Fecha programada</span>
-                  <span>10 mar 2026</span>
+                   <span>03 jul 2026</span>
                   <span className="text-muted-foreground">Fecha efectiva</span>
-                  <span>—</span>
+                   <span>04 jul 2026</span>
                   <span className="text-muted-foreground">Peso</span>
-                  <span className="italic text-muted-foreground">sin dato en Odoo</span>
+                   <span>96 kg</span>
                   <span className="text-muted-foreground">Volumen</span>
                   <span className="italic text-muted-foreground">sin dato en Odoo</span>
                 </div>
               </div>
 
               <CardContent className="space-y-3 p-5">
+                <div className="space-y-3 rounded-md border border-border/60 bg-muted/10 p-4">
+                  <div className="flex items-center gap-2">
+                    <ClipboardCheck className="h-4 w-4 text-primary" />
+                    <h3 className="text-sm font-bold">Acta de llegada</h3>
+                  </div>
+                  <div className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-xs">
+                    <span className="font-medium text-foreground/70">Llegada</span>
+                     <span>04 jul 2026, 09:24</span>
+                    <span className="font-medium text-foreground/70">Novedades del viaje</span>
+                    <span className="italic text-muted-foreground">Sin novedades</span>
+                     <span className="font-medium text-foreground/70">Registrada por</span>
+                     <span>José Mendoza</span>
+                  </div>
+                  <div className="space-y-2 border-t border-border/50 pt-3">
+                    <div className="flex items-start gap-2 text-xs text-muted-foreground">
+                      <Clock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-400" />
+                      <span>La recepción en almacén aún no se ha confirmado.</span>
+                    </div>
+                    <button className="rounded-md bg-secondary px-3 py-1.5 text-xs font-medium text-secondary-foreground">
+                      Confirmar recepción
+                    </button>
+                  </div>
+                </div>
+
                 <h3 className="font-semibold">Líneas del traslado</h3>
                 <div className="rounded-md border border-amber-500/20 bg-amber-500/5 p-3">
                   <div className="mb-3 flex items-start gap-2">

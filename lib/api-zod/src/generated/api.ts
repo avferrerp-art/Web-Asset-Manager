@@ -569,6 +569,10 @@ export const GetTrasladoResponse = zod.object({
 }).and(zod.object({
   "pesoEstimadoKg": zod.number().nullable().describe('Positive local estimate used only when Odoo has no calculated weight'),
   "notas": zod.string().nullable(),
+  "despachoActivo": zod.union([zod.object({
+  "id": zod.number(),
+  "estado": zod.string()
+}),zod.null()]),
   "acta": zod.union([zod.object({
   "id": zod.number(),
   "despachoId": zod.number(),
@@ -639,6 +643,10 @@ export const UpdateTrasladoResponse = zod.object({
 }).and(zod.object({
   "pesoEstimadoKg": zod.number().nullable().describe('Positive local estimate used only when Odoo has no calculated weight'),
   "notas": zod.string().nullable(),
+  "despachoActivo": zod.union([zod.object({
+  "id": zod.number(),
+  "estado": zod.string()
+}),zod.null()]),
   "acta": zod.union([zod.object({
   "id": zod.number(),
   "despachoId": zod.number(),

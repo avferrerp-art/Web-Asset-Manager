@@ -2284,13 +2284,23 @@ components:
       allOf:
         - $ref: "#/components/schemas/TrasladoSummary"
         - type: object
-          required: [lineas, pesoEstimadoKg, notas, acta]
+          required: [lineas, pesoEstimadoKg, notas, despachoActivo, acta]
           properties:
             pesoEstimadoKg:
               type: ["number", "null"]
               description: Positive local estimate used only when Odoo has no calculated weight
             notas:
               type: ["string", "null"]
+            despachoActivo:
+              oneOf:
+                - type: object
+                  required: [id, estado]
+                  properties:
+                    id:
+                      type: integer
+                    estado:
+                      type: string
+                - type: "null"
             acta:
               oneOf:
                 - $ref: "#/components/schemas/ActaLlegada"

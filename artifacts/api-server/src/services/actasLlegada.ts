@@ -1,7 +1,8 @@
 import { actasLlegadaTable, db, type ActaLlegada } from "@workspace/db";
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 export const HORAS_RECEPCION_SIN_VALIDAR = 24;
+export const TOLERANCIA_RELOJ_MINUTOS = 10;
 
 const ISO_DATE_TIME_PATTERN =
   /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(?:[Zz]|[+-]\d{2}:\d{2})$/;
@@ -38,6 +39,16 @@ export function parseFechaLlegada(value: unknown): Date | null {
 
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+export function isFechaLlegadaFutura(
+  fechaLlegada: Date,
+  now: Date = new Date(),
+): boolean {
+  return (
+    fechaLlegada.getTime() >
+    now.getTime() + TOLERANCIA_RELOJ_MINUTOS * 60_000
+  );
 }
 
 export function serializeActaLlegada(acta: ActaLlegada) {
@@ -91,9 +102,15 @@ export async function confirmarRecepcion(
     confirmadaPorId: number | null;
   },
 ) {
-  const update: Partial<typeof actasLlegadaTable.$inferInsert> = {
-    confirmadaAt: new Date(),
-    confirmadaPorId: input.confirmadaPorId,
+  const update = {
+    confirmadaAt: sql<Date>`COALESCE(${actasLlegadaTable.confirmadaAt}, NOW())`,
+    confirmadaPorId: sql<number | null>`CASE
+      WHEN ${actasLlegadaTable.confirmadaAt} IS NULL
+        THEN ${input.confirmadaPorId}::integer
+      ELSE ${actasLlegadaTable.confirmadaPorId}
+    END`,
+    recibidoPor: undefined as string | null | undefined,
+    novedadesRecepcion: undefined as string | null | undefined,
   };
   if ("recibidoPor" in input) {
     update.recibidoPor = normalizeOptionalText(input.recibidoPor);

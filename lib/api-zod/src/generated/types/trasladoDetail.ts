@@ -6,6 +6,7 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { ActaLlegada } from './actaLlegada';
+import type { TrasladoDetailDespachoActivo } from './trasladoDetailDespachoActivo';
 import type { TrasladoLinea } from './trasladoLinea';
 import type { TrasladoSummary } from './trasladoSummary';
 
@@ -17,6 +18,7 @@ export type TrasladoDetail = TrasladoSummary & ({
   pesoEstimadoKg: number | null;
   /** @nullable */
   notas: string | null;
+  despachoActivo: TrasladoDetailDespachoActivo;
   acta: ActaLlegada | null;
   lineas: TrasladoLinea[];
 });

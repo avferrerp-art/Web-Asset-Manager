@@ -61,6 +61,10 @@ function auth(headers?: Record<string, string>): Record<string, string> {
   return { "x-test-auth": "authenticated", "Content-Type": "application/json", ...headers };
 }
 
+function isoMinutesFromNow(minutes: number): string {
+  return new Date(Date.now() + minutes * 60_000).toISOString();
+}
+
 async function createDispatch(estado: string = "aprobado"): Promise<number> {
   const [d] = await db
     .insert(dispatchesTable)
@@ -179,11 +183,11 @@ describe("PATCH /api/dispatches/:id/acta without prior acta", () => {
 describe("POST acta by unlinked authenticated web user", () => {
   it("returns 200 with registradaPorId null and novedadesViaje null", async () => {
     currentPersonMock.result = { ok: false, reason: "not_linked", email: "web@example.com" };
-    const id = await createDispatch();
+    const id = await createDispatch("en-ruta");
     const res = await fetch(`${baseUrl}/api/dispatches/${id}/acta`, {
       method: "POST",
       headers: auth(),
-      body: JSON.stringify({ fechaLlegada: "2035-06-01T18:00:00.000Z", novedadesViaje: "" }),
+      body: JSON.stringify({ fechaLlegada: isoMinutesFromNow(-5), novedadesViaje: "" }),
     });
     expect(res.status).toBe(200);
     const body = await res.json();
@@ -206,7 +210,121 @@ describe("POST acta by unlinked authenticated web user", () => {
   });
 });
 
-// ── Case 3: POST acta input validation (400, no acta created) ────────────────
+// ── Case 3: Arrival integrity guards ─────────────────────────────────────────
+describe("Arrival integrity guards", () => {
+  it("rejects a web arrival over ten minutes in the future", async () => {
+    const id = await createDispatch("en-ruta");
+    const res = await fetch(`${baseUrl}/api/dispatches/${id}/acta`, {
+      method: "POST",
+      headers: auth(),
+      body: JSON.stringify({ fechaLlegada: isoMinutesFromNow(60) }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "fecha_llegada_futura" });
+    const actas = await db
+      .select()
+      .from(actasLlegadaTable)
+      .where(eq(actasLlegadaTable.despachoId, id));
+    expect(actas).toHaveLength(0);
+  });
+
+  it("allows a small two-minute clock skew", async () => {
+    currentPersonMock.result = {
+      ok: false,
+      reason: "not_linked",
+      email: "web@example.com",
+    };
+    const id = await createDispatch("en-ruta");
+    const res = await fetch(`${baseUrl}/api/dispatches/${id}/acta`, {
+      method: "POST",
+      headers: auth(),
+      body: JSON.stringify({ fechaLlegada: isoMinutesFromNow(2) }),
+    });
+
+    expect(res.status).toBe(200);
+    const acta = await res.json();
+    expect(acta.despachoId).toBe(id);
+  });
+
+  it("rejects an acta for a dispatch that has not left", async () => {
+    const id = await createDispatch("pre-despacho");
+    const res = await fetch(`${baseUrl}/api/dispatches/${id}/acta`, {
+      method: "POST",
+      headers: auth(),
+      body: JSON.stringify({ fechaLlegada: isoMinutesFromNow(-5) }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: "despacho_sin_salir" });
+    const actas = await db
+      .select()
+      .from(actasLlegadaTable)
+      .where(eq(actasLlegadaTable.despachoId, id));
+    expect(actas).toHaveLength(0);
+  });
+
+  it("keeps the original confirmation signature when reception text is corrected", async () => {
+    currentPersonMock.result = {
+      ok: false,
+      reason: "not_linked",
+      email: "web@example.com",
+    };
+    const id = await createDispatch("entregado");
+    const createRes = await fetch(`${baseUrl}/api/dispatches/${id}/acta`, {
+      method: "POST",
+      headers: auth(),
+      body: JSON.stringify({ fechaLlegada: isoMinutesFromNow(-10) }),
+    });
+    expect(createRes.status).toBe(200);
+
+    currentPersonMock.result = {
+      ok: true,
+      person: {
+        id: driverId,
+        nombre: `Chofer acta ${suffix}`,
+        rol: "chofer",
+        tarifaViaticos: 0,
+        telefono: null,
+        email: `driver-acta-${suffix}@test.invalid`,
+        createdAt: new Date(),
+      },
+    };
+    const firstRes = await fetch(`${baseUrl}/api/dispatches/${id}/acta`, {
+      method: "PATCH",
+      headers: auth(),
+      body: JSON.stringify({
+        recibidoPor: "Primera persona",
+        novedadesRecepcion: "Primera observación",
+      }),
+    });
+    expect(firstRes.status).toBe(200);
+    const first = await firstRes.json();
+
+    currentPersonMock.result = {
+      ok: false,
+      reason: "not_linked",
+      email: "correction@example.com",
+    };
+    const correctionRes = await fetch(`${baseUrl}/api/dispatches/${id}/acta`, {
+      method: "PATCH",
+      headers: auth(),
+      body: JSON.stringify({
+        recibidoPor: "Nombre corregido",
+        novedadesRecepcion: "Texto corregido",
+      }),
+    });
+    expect(correctionRes.status).toBe(200);
+    const corrected = await correctionRes.json();
+
+    expect(corrected.recibidoPor).toBe("Nombre corregido");
+    expect(corrected.novedadesRecepcion).toBe("Texto corregido");
+    expect(corrected.confirmadaAt).toBe(first.confirmadaAt);
+    expect(corrected.confirmadaPorId).toBe(driverId);
+  });
+});
+
+// ── Case 4: POST acta input validation (400, no acta created) ────────────────
 describe("POST acta input validation", () => {
   const invalidCases: Array<{ label: string; body: Record<string, unknown> }> = [
     {
@@ -252,7 +370,7 @@ describe("POST acta input validation", () => {
   }
 });
 
-// ── Case 4: Driver identity responses ────────────────────────────────────────
+// ── Case 5: Driver identity responses ────────────────────────────────────────
 describe("Driver identity responses (no_email, not_linked)", () => {
   it("no_email: returns 404 with exact message", async () => {
     currentPersonMock.result = { ok: false, reason: "no_email" };
@@ -278,7 +396,7 @@ describe("Driver identity responses (no_email, not_linked)", () => {
   });
 });
 
-// ── Case 5: Linked driver status transitions with acta fields ─────────────────
+// ── Case 6: Linked driver status transitions with acta fields ────────────────
 describe("Linked driver dispatch status transitions", () => {
   function setLinkedDriver() {
     currentPersonMock.result = {
@@ -334,7 +452,7 @@ describe("Linked driver dispatch status transitions", () => {
       headers: auth(),
       body: JSON.stringify({
         estado: "entregado",
-        fechaLlegada: "2035-06-01T18:00:00.000Z",
+        fechaLlegada: isoMinutesFromNow(-5),
       }),
     });
     expect(res.status).toBe(400);
@@ -352,7 +470,7 @@ describe("Linked driver dispatch status transitions", () => {
   it("delivered with valid ISO date creates acta attributed to linked person", async () => {
     setLinkedDriver();
     const id = await createDispatch("en-ruta");
-    const fechaLlegada = "2035-06-01T18:00:00.000Z";
+    const fechaLlegada = isoMinutesFromNow(-60);
     const res = await fetch(`${baseUrl}/api/driver/dispatches/${id}/status`, {
       method: "POST",
       headers: auth(),
@@ -373,6 +491,32 @@ describe("Linked driver dispatch status transitions", () => {
     expect(actas).toHaveLength(1);
     expect(actas[0].registradaPorId).toBe(driverId);
     expect(actas[0].fechaLlegada.toISOString()).toBe(new Date(fechaLlegada).toISOString());
+  });
+
+  it("rejects a future arrival before changing the dispatch state", async () => {
+    setLinkedDriver();
+    const id = await createDispatch("en-ruta");
+    const res = await fetch(`${baseUrl}/api/driver/dispatches/${id}/status`, {
+      method: "POST",
+      headers: auth(),
+      body: JSON.stringify({
+        estado: "entregado",
+        fechaLlegada: isoMinutesFromNow(60),
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: "fecha_llegada_futura" });
+    const [dispatch] = await db
+      .select({ estado: dispatchesTable.estado })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.id, id));
+    expect(dispatch.estado).toBe("en-ruta");
+    const actas = await db
+      .select()
+      .from(actasLlegadaTable)
+      .where(eq(actasLlegadaTable.despachoId, id));
+    expect(actas).toHaveLength(0);
   });
 
   it("delivered without acta fields creates no acta", async () => {

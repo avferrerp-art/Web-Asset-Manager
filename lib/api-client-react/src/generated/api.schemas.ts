@@ -373,6 +373,11 @@ export interface TrasladoLinea {
   diferencia: number;
 }
 
+export type TrasladoDetailDespachoActivo = {
+  id: number;
+  estado: string;
+} | null;
+
 export type TrasladoDetail = TrasladoSummary & ({
   /**
      * Positive local estimate used only when Odoo has no calculated weight
@@ -381,6 +386,7 @@ export type TrasladoDetail = TrasladoSummary & ({
   pesoEstimadoKg: number | null;
   /** @nullable */
   notas: string | null;
+  despachoActivo: TrasladoDetailDespachoActivo;
   acta: ActaLlegada | null;
   lineas: TrasladoLinea[];
 });

@@ -834,7 +834,7 @@ describe("recepcionSinValidar matrix", () => {
   });
 });
 
-describe("detalle del traslado ignora despachos cancelados para el acta", () => {
+describe("detalle del traslado expone el despacho activo que gobierna el acta", () => {
   const localDispatchIds: number[] = [];
   const localActaDispatchIds: number[] = [];
 
@@ -853,7 +853,7 @@ describe("detalle del traslado ignora despachos cancelados para el acta", () => 
     }
   });
 
-  it("getTraslado devuelve acta=null si el único despacho con acta está cancelado", async () => {
+  it("getTraslado ignora el acta cancelada y conserva el despacho activo sin acta", async () => {
     const trasladoId = trasladoIds[0]!;
 
     // Create a cancelled dispatch with an acta
@@ -882,6 +882,8 @@ describe("detalle del traslado ignora despachos cancelados para el acta", () => 
 
     const detail = await getTraslado(trasladoId);
     expect(detail).not.toBeNull();
+    expect(detail!.despachoActivo).not.toBeNull();
+    expect(detail!.despachoActivo!.estado).not.toBe("cancelado");
     expect(detail!.acta).toBeNull();
 
     // Validate response shape against generated contract
@@ -940,8 +942,40 @@ describe("detalle del traslado ignora despachos cancelados para el acta", () => 
     });
 
     const detail = await getTraslado(trasladoId);
+    expect(detail!.despachoActivo).toEqual({
+      id: activeDispatch!.id,
+      estado: "entregado",
+    });
     expect(detail!.acta).not.toBeNull();
+    expect(detail!.acta!.despachoId).toBe(activeDispatch!.id);
     expect(detail!.acta!.novedadesViaje).toBe("Acta del despacho activo");
+  });
+
+  it("getTraslado expone el despacho activo aunque todavía no tenga acta", async () => {
+    const trasladoId = trasladoIds[0]!;
+    const [activeDispatch] = await db
+      .insert(dispatchesTable)
+      .values({
+        tipo: "traslado",
+        ventaId: null,
+        trasladoId,
+        vehiculoId: vehicleId!,
+        choferId: driverId!,
+        fechaEstimadaSalida: "2035-07-04T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-07-04T18:00:00.000Z",
+        estado: "en-ruta",
+      })
+      .returning({ id: dispatchesTable.id });
+    localDispatchIds.push(activeDispatch!.id);
+
+    const detail = await getTraslado(trasladoId);
+
+    expect(detail!.despachoActivo).toEqual({
+      id: activeDispatch!.id,
+      estado: "en-ruta",
+    });
+    expect(detail!.acta).toBeNull();
+    expect(GetTrasladoResponse.safeParse(detail).success).toBe(true);
   });
 });
 

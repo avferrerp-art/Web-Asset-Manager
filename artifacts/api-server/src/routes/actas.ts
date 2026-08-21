@@ -14,6 +14,7 @@ import {
 import {
   confirmarRecepcion,
   getActaPorDespacho,
+  isFechaLlegadaFutura,
   parseFechaLlegada,
   registrarLlegada,
 } from "../services/actasLlegada";
@@ -21,12 +22,12 @@ import { resolveCurrentPerson } from "../services/currentPerson";
 
 const router: IRouter = Router();
 
-async function dispatchExists(id: number): Promise<boolean> {
+async function getDispatch(id: number) {
   const [dispatch] = await db
-    .select({ id: dispatchesTable.id })
+    .select({ id: dispatchesTable.id, estado: dispatchesTable.estado })
     .from(dispatchesTable)
     .where(eq(dispatchesTable.id, id));
-  return Boolean(dispatch);
+  return dispatch ?? null;
 }
 
 async function currentPersonId(req: Parameters<typeof resolveCurrentPerson>[0]) {
@@ -40,7 +41,7 @@ router.get("/dispatches/:id/acta", async (req, res): Promise<void> => {
     res.status(400).json({ error: "id_invalido" });
     return;
   }
-  if (!(await dispatchExists(params.data.id))) {
+  if (!(await getDispatch(params.data.id))) {
     res.status(404).json({ error: "despacho_no_encontrado" });
     return;
   }
@@ -74,8 +75,17 @@ router.post("/dispatches/:id/acta", async (req, res): Promise<void> => {
     res.status(400).json({ error: "datos_de_acta_invalidos" });
     return;
   }
-  if (!(await dispatchExists(params.data.id))) {
+  if (isFechaLlegadaFutura(fechaLlegada)) {
+    res.status(400).json({ error: "fecha_llegada_futura" });
+    return;
+  }
+  const dispatch = await getDispatch(params.data.id);
+  if (!dispatch) {
     res.status(404).json({ error: "despacho_no_encontrado" });
+    return;
+  }
+  if (dispatch.estado !== "en-ruta" && dispatch.estado !== "entregado") {
+    res.status(409).json({ error: "despacho_sin_salir" });
     return;
   }
 
@@ -107,7 +117,7 @@ router.patch("/dispatches/:id/acta", async (req, res): Promise<void> => {
     res.status(400).json({ error: "datos_de_recepcion_invalidos" });
     return;
   }
-  if (!(await dispatchExists(params.data.id))) {
+  if (!(await getDispatch(params.data.id))) {
     res.status(404).json({ error: "despacho_no_encontrado" });
     return;
   }

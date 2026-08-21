@@ -6,22 +6,32 @@ import React from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   useGetDriverDispatch,
+  useGetDispatchActa,
   useUpdateDriverDispatchStatus,
   useCompleteDriverRoutePoint,
   getGetDriverDispatchQueryKey,
+  getGetDispatchActaQueryKey,
   getListDriverDispatchesQueryKey,
   type DriverStatusUpdateInputEstado,
 } from "@workspace/api-client-react";
 
-type ApiErrorLike = { status?: number; data?: { message?: string } | null };
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+
+type ApiErrorLike = {
+  status?: number;
+  data?: { message?: string; error?: string } | null;
+};
 
 import { estadoColor, estadoLabel } from "@/constants/estados";
 import { useColors } from "@/hooks/useColors";
@@ -35,8 +45,27 @@ function formatDate(iso: string): string {
   });
 }
 
+function formatDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleString("es-DO", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+const ARRIVAL_OFFSETS: { label: string; minutes: number }[] = [
+  { label: "Ahora", minutes: 0 },
+  { label: "Hace 30 min", minutes: 30 },
+  { label: "Hace 1 h", minutes: 60 },
+  { label: "Hace 2 h", minutes: 120 },
+];
+
 export default function DespachoDetailScreen() {
   const colors = useColors();
+  const insets = useSafeAreaInsets();
   const { id } = useLocalSearchParams<{ id: string }>();
   const dispatchId = Number(id);
   const queryClient = useQueryClient();
@@ -48,21 +77,37 @@ export default function DespachoDetailScreen() {
     },
   });
 
+  const [deliveryModalVisible, setDeliveryModalVisible] = React.useState(false);
+  const [arrivalIso, setArrivalIso] = React.useState<string>(() =>
+    new Date().toISOString(),
+  );
+  const [novedades, setNovedades] = React.useState<string>("");
+  const [modalError, setModalError] = React.useState<string | null>(null);
+  const deliverySubmitRef = React.useRef(false);
+
   const updateStatus = useUpdateDriverDispatchStatus({
     mutation: {
       onSuccess: () => {
+        queryClient.removeQueries({
+          queryKey: getGetDriverDispatchQueryKey(dispatchId),
+        });
         queryClient.invalidateQueries({
           queryKey: getGetDriverDispatchQueryKey(dispatchId),
+        });
+        queryClient.removeQueries({
+          queryKey: getListDriverDispatchesQueryKey(),
         });
         queryClient.invalidateQueries({
           queryKey: getListDriverDispatchesQueryKey(),
         });
       },
       onError: (error) => {
+        // The delivery modal handles and displays its own errors inline.
+        if (deliverySubmitRef.current) return;
         const apiError = error as ApiErrorLike;
         Alert.alert(
           "No se pudo actualizar",
-          apiError?.data?.message ?? "Intenta de nuevo.",
+          apiError?.data?.message ?? apiError?.data?.error ?? "Intenta de nuevo.",
         );
       },
     },
@@ -106,6 +151,62 @@ export default function DespachoDetailScreen() {
 
   const d = detail.data;
   const badge = d ? estadoColor(d.estado) : null;
+  const isDelivered = d?.estado === "entregado";
+
+  const acta = useGetDispatchActa(dispatchId, {
+    query: {
+      queryKey: getGetDispatchActaQueryKey(dispatchId),
+      enabled: Number.isFinite(dispatchId) && isDelivered,
+    },
+  });
+
+  const openDeliveryModal = () => {
+    setArrivalIso(new Date().toISOString());
+    setNovedades("");
+    setModalError(null);
+    setDeliveryModalVisible(true);
+  };
+
+  const applyArrivalOffset = (minutes: number) => {
+    setArrivalIso(new Date(Date.now() - minutes * 60_000).toISOString());
+  };
+
+  const submitDelivery = () => {
+    setModalError(null);
+    deliverySubmitRef.current = true;
+    const trimmed = novedades.trim();
+    updateStatus.mutate(
+      {
+        id: dispatchId,
+        data: {
+          estado: "entregado",
+          fechaLlegada: arrivalIso,
+          novedadesViaje: trimmed.length > 0 ? trimmed : null,
+        },
+      },
+      {
+        onSuccess: () => {
+          deliverySubmitRef.current = false;
+          setDeliveryModalVisible(false);
+          queryClient.removeQueries({
+            queryKey: getGetDispatchActaQueryKey(dispatchId),
+          });
+          queryClient.invalidateQueries({
+            queryKey: getGetDispatchActaQueryKey(dispatchId),
+          });
+        },
+        onError: (error) => {
+          deliverySubmitRef.current = false;
+          const apiError = error as ApiErrorLike;
+          setModalError(
+            apiError?.data?.message ??
+              apiError?.data?.error ??
+              "No se pudo registrar la entrega. Intenta de nuevo.",
+          );
+        },
+      },
+    );
+  };
 
   return (
     <>
@@ -375,7 +476,10 @@ export default function DespachoDetailScreen() {
                       updateStatus.isPending && { opacity: 0.5 },
                     ]}
                     disabled={updateStatus.isPending}
-                    onPress={() => setEstado("entregado", "Entregado")}
+                    onPress={openDeliveryModal}
+                    accessibilityRole="button"
+                    accessibilityLabel="Marcar despacho como entregado"
+                    testID="delivery-open-button"
                   >
                     {updateStatus.isPending ? (
                       <ActivityIndicator color="#ffffff" />
@@ -391,9 +495,230 @@ export default function DespachoDetailScreen() {
                 )}
               </View>
             )}
+
+            {isDelivered && (
+              <View
+                style={[
+                  styles.card,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    borderRadius: colors.radius,
+                  },
+                ]}
+              >
+                <Text style={[styles.sectionTitle, { color: colors.foreground }]}>
+                  Acta de llegada
+                </Text>
+                {acta.isLoading ? (
+                  <ActivityIndicator color={colors.primary} style={{ marginTop: 8 }} />
+                ) : acta.data ? (
+                  <>
+                    <InfoRow
+                      icon="clock"
+                      label="Llegada registrada"
+                      value={formatDateTime(acta.data.fechaLlegada)}
+                      colors={colors}
+                    />
+                    {acta.data.novedadesViaje ? (
+                      <InfoRow
+                        icon="file-text"
+                        label="Novedades"
+                        value={acta.data.novedadesViaje}
+                        colors={colors}
+                      />
+                    ) : null}
+                  </>
+                ) : (
+                  <Text
+                    style={[styles.routeHint, { color: colors.mutedForeground }]}
+                  >
+                    No hay acta de llegada registrada.
+                  </Text>
+                )}
+              </View>
+            )}
           </>
         )}
       </ScrollView>
+
+      <Modal
+        visible={deliveryModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setDeliveryModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContainer,
+              { backgroundColor: colors.background },
+            ]}
+            accessibilityViewIsModal
+          >
+            <View
+              style={[styles.modalHeader, { borderBottomColor: colors.border }]}
+            >
+              <Text style={[styles.modalTitle, { color: colors.foreground }]}>
+                Confirmar entrega
+              </Text>
+              <Pressable
+                onPress={() => setDeliveryModalVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Cerrar confirmación de entrega"
+                testID="delivery-close-button"
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  { opacity: pressed ? 0.6 : 1 },
+                ]}
+              >
+                <Feather name="x" size={24} color={colors.foreground} />
+              </Pressable>
+            </View>
+
+            <KeyboardAwareScrollViewCompat
+              style={styles.modalScrollView}
+              contentContainerStyle={[
+                styles.modalScrollContent,
+                { paddingBottom: insets.bottom + 16 },
+              ]}
+            >
+              <Text style={[styles.label, { color: colors.foreground }]}>
+                Hora de llegada
+              </Text>
+              <View
+                style={[
+                  styles.arrivalValue,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    borderRadius: colors.radius,
+                  },
+                ]}
+              >
+                <Feather name="clock" size={16} color={colors.mutedForeground} />
+                <Text
+                  style={[styles.arrivalText, { color: colors.foreground }]}
+                  testID="delivery-arrival-value"
+                >
+                  {formatDateTime(arrivalIso)}
+                </Text>
+              </View>
+
+              <View style={styles.offsetRow}>
+                {ARRIVAL_OFFSETS.map((offset) => (
+                  <Pressable
+                    key={offset.minutes}
+                    onPress={() => applyArrivalOffset(offset.minutes)}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Fijar hora de llegada: ${offset.label}`}
+                    testID={`delivery-offset-${offset.minutes}`}
+                    style={({ pressed }) => [
+                      styles.offsetChip,
+                      {
+                        backgroundColor: colors.card,
+                        borderColor: colors.border,
+                        borderRadius: colors.radius,
+                      },
+                      pressed && { opacity: 0.7 },
+                    ]}
+                  >
+                    <Text
+                      style={[styles.offsetText, { color: colors.foreground }]}
+                    >
+                      {offset.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Text
+                style={[
+                  styles.label,
+                  { color: colors.foreground, marginTop: 18 },
+                ]}
+              >
+                Novedades del viaje (opcional)
+              </Text>
+              <TextInput
+                style={[
+                  styles.textArea,
+                  {
+                    backgroundColor: colors.card,
+                    borderColor: colors.border,
+                    color: colors.foreground,
+                    borderRadius: colors.radius,
+                  },
+                ]}
+                value={novedades}
+                onChangeText={setNovedades}
+                placeholder="Ej. Retraso por tráfico, mercancía completa..."
+                placeholderTextColor={colors.mutedForeground}
+                multiline
+                numberOfLines={4}
+                textAlignVertical="top"
+                accessibilityLabel="Novedades del viaje"
+                testID="delivery-novedades-input"
+              />
+
+              {modalError ? (
+                <View
+                  style={[
+                    styles.modalErrorBox,
+                    {
+                      backgroundColor: colors.card,
+                      borderColor: colors.destructive,
+                      borderRadius: colors.radius,
+                    },
+                  ]}
+                  accessibilityLiveRegion="polite"
+                  testID="delivery-error"
+                >
+                  <Feather
+                    name="alert-circle"
+                    size={16}
+                    color={colors.destructive}
+                  />
+                  <Text
+                    style={[styles.modalErrorText, { color: colors.destructive }]}
+                  >
+                    {modalError}
+                  </Text>
+                </View>
+              ) : null}
+
+              <Pressable
+                onPress={submitDelivery}
+                disabled={updateStatus.isPending}
+                accessibilityRole="button"
+                accessibilityLabel="Confirmar entrega del despacho"
+                testID="delivery-submit-button"
+                style={({ pressed }) => [
+                  styles.actionButton,
+                  {
+                    backgroundColor: "#16a34a",
+                    borderRadius: colors.radius,
+                    marginTop: 20,
+                  },
+                  pressed && { opacity: 0.8 },
+                  updateStatus.isPending && { opacity: 0.5 },
+                ]}
+              >
+                {updateStatus.isPending ? (
+                  <ActivityIndicator color="#ffffff" />
+                ) : (
+                  <>
+                    <Feather name="check-circle" size={18} color="#ffffff" />
+                    <Text style={[styles.actionText, { color: "#ffffff" }]}>
+                      Confirmar entrega
+                    </Text>
+                  </>
+                )}
+              </Pressable>
+            </KeyboardAwareScrollViewCompat>
+          </View>
+        </View>
+      </Modal>
     </>
   );
 }
@@ -515,4 +840,80 @@ const styles = StyleSheet.create({
     paddingVertical: 15,
   },
   actionText: { fontSize: 16, fontFamily: "Inter_600SemiBold" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    justifyContent: "flex-end",
+  },
+  modalContainer: {
+    width: "100%",
+    maxHeight: "90%",
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+  },
+  modalTitle: { fontSize: 20, fontFamily: "Inter_600SemiBold" },
+  closeButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  modalScrollView: { flexGrow: 0 },
+  modalScrollContent: { padding: 16 },
+  label: {
+    fontSize: 14,
+    fontFamily: "Inter_500Medium",
+    marginBottom: 8,
+  },
+  arrivalValue: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  arrivalText: { fontSize: 15, fontFamily: "Inter_500Medium" },
+  offsetRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  offsetChip: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  offsetText: { fontSize: 13, fontFamily: "Inter_500Medium" },
+  textArea: {
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    minHeight: 96,
+    fontSize: 14,
+    fontFamily: "Inter_400Regular",
+  },
+  modalErrorBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 16,
+  },
+  modalErrorText: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_500Medium",
+  },
 });

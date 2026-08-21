@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { Search, ArrowRight, Info, ArrowRightLeft, AlertCircle } from "lucide-react";
+import { Search, ArrowRight, Info, ArrowRightLeft, AlertCircle, Clock } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { matchesSearch } from "@/lib/search";
 import { formatTrasladoMedida } from "@/lib/traslado-medidas";
@@ -20,6 +20,8 @@ export default function Traslados() {
   const [origenFilter, setOrigenFilter] = useState<string>("todos");
   const [destinoFilter, setDestinoFilter] = useState<string>("todos");
   const [estadoFilter, setEstadoFilter] = useState<string>("todos");
+  // Local-only filter: the API does not expose recepcionSinValidar as a query param.
+  const [recepcionFilter, setRecepcionFilter] = useState<string>("todos");
   const [selectedTraslado, setSelectedTraslado] = useState<TrasladoSummary | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
 
@@ -53,7 +55,9 @@ export default function Traslados() {
       ]);
       if (!match) return false;
     }
-    
+
+    if (recepcionFilter === "pendiente" && !t.recepcionSinValidar) return false;
+
     return true;
   });
 
@@ -135,6 +139,16 @@ export default function Traslados() {
           <option value="confirmado_odoo">Confirmado Odoo</option>
           <option value="cancelado">Cancelado</option>
         </select>
+
+        <select
+          className="h-9 px-3 py-1 rounded-md border border-input bg-background text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          value={recepcionFilter}
+          onChange={(e) => setRecepcionFilter(e.target.value)}
+          data-testid="select-recepcion"
+        >
+          <option value="todos">Recepción: Todas</option>
+          <option value="pendiente">Solo pendientes en Odoo</option>
+        </select>
       </div>
 
       <Card>
@@ -164,7 +178,7 @@ export default function Traslados() {
                 </TableRow>
               ) : filteredTraslados.length === 0 ? (
                 <TableRow><TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
-                  {search.trim() || origenFilter !== "todos" || destinoFilter !== "todos" || estadoFilter !== "todos"
+                  {search.trim() || origenFilter !== "todos" || destinoFilter !== "todos" || estadoFilter !== "todos" || recepcionFilter !== "todos"
                     ? "Sin resultados para los filtros actuales."
                     : "No hay traslados registrados."}
                 </TableCell></TableRow>
@@ -214,10 +228,29 @@ export default function Traslados() {
                       {formatDate(traslado.fechaProgramada)}
                     </TableCell>
                     <TableCell>
-                      <TrasladoStatusBadge
-                        estadoLogistico={traslado.estadoLogistico}
-                        estadoOdoo={traslado.estadoOdoo}
-                      />
+                      <div className="flex items-center gap-1.5">
+                        <TrasladoStatusBadge
+                          estadoLogistico={traslado.estadoLogistico}
+                          estadoOdoo={traslado.estadoOdoo}
+                        />
+                        {traslado.recepcionSinValidar && (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <Badge
+                                variant="outline"
+                                className="border-amber-500/50 text-amber-600 dark:text-amber-400 bg-amber-500/10 text-[10px] px-1.5 py-0 gap-1 whitespace-nowrap"
+                                data-testid={`badge-recepcion-pendiente-${traslado.id}`}
+                              >
+                                <Clock className="w-3 h-3" />
+                                Recepción pendiente
+                              </Badge>
+                            </TooltipTrigger>
+                            <TooltipContent>
+                              LogiFleet registró la llegada hace más de 24 horas, pero Odoo todavía no tiene validada la recepción.
+                            </TooltipContent>
+                          </Tooltip>
+                        )}
+                      </div>
                     </TableCell>
                     <TableCell className="text-right font-medium">
                       {traslado.cantidadLineas}

@@ -84,6 +84,7 @@ export * from './tollRouteInput';
 export * from './tollRouteUpdate';
 export * from './trasladoAlmacen';
 export * from './trasladoDetail';
+export * from './trasladoDetailDespachoActivo';
 export * from './trasladoLinea';
 export * from './trasladoSummary';
 export * from './trasladoSummaryOrigenPeso';
