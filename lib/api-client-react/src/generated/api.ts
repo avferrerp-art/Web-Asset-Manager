@@ -42,6 +42,7 @@ import type {
   ListOdooAlertsParams,
   ListProductsParams,
   ListSalesParams,
+  ListTrasladosParams,
   OdooStatus,
   OdooSyncResult,
   OdooTestResult,
@@ -75,6 +76,8 @@ import type {
   TollRoute,
   TollRouteInput,
   TollRouteUpdate,
+  TrasladoDetail,
+  TrasladoSummary,
   TravelCost,
   TravelCostInput,
   UnlinkedSaleItem,
@@ -1652,6 +1655,167 @@ export function useListSaleDeliveries<TData = Awaited<ReturnType<typeof listSale
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getListSaleDeliveriesQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListTrasladosUrl = (params?: ListTrasladosParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/traslados?${stringifiedParams}` : `/api/traslados`
+}
+
+/**
+ * @summary List internal warehouse transfers, newest scheduled first
+ */
+export const listTraslados = async (params?: ListTrasladosParams, options?: RequestInit): Promise<TrasladoSummary[]> => {
+
+  return customFetch<TrasladoSummary[]>(getListTrasladosUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListTrasladosQueryKey = (params?: ListTrasladosParams,) => {
+    return [
+    `/api/traslados`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListTrasladosQueryOptions = <TData = Awaited<ReturnType<typeof listTraslados>>, TError = ErrorType<void>>(params?: ListTrasladosParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTraslados>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListTrasladosQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listTraslados>>> = ({ signal }) => listTraslados(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listTraslados>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListTrasladosQueryResult = NonNullable<Awaited<ReturnType<typeof listTraslados>>>
+export type ListTrasladosQueryError = ErrorType<void>
+
+
+/**
+ * @summary List internal warehouse transfers, newest scheduled first
+ */
+
+export function useListTraslados<TData = Awaited<ReturnType<typeof listTraslados>>, TError = ErrorType<void>>(
+ params?: ListTrasladosParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listTraslados>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListTrasladosQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTrasladoUrl = (id: number,) => {
+
+
+
+
+  return `/api/traslados/${id}`
+}
+
+/**
+ * @summary Get one internal transfer with its Odoo movement lines
+ */
+export const getTraslado = async (id: number, options?: RequestInit): Promise<TrasladoDetail> => {
+
+  return customFetch<TrasladoDetail>(getGetTrasladoUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTrasladoQueryKey = (id: number,) => {
+    return [
+    `/api/traslados/${id}`
+    ] as const;
+    }
+
+
+export const getGetTrasladoQueryOptions = <TData = Awaited<ReturnType<typeof getTraslado>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTraslado>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTrasladoQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTraslado>>> = ({ signal }) => getTraslado(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTraslado>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTrasladoQueryResult = NonNullable<Awaited<ReturnType<typeof getTraslado>>>
+export type GetTrasladoQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get one internal transfer with its Odoo movement lines
+ */
+
+export function useGetTraslado<TData = Awaited<ReturnType<typeof getTraslado>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTraslado>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTrasladoQueryOptions(id,options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 

@@ -14,5 +14,6 @@
 - [Visual verify behind auth](visual-verify-behind-auth.md) — screenshots hit the Clerk login; use a mockup-sandbox component for captures + standalone router/SQL for real numbers.
 - [Odoo deliveries incremental sync](odoo-deliveries-incremental.md) — reads must be incremental too: write_date>=watermark domain + id-only search for deletions; test rewinds must cap the global watermark.
 - [Totales de venta null = sin dato](sales-totales-null.md) — pesoTotal/volumenTotal espejan Odoo; null = sin dato (nunca 0); columnas de dimensiones manuales dormidas, no reusar.
+- [Medidas por dominio](measurement-domain-semantics.md) — ventas tratan cero como ausencia por capacidad; traslados reservan null; no compartir el predicado.
 - [Expo mobile quirks](chofer-expo-quirks.md) — Orval hooks in Expo need explicit queryKey; keep @types/react catalog pinned to Expo's 19.1.x; mobile auth is Bearer via setAuthTokenGetter; clear query cache on sign-out.
 - [Retiring migration-owned columns](retiring-migration-columns.md) — when a later migration drops columns, earlier repeatable migrations must stop recreating them.

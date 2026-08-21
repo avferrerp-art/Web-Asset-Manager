@@ -15,6 +15,7 @@ import productsRouter from "./products";
 import driverRouter from "./driver";
 import deliveriesRouter from "./deliveries";
 import almacenesRouter from "./almacenes";
+import trasladosRouter from "./traslados";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -36,5 +37,6 @@ router.use(productsRouter);
 router.use(driverRouter);
 router.use(deliveriesRouter);
 router.use(almacenesRouter);
+router.use(trasladosRouter);
 
 export default router;

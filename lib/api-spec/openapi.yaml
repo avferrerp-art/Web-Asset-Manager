@@ -34,6 +34,8 @@ tags:
     description: Product catalog synced from Odoo (read-only except notas)
   - name: almacenes
     description: Canonical warehouse catalog
+  - name: traslados
+    description: Internal warehouse transfers imported from Odoo (read-only)
 
 paths:
   /healthz:
@@ -448,6 +450,74 @@ paths:
                   $ref: "#/components/schemas/Delivery"
         "404":
           description: Sale not found
+
+  # --- TRASLADOS ---
+  /traslados:
+    get:
+      operationId: listTraslados
+      tags: [traslados]
+      summary: List internal warehouse transfers, newest scheduled first
+      parameters:
+        - name: almacenOrigenId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: almacenDestinoId
+          in: query
+          required: false
+          schema:
+            type: integer
+        - name: estadoLogistico
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: estadoOdoo
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: search
+          in: query
+          required: false
+          schema:
+            type: string
+          description: Accent- and case-insensitive search by reference or canonical warehouse name
+      responses:
+        "200":
+          description: Internal transfers matching the requested filters
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/TrasladoSummary"
+        "400":
+          description: Invalid filters
+
+  /traslados/{id}:
+    get:
+      operationId: getTraslado
+      tags: [traslados]
+      summary: Get one internal transfer with its Odoo movement lines
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Internal transfer detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TrasladoDetail"
+        "400":
+          description: Invalid transfer id
+        "404":
+          description: Transfer not found
 
   /sales/items/{itemId}:
     patch:
@@ -1932,6 +2002,108 @@ components:
           type: boolean
         createdAt:
           type: string
+
+    # --- TRASLADOS ---
+    TrasladoAlmacen:
+      type: object
+      required: [id, codigo, nombre, plaza]
+      properties:
+        id:
+          type: integer
+        codigo:
+          type: string
+        nombre:
+          type: string
+        plaza:
+          type: string
+
+    TrasladoSummary:
+      type: object
+      required:
+        - id
+        - referencia
+        - almacenOrigen
+        - almacenDestino
+        - cruzaPlaza
+        - mismoAlmacen
+        - fechaProgramada
+        - fechaEfectiva
+        - estadoOdoo
+        - estadoLogistico
+        - cantidadLineas
+        - pesoCalculadoKg
+        - volumenCalculadoM3
+      properties:
+        id:
+          type: integer
+        referencia:
+          type: ["string", "null"]
+          description: Odoo stock.picking reference; null only when the mirror was removed
+        almacenOrigen:
+          oneOf:
+            - $ref: "#/components/schemas/TrasladoAlmacen"
+            - type: "null"
+        almacenDestino:
+          oneOf:
+            - $ref: "#/components/schemas/TrasladoAlmacen"
+            - type: "null"
+        cruzaPlaza:
+          type: boolean
+        mismoAlmacen:
+          type: boolean
+        fechaProgramada:
+          type: ["string", "null"]
+          description: Odoo scheduled_date as ISO datetime
+        fechaEfectiva:
+          type: ["string", "null"]
+          description: Odoo date_done as ISO datetime
+        estadoOdoo:
+          type: ["string", "null"]
+          description: "draft | waiting | confirmed | assigned | done | cancel; null for an orphaned historical transfer"
+        estadoLogistico:
+          type: string
+          description: "por_planificar | planificado | en_carga | en_transito | entregado | confirmado_odoo | cancelado"
+        cantidadLineas:
+          type: integer
+        pesoCalculadoKg:
+          type: ["number", "null"]
+          description: Calculated only from positive product weights in Odoo; null means unavailable, never zero-as-missing
+        volumenCalculadoM3:
+          type: ["number", "null"]
+          description: Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing
+
+    TrasladoLinea:
+      type: object
+      required: [productoId, codigo, descripcion, demanda, cantidad, unidad, diferencia]
+      properties:
+        productoId:
+          type: ["integer", "null"]
+        codigo:
+          type: ["string", "null"]
+          description: Product reference from the local Odoo catalog
+        descripcion:
+          type: string
+        demanda:
+          type: number
+        cantidad:
+          type: number
+          description: Quantity received according to Odoo
+        unidad:
+          type: ["string", "null"]
+        diferencia:
+          type: number
+          description: demanda minus cantidad
+
+    TrasladoDetail:
+      allOf:
+        - $ref: "#/components/schemas/TrasladoSummary"
+        - type: object
+          required: [lineas]
+          properties:
+            lineas:
+              type: array
+              items:
+                $ref: "#/components/schemas/TrasladoLinea"
 
     # --- DELIVERIES ---
     DeliveryItem:

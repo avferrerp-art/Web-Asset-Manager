@@ -19,3 +19,17 @@ mtime_ms = 1787328870849
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/2af5dfb4-1576-4a8e-a2b5-f59898f09725/3788c120-1558-4f23-b01f-93c660a06134"
 storage_version_token = "1787328924897286"
 content_type = "application/octet-stream"
+
+[[outputs]]
+id = "CibkM64nWv-GJk-TZlYYf"
+uri = "file://screenshots/traslados-modulo.jpg"
+type = "image"
+title = "Captura del módulo Traslados"
+description = "Mockup verificado con casos interplaza, reubicación interna, medidas ausentes y diferencia de recepción."
+logical_id = "2349a7cb-0df2-4284-bc2e-84f29047e7c8"
+content_hash = "sha256:1d745f7c873a78b23ec0fbab009c9c2336a739e35115db191a0ed3e5431da7df"
+size = 86855
+mtime_ms = 1787335698531
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/2349a7cb-0df2-4284-bc2e-84f29047e7c8/69627cd2-2421-47d1-879c-31fd9a592b5b"
+storage_version_token = "1787336023813481"
+content_type = "image/jpeg"

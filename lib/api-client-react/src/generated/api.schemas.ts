@@ -244,6 +244,76 @@ export interface Almacen {
   createdAt: string;
 }
 
+export interface TrasladoAlmacen {
+  id: number;
+  codigo: string;
+  nombre: string;
+  plaza: string;
+}
+
+export interface TrasladoSummary {
+  id: number;
+  /**
+     * Odoo stock.picking reference; null only when the mirror was removed
+     * @nullable
+     */
+  referencia: string | null;
+  almacenOrigen: TrasladoAlmacen | null;
+  almacenDestino: TrasladoAlmacen | null;
+  cruzaPlaza: boolean;
+  mismoAlmacen: boolean;
+  /**
+     * Odoo scheduled_date as ISO datetime
+     * @nullable
+     */
+  fechaProgramada: string | null;
+  /**
+     * Odoo date_done as ISO datetime
+     * @nullable
+     */
+  fechaEfectiva: string | null;
+  /**
+     * draft | waiting | confirmed | assigned | done | cancel; null for an orphaned historical transfer
+     * @nullable
+     */
+  estadoOdoo: string | null;
+  /** por_planificar | planificado | en_carga | en_transito | entregado | confirmado_odoo | cancelado */
+  estadoLogistico: string;
+  cantidadLineas: number;
+  /**
+     * Calculated only from positive product weights in Odoo; null means unavailable, never zero-as-missing
+     * @nullable
+     */
+  pesoCalculadoKg: number | null;
+  /**
+     * Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing
+     * @nullable
+     */
+  volumenCalculadoM3: number | null;
+}
+
+export interface TrasladoLinea {
+  /** @nullable */
+  productoId: number | null;
+  /**
+     * Product reference from the local Odoo catalog
+     * @nullable
+     */
+  codigo: string | null;
+  descripcion: string;
+  demanda: number;
+  /** Quantity received according to Odoo */
+  cantidad: number;
+  /** @nullable */
+  unidad: string | null;
+  /** demanda minus cantidad */
+  diferencia: number;
+}
+
+export type TrasladoDetail = TrasladoSummary & {
+  lineas: TrasladoLinea[];
+};
+
 export interface DeliveryItem {
   id: number;
   deliveryId: number;
@@ -879,6 +949,17 @@ export interface ActiveDispatch {
 
 export type ListSalesParams = {
 status?: string;
+};
+
+export type ListTrasladosParams = {
+almacenOrigenId?: number;
+almacenDestinoId?: number;
+estadoLogistico?: string;
+estadoOdoo?: string;
+/**
+ * Accent- and case-insensitive search by reference or canonical warehouse name
+ */
+search?: string;
 };
 
 export type SyncOdooNowParams = {

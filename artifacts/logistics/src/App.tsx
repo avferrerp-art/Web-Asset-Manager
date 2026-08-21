@@ -1,7 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Switch, Route, Redirect, useLocation, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
-import { ClerkProvider, SignIn, SignUp, Show, useClerk } from "@clerk/react";
+import { ClerkProvider, SignIn, SignUp, useAuth, useClerk } from "@clerk/react";
 import { publishableKeyFromHost } from "@clerk/react/internal";
 import { dark } from "@clerk/themes";
 import { Toaster } from "@/components/ui/toaster";
@@ -12,6 +12,7 @@ import Dashboard from "@/pages/dashboard";
 import PreDespacho from "@/pages/pre-despacho";
 import Despachos from "@/pages/despachos";
 import Ventas from "@/pages/ventas";
+import Traslados from "@/pages/traslados";
 import Vehiculos from "@/pages/vehiculos";
 import Personal from "@/pages/personal";
 import Rutas from "@/pages/rutas";
@@ -111,31 +112,27 @@ function SignUpPage() {
 }
 
 function ProtectedPage({ component: Component }: { component: React.ComponentType }) {
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) {
+    return (
+      <div className="flex min-h-[100dvh] items-center justify-center bg-background text-sm text-muted-foreground dark">
+        Cargando acceso...
+      </div>
+    );
+  }
+  if (!isSignedIn) return <Redirect to="/sign-in" />;
+
   return (
-    <>
-      <Show when="signed-in">
-        <Layout>
-          <Component />
-        </Layout>
-      </Show>
-      <Show when="signed-out">
-        <Redirect to="/sign-in" />
-      </Show>
-    </>
+    <Layout>
+      <Component />
+    </Layout>
   );
 }
 
 function ProtectedNotFound() {
-  return (
-    <>
-      <Show when="signed-in">
-        <NotFound />
-      </Show>
-      <Show when="signed-out">
-        <Redirect to="/sign-in" />
-      </Show>
-    </>
-  );
+  const { isLoaded, isSignedIn } = useAuth();
+  if (!isLoaded) return null;
+  return isSignedIn ? <NotFound /> : <Redirect to="/sign-in" />;
 }
 
 // Helps the webview stay up-to-date when the signed-in user changes by
@@ -175,6 +172,9 @@ function Router() {
       </Route>
       <Route path="/ventas">
         <ProtectedPage component={Ventas} />
+      </Route>
+      <Route path="/traslados">
+        <ProtectedPage component={Traslados} />
       </Route>
       <Route path="/vehiculos">
         <ProtectedPage component={Vehiculos} />

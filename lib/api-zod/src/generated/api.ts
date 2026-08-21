@@ -491,6 +491,89 @@ export const ListSaleDeliveriesResponse = zod.array(ListSaleDeliveriesResponseIt
 
 
 /**
+ * @summary List internal warehouse transfers, newest scheduled first
+ */
+export const ListTrasladosQueryParams = zod.object({
+  "almacenOrigenId": zod.coerce.number().optional(),
+  "almacenDestinoId": zod.coerce.number().optional(),
+  "estadoLogistico": zod.coerce.string().optional(),
+  "estadoOdoo": zod.coerce.string().optional(),
+  "search": zod.coerce.string().optional().describe('Accent- and case-insensitive search by reference or canonical warehouse name')
+})
+
+export const ListTrasladosResponseItem = zod.object({
+  "id": zod.number(),
+  "referencia": zod.string().nullable().describe('Odoo stock.picking reference; null only when the mirror was removed'),
+  "almacenOrigen": zod.union([zod.object({
+  "id": zod.number(),
+  "codigo": zod.string(),
+  "nombre": zod.string(),
+  "plaza": zod.string()
+}),zod.null()]),
+  "almacenDestino": zod.union([zod.object({
+  "id": zod.number(),
+  "codigo": zod.string(),
+  "nombre": zod.string(),
+  "plaza": zod.string()
+}),zod.null()]),
+  "cruzaPlaza": zod.boolean(),
+  "mismoAlmacen": zod.boolean(),
+  "fechaProgramada": zod.string().nullable().describe('Odoo scheduled_date as ISO datetime'),
+  "fechaEfectiva": zod.string().nullable().describe('Odoo date_done as ISO datetime'),
+  "estadoOdoo": zod.string().nullable().describe('draft | waiting | confirmed | assigned | done | cancel; null for an orphaned historical transfer'),
+  "estadoLogistico": zod.string().describe('por_planificar | planificado | en_carga | en_transito | entregado | confirmado_odoo | cancelado'),
+  "cantidadLineas": zod.number(),
+  "pesoCalculadoKg": zod.number().nullable().describe('Calculated only from positive product weights in Odoo; null means unavailable, never zero-as-missing'),
+  "volumenCalculadoM3": zod.number().nullable().describe('Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing')
+})
+export const ListTrasladosResponse = zod.array(ListTrasladosResponseItem)
+
+
+/**
+ * @summary Get one internal transfer with its Odoo movement lines
+ */
+export const GetTrasladoParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetTrasladoResponse = zod.object({
+  "id": zod.number(),
+  "referencia": zod.string().nullable().describe('Odoo stock.picking reference; null only when the mirror was removed'),
+  "almacenOrigen": zod.union([zod.object({
+  "id": zod.number(),
+  "codigo": zod.string(),
+  "nombre": zod.string(),
+  "plaza": zod.string()
+}),zod.null()]),
+  "almacenDestino": zod.union([zod.object({
+  "id": zod.number(),
+  "codigo": zod.string(),
+  "nombre": zod.string(),
+  "plaza": zod.string()
+}),zod.null()]),
+  "cruzaPlaza": zod.boolean(),
+  "mismoAlmacen": zod.boolean(),
+  "fechaProgramada": zod.string().nullable().describe('Odoo scheduled_date as ISO datetime'),
+  "fechaEfectiva": zod.string().nullable().describe('Odoo date_done as ISO datetime'),
+  "estadoOdoo": zod.string().nullable().describe('draft | waiting | confirmed | assigned | done | cancel; null for an orphaned historical transfer'),
+  "estadoLogistico": zod.string().describe('por_planificar | planificado | en_carga | en_transito | entregado | confirmado_odoo | cancelado'),
+  "cantidadLineas": zod.number(),
+  "pesoCalculadoKg": zod.number().nullable().describe('Calculated only from positive product weights in Odoo; null means unavailable, never zero-as-missing'),
+  "volumenCalculadoM3": zod.number().nullable().describe('Calculated only from positive product volumes in Odoo; null means unavailable, never zero-as-missing')
+}).and(zod.object({
+  "lineas": zod.array(zod.object({
+  "productoId": zod.number().nullable(),
+  "codigo": zod.string().nullable().describe('Product reference from the local Odoo catalog'),
+  "descripcion": zod.string(),
+  "demanda": zod.number(),
+  "cantidad": zod.number().describe('Quantity received according to Odoo'),
+  "unidad": zod.string().nullable(),
+  "diferencia": zod.number().describe('demanda minus cantidad')
+}))
+}))
+
+
+/**
  * @summary Update a sale item
  */
 export const UpdateSaleItemParams = zod.object({
