@@ -1,0 +1,169 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas desde Odoo,
+planifica despachos (vehículo + chofer + ruta), calcula costos de peajes y
+combustible, y tiene una app móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO desde el spec — NO editar
+  lib/api-client-react/ GENERADO desde el spec (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5 (routers en src/routes/, servicios en src/services/)
+  artifacts/logistics/  Web React + Vite
+  artifacts/chofer/     App móvil Expo
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` en la raíz y `.agents/memory/`. Para esta tarea son relevantes:
+  - .agents/memory/db-migrations-boot.md
+  - .agents/memory/sales-totales-null.md          (null vs 0 — regla central)
+  - .agents/memory/odoo-stock-picking.md
+  - .agents/memory/api-server-restart-after-codegen.md
+  - .agents/memory/task-db-schema-drift.md
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: cambios de API en lib/api-spec/openapi.yaml + luego
+     `pnpm --filter @workspace/api-spec run codegen`. Los directorios
+     `generated/` NUNCA se editan a mano.
+  2. Schema = archivo + migración: tras tocar lib/db/src/schema/ hay que agregar
+     una migración numerada e idempotente en lib/db/src/migrations/ y
+     registrarla en su index.ts. drizzle-kit push solo NO sobrevive merges a main.
+     El api-server aplica migraciones al arrancar y verifica el schema.
+  3. Routers nuevos van DESPUÉS de requireAuth en src/routes/index.ts.
+  4. Reiniciar el workflow del api-server tras tocar cualquier lib (bundlea con
+     esbuild al arrancar, sin hot-reload).
+  5. null = "sin dato". NUNCA representar ausencia de dato con 0.
+
+════════ HACIA DÓNDE VAMOS ════════
+
+Estamos integrando los traslados internos entre almacenes (hoy la app solo
+maneja despachos a clientes). En Odoo existen como stock.picking con
+picking_type_id.code = 'internal': tienen origen (location_id), destino
+(location_dest_id) y líneas (move_ids), pero NO tienen sale_id.
+
+Ejemplo real, Urbin/INT/00001: mueve 7 productos de Urbin/Existencias a
+LEC/Existencias, estado "Hecho".
+
+Esta tarea prepara SOLO la estructura de datos. La importación desde Odoo es la
+tarea siguiente. No implementes nada de sync de albaranes aquí.
+
+════════ REQUISITO PREVIO ════════
+
+La migración 0006_almacenes ya creó:
+  - lib/db/src/schema/almacenes.ts → tabla `almacenes` con 4 filas sembradas
+  - artifacts/api-server/src/services/almacenes.ts →
+    resolveAlmacenPorLocation(location): Promise<Almacen | null>
+  - artifacts/api-server/src/routes/almacenes.ts → GET /almacenes
+  - e2e/tests/almacenes.test.ts
+
+Códigos y prefijos de Odoo: URB → Urbin | CCS → CCS | LEC → LEC | NVBLA → NVBLA
+
+Si esa tabla no existe, detente y repórtalo.
+
+════════ TAREA ════════
+
+0. ARREGLOS AL CATÁLOGO DE ALMACENES
+
+   0a. Migración `lib/db/src/migrations/0007_almacenes_nombres.ts`, idempotente
+       y registrada en su index.ts, con UPDATE que corrija los acentos:
+         nombre 'Lecheria' → 'Lechería'   (codigo = 'LEC')
+         plaza  'Lecheria' → 'Lechería'   (todas las filas que la tengan)
+
+       El seed de 0006 NO sirve para esto: esa migración ya está registrada en
+       la tabla `_migrations` y nunca se vuelve a ejecutar. Editar su seed no
+       cambiaría nada en una base ya migrada.
+       Actualizar también las aserciones de e2e/tests/almacenes.test.ts.
+
+   0b. resolveAlmacenPorLocation hace hoy un SELECT por cada llamada. El sync de
+       la tarea siguiente la va a invocar dos veces por picking (origen y
+       destino) dentro del loop: cientos de round-trips por corrida. El catálogo
+       son 4 filas estables — cargarlo UNA vez por corrida en un
+       Map<odooPrefix, Almacen> y resolver en memoria.
+       Mantener la firma asíncrona actual, o ajustar el test si la cambias.
+
+   0c. En routes/almacenes.ts ordenar por plaza y luego nombre, en vez de por
+       codigo (hoy Urbina queda de última en cualquier dropdown).
+
+1. GENERALIZAR `deliveries` A "MOVIMIENTO DE ALMACÉN"
+
+   Hoy la tabla espeja solo albaranes de venta. Pasa a espejar también traslados:
+   - `ventaId` pasa a NULLABLE (hoy es NOT NULL — este es EL bloqueante)
+   - nueva columna `tipo` text NOT NULL DEFAULT 'venta'   -- 'venta' | 'traslado'
+   - nueva columna `almacenDestino` text        -- location_dest_id[1] completo
+   - nueva columna `almacenDestinoCodigo` text  -- prefijo derivado
+
+2. NUEVA TABLA `traslados`
+
+   Es la entidad de PLANIFICACIÓN de LogiFleet, deliberadamente separada del
+   espejo de Odoo:
+   - id serial PK
+   - deliveryId integer UNIQUE REFERENCES deliveries(id) ON DELETE SET NULL
+   - odooPickingId integer UNIQUE                 -- NULLABLE a propósito
+   - almacenOrigenId integer REFERENCES almacenes(id)
+   - almacenDestinoId integer REFERENCES almacenes(id)
+   - estadoLogistico text NOT NULL DEFAULT 'por_planificar'
+   - pesoCalculadoKg real
+   - volumenCalculadoM3 real
+   - pesoEstimadoKg real
+   - notas text
+   - createdAt timestamptz NOT NULL DEFAULT now()
+
+   POR QUÉ ON DELETE SET NULL: si un picking desaparece de Odoo, el traslado y su
+   futuro despacho deben sobrevivir — el camión sí hizo el viaje. Nunca borrar en
+   cascada hacia arriba.
+   POR QUÉ odooPickingId nullable: permite, más adelante, traslados creados en
+   LogiFleet antes de existir en Odoo.
+
+   estadoLogistico admite: por_planificar | planificado | en_carga | en_transito |
+                           entregado | confirmado_odoo | cancelado
+   En esta tarea solo se define la columna; la lógica que la mueve va en la
+   tarea siguiente.
+
+3. MIGRACIÓN `lib/db/src/migrations/0008_traslados.ts`
+
+   SQL idempotente: ALTER TABLE … DROP NOT NULL, ADD COLUMN IF NOT EXISTS,
+   CREATE TABLE IF NOT EXISTS, constraints con guardas (mismo patrón que
+   0006_almacenes). Registrada en su index.ts.
+   Backfill en la misma migración: UPDATE deliveries SET tipo='venta' donde sea
+   null, para que las filas existentes queden correctas.
+
+4. PESO Y VOLUMEN DE PRODUCTOS DESDE ODOO
+
+   - nuevas columnas `products.pesoKgOdoo` real y `products.volumenM3Odoo` real
+     (nullable), en la misma migración 0008
+   - en artifacts/api-server/src/services/productSync.ts, mapear los campos
+     `weight` y `volume` de Odoo hacia esas columnas
+
+   TRAMPA CRÍTICA: en Odoo esos campos son float con default 0.0, NO false. Un
+   producto sin peso cargado llega como 0. Mapear SIEMPRE `<= 0 → null`. Un 0 se
+   leería como dato real y arruinaría la recomendación de vehículo (5.000
+   conectores "pesando cero kilos" recomendarían una moto).
+
+   NO reutilices las columnas de dimensiones dormidas (products.peso_kg,
+   largo_cm, ancho_cm, alto_cm, apilable, fragil, dimensiones_confirmadas).
+   Tienen datos viejos de la medición manual eliminada en ago 2026 y
+   contaminarían el dato nuevo. Columnas nuevas.
+
+════════ NO HAGAS ════════
+- NO toques deliverySync.ts, odooSync.ts, deliveryEstado.ts ni saleEstadoSync.ts.
+  El sync de traslados es la tarea siguiente.
+- NO agregues endpoints de traslados ni UI.
+- NO escribas nada hacia Odoo. Solo lectura.
+- NO edites directorios `generated/`.
+- NO borres ni modifiques columnas existentes de deliveries más allá de quitarle
+  el NOT NULL a ventaId.
+
+════════ VERIFICACIÓN ════════
+- Reiniciar el api-server: sin SCHEMA MISMATCH en el log.
+- `pnpm run typecheck` limpio.
+- Migraciones idempotentes: correrlas dos veces seguidas sin fallo ni duplicados.
+- e2e/tests/almacenes.test.ts pasa con los acentos actualizados.
+- GET /almacenes devuelve "Lechería" con tilde y ordenado por plaza y nombre.
+- Correr `POST /api/odoo/sync-products` y reportar:
+  · cuántos productos tienen pesoKgOdoo con dato / total
+  · cuántos tienen volumenM3Odoo con dato / total
+- SQL: products con pesoKgOdoo = 0 o volumenM3Odoo = 0 → deben ser 0 filas
+  (tienen que ser null).
+- SQL: deliveries agrupado por tipo → todas las filas existentes en 'venta',
+  ninguna en null.
