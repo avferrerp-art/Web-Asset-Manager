@@ -8,7 +8,9 @@ import {
   useListDispatches,
   useCreateDispatch, getListDispatchesQueryKey,
   useEstimateDispatchCostsPreview,
+  getListTrasladosQueryKey,
 } from "@workspace/api-client-react";
+import type { TrasladoSummary } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -28,6 +30,7 @@ import { useLocation } from "wouter";
 import { NuevoDespachoWizard } from "@/components/nuevo-despacho-wizard";
 import { CargoWizard } from "@/components/cargo-wizard";
 import { OdooSyncCard, OdooBadge } from "@/components/odoo-sync-card";
+import { PendingTrasladosCard } from "@/components/pending-traslados-card";
 
 const dispatchSchema = z.object({
   vehiculoId: z.coerce.number().min(1, "Requerido"),
@@ -56,6 +59,9 @@ export default function PreDespacho() {
   const [cargoWizardOpen, setCargoWizardOpen] = useState(false);
   const [cargoWizardSaleId, setCargoWizardSaleId] = useState<number | undefined>();
   const [cargoWizardSale, setCargoWizardSale] = useState<any>(null);
+  const [selectedTraslado, setSelectedTraslado] = useState<TrasladoSummary | null>(null);
+  const [cargoWizardTrasladoId, setCargoWizardTrasladoId] = useState<number | undefined>();
+  const [cargoWizardTraslado, setCargoWizardTraslado] = useState<TrasladoSummary | null>(null);
   const [search, setSearch] = useState("");
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(
@@ -75,7 +81,11 @@ export default function PreDespacho() {
     query: { queryKey: getListRoutesQueryKey() }
   });
 
-  const { data: allDispatches } = useListDispatches(undefined, {
+  const {
+    data: allDispatches,
+    isLoading: isLoadingDispatches,
+    error: dispatchesError,
+  } = useListDispatches(undefined, {
     query: { queryKey: getListDispatchesQueryKey() }
   });
 
@@ -120,6 +130,16 @@ export default function PreDespacho() {
   const selectedChofer = personnel?.find(p => p.id === Number(watchedChoferId));
   const selectedAyudante = personnel?.find(p => p.id === Number(watchedAyudanteId));
   const selectedRoute = routes?.find(r => r.id === Number(watchedRouteId));
+  const selectedVehicleExceedsTraslado = Boolean(
+    selectedTraslado
+    && selectedVehicle
+    && (
+      (selectedTraslado.pesoEfectivoKg != null
+        && selectedTraslado.pesoEfectivoKg > selectedVehicle.capacidadPeso)
+      || (selectedTraslado.volumenCalculadoM3 != null
+        && selectedTraslado.volumenCalculadoM3 > selectedVehicle.capacidadVolumen)
+    ),
+  );
 
   const dias = watchedSalida && watchedLlegada
     ? Math.max(1, Math.ceil((new Date(watchedLlegada).getTime() - new Date(watchedSalida).getTime()) / (1000 * 60 * 60 * 24)))
@@ -183,8 +203,18 @@ export default function PreDespacho() {
   })();
 
   const onSubmit = (values: z.infer<typeof dispatchSchema>) => {
-    if (!selectedSale) return;
-    const payload: Record<string, unknown> = { ...values, ventaId: selectedSale.id };
+    if (!selectedSale && !selectedTraslado) return;
+    if (selectedVehicleExceedsTraslado) {
+      toast({
+        title: "Vehículo incompatible",
+        description: "El vehículo seleccionado no tiene capacidad suficiente para las medidas conocidas del traslado.",
+        variant: "destructive",
+      });
+      return;
+    }
+    const payload: Record<string, unknown> = selectedTraslado
+      ? { ...values, tipo: "traslado", trasladoId: selectedTraslado.id }
+      : { ...values, tipo: "venta", ventaId: selectedSale.id };
     if (!payload.ayudanteId || payload.ayudanteId === 0) delete payload.ayudanteId;
     if (!payload.routeId || payload.routeId === 0) {
       delete payload.routeId;
@@ -194,15 +224,28 @@ export default function PreDespacho() {
     if (payload.distanciaManual === undefined) delete payload.distanciaManual;
     createDispatchMutation.mutate({ data: payload as unknown as Parameters<typeof createDispatchMutation.mutate>[0]["data"] }, {
       onSuccess: () => {
+        queryClient.removeQueries({ queryKey: getListSalesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListSalesQueryKey() });
+        queryClient.removeQueries({ queryKey: getListDispatchesQueryKey() });
         queryClient.invalidateQueries({ queryKey: getListDispatchesQueryKey() });
+        queryClient.removeQueries({ queryKey: getListTrasladosQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListTrasladosQueryKey() });
         setSelectedSale(null);
+        setSelectedTraslado(null);
         toast({ title: "¡Despacho creado y aprobado correctamente!" });
-      }
+      },
+      onError: (error) => {
+        toast({
+          title: "No se pudo crear el despacho",
+          description: error instanceof Error ? error.message : "El servidor rechazó la operación.",
+          variant: "destructive",
+        });
+      },
     });
   };
 
   const handleSelectSale = (sale: any, overrideVehicleId?: number) => {
+    setSelectedTraslado(null);
     setSelectedSale(sale);
     // Sin peso en Odoo no hay compatibilidad confiable: no preseleccionar
     // vehículo por capacidad (un 0 silencioso sugeriría el más chico).
@@ -233,6 +276,39 @@ export default function PreDespacho() {
     });
   };
 
+  const handleSelectTraslado = (traslado: TrasladoSummary, overrideVehicleId?: number) => {
+    setSelectedSale(null);
+    setSelectedTraslado(traslado);
+    const peso = traslado.pesoEfectivoKg ?? 0;
+    const volumen = traslado.volumenCalculadoM3 ?? 0;
+    const bestVehicle = overrideVehicleId
+      ? vehicles?.find((vehicle) => vehicle.id === overrideVehicleId)
+      : vehicles?.find((vehicle) =>
+          vehicle.capacidadPeso >= peso
+          && vehicle.capacidadVolumen >= volumen);
+    const today = new Date();
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const origen = traslado.almacenOrigen?.nombre ?? "";
+    const destino = traslado.almacenDestino?.nombre ?? "";
+    const includesPlace = (routePlace: string, transferPlace: string) =>
+      routePlace.toLowerCase().includes(transferPlace.toLowerCase())
+      || transferPlace.toLowerCase().includes(routePlace.toLowerCase());
+    const matchingRoute = routes?.find((route) =>
+      includesPlace(route.origen, origen) && includesPlace(route.destino, destino))
+      ?? routes?.find((route) => includesPlace(route.destino, destino));
+
+    form.reset({
+      vehiculoId: bestVehicle ? bestVehicle.id : (vehicles?.[0]?.id ?? 0),
+      choferId: 0,
+      fechaEstimadaSalida: today.toISOString().slice(0, 16),
+      fechaEstimadaLlegada: tomorrow.toISOString().slice(0, 16),
+      ruta: `${origen} → ${destino}`,
+      distanciaKm: matchingRoute?.distanciaTotalKm ?? 100,
+      routeId: matchingRoute?.id ?? undefined,
+    });
+  };
+
   // Ventas con despacho ya creado (en cualquier estado activo) no deben aparecer aquí,
   // incluso si su estado quedara en "pendiente" por alguna inconsistencia.
   const salesWithDispatch = new Set(
@@ -247,6 +323,15 @@ export default function PreDespacho() {
     ? allPendingSales.filter(s =>
         matchesSearch(search, [s.cliente, s.destino, s.odooRef, s.id, `#${s.id}`]))
     : allPendingSales;
+  const activeDispatchTrasladoIds = new Set<number>(
+    (allDispatches ?? [])
+      .filter((dispatch) =>
+        dispatch.tipo === "traslado"
+        && dispatch.estado !== "cancelado"
+        && dispatch.trasladoId != null)
+      .map((dispatch) => dispatch.trasladoId as number),
+  );
+  const selectedSourceDestination = selectedSale?.destino ?? selectedTraslado?.almacenDestino?.nombre ?? null;
 
   return (
     <div className="space-y-6">
@@ -267,15 +352,24 @@ export default function PreDespacho() {
       </div>
       <NuevoDespachoWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
       <CargoWizard
-        key={`cargo-${cargoWizardSaleId ?? "none"}`}
+        key={`cargo-${cargoWizardTrasladoId ? `traslado-${cargoWizardTrasladoId}` : `venta-${cargoWizardSaleId ?? "none"}`}`}
         open={cargoWizardOpen}
-        onClose={() => { setCargoWizardOpen(false); setCargoWizardSaleId(undefined); setCargoWizardSale(null); }}
+        onClose={() => {
+          setCargoWizardOpen(false);
+          setCargoWizardSaleId(undefined);
+          setCargoWizardSale(null);
+          setCargoWizardTrasladoId(undefined);
+          setCargoWizardTraslado(null);
+        }}
         initialSaleId={cargoWizardSaleId}
         initialSale={cargoWizardSale}
+        initialTrasladoId={cargoWizardTrasladoId}
+        initialTraslado={cargoWizardTraslado ?? undefined}
         onVehicleAssigned={(saleId, vehicleId) => {
           const sale = cargoWizardSale ?? sales?.find(s => s.id === saleId);
           if (sale) handleSelectSale(sale, vehicleId);
         }}
+        onTrasladoVehicleAssigned={(traslado, vehicleId) => handleSelectTraslado(traslado, vehicleId)}
       />
 
       <OdooSyncCard />
@@ -368,10 +462,36 @@ export default function PreDespacho() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedSale} onOpenChange={(open) => !open && setSelectedSale(null)}>
+      <PendingTrasladosCard
+        activeDispatchTrasladoIds={activeDispatchTrasladoIds}
+        isLoadingDispatches={isLoadingDispatches}
+        dispatchesError={dispatchesError instanceof Error ? dispatchesError : null}
+        onPlan={(traslado) => {
+          setCargoWizardSaleId(undefined);
+          setCargoWizardSale(null);
+          setCargoWizardTrasladoId(traslado.id);
+          setCargoWizardTraslado(traslado);
+          setCargoWizardOpen(true);
+        }}
+        onCreateDispatch={handleSelectTraslado}
+      />
+
+      <Dialog
+        open={!!selectedSale || !!selectedTraslado}
+        onOpenChange={(open) => {
+          if (!open) {
+            setSelectedSale(null);
+            setSelectedTraslado(null);
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[700px] max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Configurar Despacho — Orden #{selectedSale?.id}</DialogTitle>
+            <DialogTitle>
+              {selectedTraslado
+                ? `Configurar Despacho — Traslado ${selectedTraslado.referencia || `#${selectedTraslado.id}`}`
+                : `Configurar Despacho — Orden #${selectedSale?.id}`}
+            </DialogTitle>
           </DialogHeader>
 
           {selectedSale && (
@@ -380,6 +500,19 @@ export default function PreDespacho() {
               <div><span className="font-semibold">Destino:</span> {selectedSale.destino}</div>
               <div><span className="font-semibold">Peso:</span> {formatCarga(selectedSale.pesoTotal, "kg")}</div>
               <div><span className="font-semibold">Volumen:</span> {formatCarga(selectedSale.volumenTotal, "m³")}</div>
+            </div>
+          )}
+          {selectedTraslado && (
+            <div className="bg-muted p-3 rounded-md flex gap-4 text-sm flex-wrap" data-testid="selected-traslado-dispatch-summary">
+              <div><span className="font-semibold">Referencia:</span> {selectedTraslado.referencia || `#${selectedTraslado.id}`}</div>
+              <div><span className="font-semibold">Origen:</span> {selectedTraslado.almacenOrigen?.nombre ?? "sin dato"}</div>
+              <div><span className="font-semibold">Destino:</span> {selectedTraslado.almacenDestino?.nombre ?? "sin dato"}</div>
+              <div>
+                <span className="font-semibold">Peso:</span>{" "}
+                {selectedTraslado.pesoEfectivoKg == null ? "sin dato en Odoo" : `${selectedTraslado.pesoEfectivoKg} kg`}
+                {selectedTraslado.origenPeso === "estimado" ? " (estimado)" : ""}
+              </div>
+              <div><span className="font-semibold">Volumen:</span> {selectedTraslado.volumenCalculadoM3 == null ? "sin dato en Odoo" : `${selectedTraslado.volumenCalculadoM3} m³`}</div>
             </div>
           )}
 
@@ -476,6 +609,20 @@ export default function PreDespacho() {
                 )} />
               </div>
 
+              {selectedVehicleExceedsTraslado && selectedVehicle && selectedTraslado && (
+                <div
+                  className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                  data-testid="warning-traslado-vehicle-capacity"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <span>
+                    <strong>Vehículo incompatible:</strong> {selectedVehicle.modelo} admite{" "}
+                    {selectedVehicle.capacidadPeso} kg / {selectedVehicle.capacidadVolumen} m³,
+                    menos que alguna de las medidas conocidas del traslado. Selecciona otro vehículo.
+                  </span>
+                </div>
+              )}
+
               <div className="grid grid-cols-2 gap-4">
                 <FormField control={form.control} name="choferId" render={({ field }) => (
                   <FormItem>
@@ -532,9 +679,9 @@ export default function PreDespacho() {
               {/* Alerta de conflicto de vehículo */}
               {vehicleConflict && (() => {
                 const conflictDestino = vehicleConflict.destino ?? vehicleConflict.ruta ?? null;
-                const sameDestino = conflictDestino && selectedSale?.destino &&
-                  (conflictDestino.toLowerCase().includes(selectedSale.destino.toLowerCase()) ||
-                   selectedSale.destino.toLowerCase().includes(conflictDestino.toLowerCase()));
+                const sameDestino = conflictDestino && selectedSourceDestination &&
+                  (conflictDestino.toLowerCase().includes(selectedSourceDestination.toLowerCase()) ||
+                   selectedSourceDestination.toLowerCase().includes(conflictDestino.toLowerCase()));
                 return (
                   <div className="rounded-lg border border-destructive/40 bg-destructive/5 overflow-hidden text-sm">
                     {/* Cabecera */}
@@ -661,7 +808,13 @@ export default function PreDespacho() {
               </div>
 
               <div className="flex justify-end pt-2">
-                <Button data-testid="button-approve-dispatch" type="submit" size="lg" className="w-full" disabled={createDispatchMutation.isPending || !!vehicleConflict}>
+                <Button
+                  data-testid="button-approve-dispatch"
+                  type="submit"
+                  size="lg"
+                  className="w-full"
+                  disabled={createDispatchMutation.isPending || !!vehicleConflict || selectedVehicleExceedsTraslado}
+                >
                   {createDispatchMutation.isPending ? "Procesando..." : "Aprobar Despacho"}
                 </Button>
               </div>

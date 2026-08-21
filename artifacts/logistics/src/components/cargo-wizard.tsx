@@ -5,8 +5,10 @@ import {
   useListSaleItems, getListSaleItemsQueryKey,
   useListProducts, getListProductsQueryKey,
   useLinkSaleItemProduct, getListUnlinkedSaleItemsQueryKey,
+  useGetTraslado, getGetTrasladoQueryKey,
+  useUpdateTraslado, getListTrasladosQueryKey,
 } from "@workspace/api-client-react";
-import type { Vehicle, Sale } from "@workspace/api-client-react";
+import type { Vehicle, Sale, TrasladoSummary } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -20,7 +22,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import {
   CheckCircle2, ChevronRight, ChevronLeft, Package, ClipboardList, Truck,
-  Check, Unlink, Search, Loader2, AlertTriangle,
+  Check, Unlink, Search, Loader2, AlertTriangle, ArrowRight,
 } from "lucide-react";
 
 interface Props {
@@ -28,7 +30,10 @@ interface Props {
   onClose: () => void;
   initialSaleId?: number;
   initialSale?: Sale;
+  initialTrasladoId?: number;
+  initialTraslado?: TrasladoSummary;
   onVehicleAssigned?: (saleId: number, vehicleId: number) => void;
+  onTrasladoVehicleAssigned?: (traslado: TrasladoSummary, vehicleId: number) => void;
 }
 
 const STEPS = [
@@ -52,19 +57,44 @@ function utilLabel(pct: number) {
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
 import { classifyFleet } from "@/lib/fleet";
 
-export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehicleAssigned }: Props) {
+export function CargoWizard({
+  open,
+  onClose,
+  initialSaleId,
+  initialSale,
+  initialTrasladoId,
+  initialTraslado,
+  onVehicleAssigned,
+  onTrasladoVehicleAssigned,
+}: Props) {
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const trasladoMode = initialTrasladoId != null;
 
-  const [step, setStep] = useState(initialSaleId ? 2 : 1);
+  const [step, setStep] = useState(trasladoMode ? 3 : initialSaleId ? 2 : 1);
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(initialSaleId ?? null);
+  const [editingPeso, setEditingPeso] = useState(false);
+  const [pesoInput, setPesoInput] = useState("");
+  const [pesoError, setPesoError] = useState<string | null>(null);
 
   const { data: salesData, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
-    { query: { queryKey: getListSalesQueryKey({ status: "pendiente" }), enabled: !initialSaleId } }
+    { query: { queryKey: getListSalesQueryKey({ status: "pendiente" }), enabled: !initialSaleId && !trasladoMode } }
   );
 
   const selectedSale: Sale | null = initialSale ?? salesData?.find(s => s.id === selectedSaleId) ?? null;
+  const {
+    data: trasladoDetail,
+    isLoading: isLoadingTraslado,
+    error: trasladoError,
+  } = useGetTraslado(initialTrasladoId ?? 0, {
+    query: {
+      queryKey: getGetTrasladoQueryKey(initialTrasladoId ?? 0),
+      enabled: trasladoMode && open,
+    },
+  });
+  const selectedTraslado: TrasladoSummary | null = trasladoDetail ?? initialTraslado ?? null;
+  const updateTraslado = useUpdateTraslado();
 
   const { data: vehicles } = useListVehicles({
     query: { queryKey: getListVehiclesQueryKey() },
@@ -75,7 +105,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
     {
       query: {
         queryKey: getListSaleItemsQueryKey(selectedSaleId ?? 0),
-        enabled: !!selectedSaleId,
+        enabled: !!selectedSaleId && !trasladoMode,
       },
     }
   );
@@ -121,9 +151,14 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
 
   const pendingSales = salesData?.filter(s => s.estado === "pendiente") ?? [];
 
-  // Totales de la venta: SIEMPRE los de Odoo (null = sin dato, nunca 0)
-  const totalPeso = sinDatoCarga(selectedSale?.pesoTotal) ? null : selectedSale!.pesoTotal!;
-  const totalVol = sinDatoCarga(selectedSale?.volumenTotal) ? null : selectedSale!.volumenTotal!;
+  // Ventas conservan sus reglas defensivas; traslados usan null estrictamente
+  // como ausencia y no reinterpretan el cero.
+  const totalPeso = trasladoMode
+    ? selectedTraslado?.pesoEfectivoKg ?? null
+    : sinDatoCarga(selectedSale?.pesoTotal) ? null : selectedSale!.pesoTotal!;
+  const totalVol = trasladoMode
+    ? selectedTraslado?.volumenCalculadoM3 ?? null
+    : sinDatoCarga(selectedSale?.volumenTotal) ? null : selectedSale!.volumenTotal!;
   const sinPeso = totalPeso == null;
   const sinVolumen = totalVol == null;
 
@@ -154,16 +189,70 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
   }));
 
   const sinDatos = sinPeso && sinVolumen;
+  const pesoEstimadoNumerico = Number(pesoInput.trim());
+  const pesoEstimadoValido = pesoInput.trim() !== ""
+    && Number.isFinite(pesoEstimadoNumerico)
+    && pesoEstimadoNumerico > 0;
+
+  function bustTrasladoCache() {
+    if (!initialTrasladoId) return;
+    queryClient.removeQueries({ queryKey: getGetTrasladoQueryKey(initialTrasladoId) });
+    queryClient.invalidateQueries({ queryKey: getGetTrasladoQueryKey(initialTrasladoId) });
+    queryClient.removeQueries({ queryKey: getListTrasladosQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListTrasladosQueryKey() });
+  }
+
+  function beginPesoEdit() {
+    setPesoInput(trasladoDetail?.pesoEstimadoKg?.toString() ?? "");
+    setPesoError(null);
+    setEditingPeso(true);
+  }
+
+  function savePesoEstimado(value: number | null) {
+    if (!initialTrasladoId) return;
+    updateTraslado.mutate(
+      { id: initialTrasladoId, data: { pesoEstimadoKg: value } },
+      {
+        onSuccess: () => {
+          bustTrasladoCache();
+          setEditingPeso(false);
+          setPesoError(null);
+          toast({ title: value === null ? "Estimación eliminada" : "Peso estimado guardado" });
+        },
+        onError: (error) => {
+          const message = error instanceof Error ? error.message : "No se pudo guardar la estimación.";
+          setPesoError(message);
+          toast({
+            title: "No se pudo guardar el peso estimado",
+            description: message,
+            variant: "destructive",
+          });
+        },
+      },
+    );
+  }
+
+  function submitPesoEstimado() {
+    if (!pesoEstimadoValido) {
+      setPesoError("Ingresa un peso mayor que cero.");
+      return;
+    }
+    savePesoEstimado(pesoEstimadoNumerico);
+  }
 
   return (
     <Dialog open={open} onOpenChange={o => !o && handleClose()}>
       <DialogContent className="sm:max-w-[740px] grid-cols-[minmax(0,1fr)] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-lg">Planificar Carga</DialogTitle>
+          <DialogTitle className="text-lg">
+            {trasladoMode
+              ? `Planificar Carga — Traslado ${selectedTraslado?.referencia || `#${initialTrasladoId}`}`
+              : "Planificar Carga"}
+          </DialogTitle>
         </DialogHeader>
 
         {/* Step indicator */}
-        <div className="flex items-center gap-0 mb-4">
+        {!trasladoMode && <div className="flex items-center gap-0 mb-4">
           {STEPS.map((s, i) => {
             const idx = i + 1;
             const done = step > idx;
@@ -189,7 +278,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
               </React.Fragment>
             );
           })}
-        </div>
+        </div>}
 
         {/* ── STEP 1: Select sale ─────────────────────────────────────────── */}
         {step === 1 && (
@@ -413,7 +502,130 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
         {/* ── STEP 3: Fleet compatibility ─────────────────────────────────── */}
         {step === 3 && (
           <div className="space-y-4">
-            {(sinPeso || sinVolumen) && !sinDatos && (
+            {trasladoMode && selectedTraslado && (
+              <div className="space-y-3 rounded-lg border bg-muted/30 p-4" data-testid="traslado-cargo-summary">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="font-semibold">{selectedTraslado.referencia || `#${selectedTraslado.id}`}</span>
+                  {selectedTraslado.cruzaPlaza && (
+                    <Badge variant="outline" className="border-purple-500/50 bg-purple-500/10 text-purple-600 dark:text-purple-400">
+                      Cruza Plaza
+                    </Badge>
+                  )}
+                  {isLoadingTraslado && (
+                    <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                      <Loader2 className="h-3 w-3 animate-spin" /> Actualizando datos…
+                    </span>
+                  )}
+                </div>
+                <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 text-sm">
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase text-muted-foreground">Origen</p>
+                    <p className="font-medium">{selectedTraslado.almacenOrigen?.nombre ?? "sin dato"}</p>
+                  </div>
+                  <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                  <div>
+                    <p className="text-[10px] font-semibold uppercase text-muted-foreground">Destino</p>
+                    <p className="font-medium">{selectedTraslado.almacenDestino?.nombre ?? "sin dato"}</p>
+                  </div>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-md border bg-background px-3 py-2">
+                    <p className="text-xs text-muted-foreground">Peso efectivo</p>
+                    <div className="flex flex-wrap items-center gap-2 font-semibold">
+                      {totalPeso == null ? "sin dato en Odoo" : `${totalPeso} kg`}
+                      {selectedTraslado.origenPeso === "estimado" && (
+                        <Badge variant="secondary" className="text-[10px]">Estimado</Badge>
+                      )}
+                    </div>
+                    {selectedTraslado.pesoCalculadoKg == null && !editingPeso && (
+                      <Button
+                        type="button"
+                        variant="link"
+                        size="sm"
+                        className="h-auto min-h-0 p-0 text-xs"
+                        onClick={beginPesoEdit}
+                        data-testid="button-wizard-editar-peso-estimado"
+                      >
+                        {selectedTraslado.origenPeso === "estimado" ? "Editar estimación" : "Agregar estimación"}
+                      </Button>
+                    )}
+                    {selectedTraslado.pesoCalculadoKg == null && editingPeso && (
+                      <div className="mt-2 space-y-2">
+                        <div className="flex gap-2">
+                          <Input
+                            type="number"
+                            min="0.01"
+                            step="any"
+                            className="h-8"
+                            placeholder="Peso en kg"
+                            value={pesoInput}
+                            onChange={(event) => setPesoInput(event.target.value)}
+                            data-testid="input-wizard-peso-estimado"
+                          />
+                          <Button
+                            type="button"
+                            size="sm"
+                            className="h-8"
+                            onClick={submitPesoEstimado}
+                            disabled={updateTraslado.isPending || !pesoEstimadoValido}
+                            data-testid="button-wizard-guardar-peso-estimado"
+                          >
+                            {updateTraslado.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
+                            Guardar
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            className="h-8"
+                            onClick={() => setEditingPeso(false)}
+                            disabled={updateTraslado.isPending}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                        {selectedTraslado.origenPeso === "estimado" && (
+                          <Button
+                            type="button"
+                            variant="link"
+                            size="sm"
+                            className="h-auto min-h-0 p-0 text-xs text-muted-foreground"
+                            onClick={() => savePesoEstimado(null)}
+                            disabled={updateTraslado.isPending}
+                          >
+                            Eliminar estimación
+                          </Button>
+                        )}
+                        {pesoError && (
+                          <p className="text-xs text-destructive" data-testid="error-wizard-peso-estimado">
+                            {pesoError}
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-md border bg-background px-3 py-2">
+                    <p className="text-xs text-muted-foreground">Volumen calculado</p>
+                    <p className="font-semibold">{totalVol == null ? "sin dato en Odoo" : `${totalVol} m³`}</p>
+                  </div>
+                </div>
+                {trasladoError && (
+                  <p className="text-xs text-destructive">
+                    {trasladoError instanceof Error ? trasladoError.message : "No se pudo actualizar el traslado."}
+                  </p>
+                )}
+              </div>
+            )}
+            {trasladoMode && (sinPeso || sinVolumen) && (
+              <div className="flex items-start gap-2 text-xs bg-yellow-500/10 border border-yellow-500/40 rounded-md px-3 py-2" data-testid="warning-wizard-traslado-incompleto">
+                <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                <span>
+                  <strong>Dato faltante:</strong> este traslado no tiene {sinPeso && sinVolumen ? "peso ni volumen" : sinPeso ? "peso" : "volumen"} disponible.
+                  La planificación puede continuar y la compatibilidad considera solamente las medidas conocidas.
+                </span>
+              </div>
+            )}
+            {!trasladoMode && (sinPeso || sinVolumen) && !sinDatos && (
               <div className="flex items-start gap-2 text-xs bg-yellow-500/10 border border-yellow-500/40 rounded-md px-3 py-2" data-testid="warning-wizard-incompleta">
                 <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
                 <span>
@@ -449,12 +661,16 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                             </Badge>
                           )}
                         </div>
-                        {canFit && onVehicleAssigned && selectedSaleId && (
+                        {canFit && ((onVehicleAssigned && selectedSaleId) || (onTrasladoVehicleAssigned && selectedTraslado)) && (
                           <Button
                             size="sm"
                             className="h-7 text-xs gap-1 shrink-0"
                             onClick={() => {
-                              onVehicleAssigned(selectedSaleId, vehicle.id);
+                              if (trasladoMode && selectedTraslado && onTrasladoVehicleAssigned) {
+                                onTrasladoVehicleAssigned(selectedTraslado, vehicle.id);
+                              } else if (selectedSaleId && onVehicleAssigned) {
+                                onVehicleAssigned(selectedSaleId, vehicle.id);
+                              }
                               handleClose();
                             }}
                           >
@@ -467,7 +683,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">
-                            Peso: {sinPeso ? "sin dato en Odoo — no considerado" : `${totalPeso!.toFixed(1)} / ${vehicle.capacidadPeso} kg`}
+                            Peso: {sinPeso ? `sin dato${trasladoMode ? "" : " en Odoo"} — no considerado` : `${totalPeso!.toFixed(1)} / ${vehicle.capacidadPeso} kg${trasladoMode && selectedTraslado?.origenPeso === "estimado" ? " (estimado)" : ""}`}
                           </span>
                           {!sinPeso && <span className={`font-semibold ${utilLabel(weightPct)}`}>{weightPct.toFixed(0)}%</span>}
                         </div>
@@ -483,7 +699,7 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">
-                            Volumen: {sinVolumen ? "sin dato en Odoo — no considerado" : `${totalVol!.toFixed(4)} / ${vehicle.capacidadVolumen} m³`}
+                            Volumen: {sinVolumen ? `sin dato${trasladoMode ? "" : " en Odoo"} — no considerado` : `${totalVol!.toFixed(4)} / ${vehicle.capacidadVolumen} m³`}
                           </span>
                           {!sinVolumen && <span className={`font-semibold ${utilLabel(volPct)}`}>{volPct.toFixed(0)}%</span>}
                         </div>
@@ -501,9 +717,11 @@ export function CargoWizard({ open, onClose, initialSaleId, initialSale, onVehic
             )}
 
             <div className="flex justify-between pt-2">
-              <Button variant="outline" onClick={() => setStep(2)} className="gap-1">
-                <ChevronLeft className="w-4 h-4" /> Ver Partidas
-              </Button>
+              {!trasladoMode && (
+                <Button variant="outline" onClick={() => setStep(2)} className="gap-1">
+                  <ChevronLeft className="w-4 h-4" /> Ver Partidas
+                </Button>
+              )}
               <Button variant="ghost" onClick={handleClose}>
                 Cerrar
               </Button>
