@@ -1,0 +1,214 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas y
+traslados internos desde Odoo, planifica despachos (vehículo + chofer + ruta),
+calcula costos, y tiene una app móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui
+  artifacts/chofer/     App móvil Expo
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` y `.agents/memory/`. CRÍTICOS para esta tarea:
+  - .agents/memory/measurement-domain-semantics.md  (ventas y traslados NO
+    interpretan el cero igual — leer antes de tocar cualquier helper de medidas)
+  - .agents/memory/db-migrations-boot.md
+  - .agents/memory/sales-totales-null.md
+  - .agents/memory/api-server-restart-after-codegen.md
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: cambios de API en lib/api-spec/openapi.yaml + luego
+     `pnpm --filter @workspace/api-spec run codegen`. Los `generated/` NUNCA se
+     editan a mano. El título del spec debe seguir siendo "Api".
+  2. Schema = archivo + migración numerada e idempotente en lib/db/src/migrations/,
+     registrada en su index.ts.
+     PLANTILLA: copia el estilo de `0006_almacenes.ts` o `0009_product_measurements.ts`.
+     NO copies `0008_traslados.ts`: quedó sobre-blindada con manejo manual de
+     secuencias y deduplicación por ctid. Funciona, pero no es el patrón.
+  3. Routers nuevos van DESPUÉS de requireAuth en src/routes/index.ts.
+  4. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  5. null = "sin dato". NUNCA representar ausencia de dato con 0.
+
+════════ PRECONDICIÓN: VERIFICA LOS DATOS PRIMERO ════════
+
+Este entorno de tarea puede arrancar con su propia base de datos SIN los
+traslados sincronizados (ya pasó antes). Antes de escribir código:
+
+  SELECT count(*) FROM traslados;
+
+SI DA 0, corre en este mismo entorno, en este orden:
+  POST /api/odoo/sync-deliveries
+  POST /api/odoo/backfill-traslados
+Las rutas están protegidas por Clerk — un curl directo dará 401. Sigue el
+patrón de artifacts/api-server/scripts/run-verify-traslados.mjs (bundle esbuild
++ ejecución standalone), que ya existe en el repo para esto.
+
+Deberías terminar con 144 traslados. Verifica estos tres casos antes de seguir:
+  Urbin/INT/00001 → origen URB, destino LEC
+  Urbin/INT/00003 → origen CCS, destino LEC (NO Urbina, aunque el nombre lo diga)
+  Urbin/INT/00014 → origen == destino (URB → URB)
+
+NO marques esta tarea como completa si no llegaste a implementar. Si te
+bloqueas acá, deja la tarea en progreso y reporta el bloqueo — nunca la cierres
+sin código.
+
+════════ ESTADO ACTUAL Y HACIA DÓNDE VAMOS ════════
+
+Ya funciona: el catálogo de almacenes, el sync de traslados desde Odoo, y el
+módulo Traslados de solo lectura (/traslados) con su panel de detalle.
+
+Falta que los traslados sean PLANIFICABLES: que se les pueda asignar camión,
+chofer y ruta como a una venta. Esta tarea prepara el terreno para eso.
+NO construye todavía la pantalla de planificación (eso es la tarea siguiente).
+
+Datos reales verificados sobre los 144 traslados:
+  Peso calculable desde Odoo:    58 de 144 (40%)
+  Volumen calculable desde Odoo: 23 de 144 (16%)
+
+CONSECUENCIA: 86 traslados NO tienen peso, y sin peso no hay recomendación de
+vehículo posible. Por eso existe `traslados.pesoEstimadoKg` en el schema desde
+la migración 0008, sin usar hasta ahora. Esta tarea la pone en uso.
+
+════════ TAREA ════════
+
+1. DESPACHOS POLIMÓRFICOS (schema + migración)
+
+   Hoy `dispatches.ventaId` es NOT NULL: todo despacho existe porque hay una
+   venta. Un traslado no tiene venta.
+
+   En lib/db/src/schema/dispatches.ts:
+     - `ventaId` pasa a NULLABLE
+     - nueva columna `tipo` text NOT NULL DEFAULT 'venta'  -- 'venta' | 'traslado'
+     - nueva columna `trasladoId` integer NULL REFERENCES traslados(id)
+
+   Migración `lib/db/src/migrations/0010_dispatches_polimorficos.ts`,
+   idempotente, registrada en su index.ts:
+     - ALTER COLUMN venta_id DROP NOT NULL
+     - ADD COLUMN IF NOT EXISTS tipo / traslado_id (+ FK con guarda)
+     - UPDATE dispatches SET tipo='venta' WHERE tipo IS NULL, y recién
+       después el SET NOT NULL (mismo patrón que usó 0008 con deliveries.tipo)
+     - CHECK constraint con guarda: exactamente uno de venta_id / traslado_id
+       poblado, y coherente con tipo:
+         (tipo='venta'    AND venta_id IS NOT NULL AND traslado_id IS NULL)
+      OR (tipo='traslado' AND traslado_id IS NOT NULL AND venta_id IS NULL)
+     - índice en traslado_id
+
+2. AUDITAR TODA LECTURA DE dispatches.ventaId
+
+   Volver ventaId nullable rompe el tipado en varios sitios. Corre este grep y
+   revisa CADA resultado:
+
+     grep -rn "dispatchesTable.ventaId\|dispatch\.ventaId\|d\.ventaId" \
+       --include=*.ts artifacts/api-server/src
+
+   Los que ya identifiqué y qué hacer con cada uno:
+
+   a) services/saleEstadoSync.ts línea ~59 — `reconcileSaleEstados()` hace
+      `byVenta.set(d.ventaId, list)`. Con ventaId null, `null` se volvería una
+      clave del Map y corrompería la reconciliación.
+      → Agregar `eq(dispatchesTable.tipo, "venta")` al WHERE de esa consulta.
+      Filtrar por `tipo`, no por `ventaId is not null`: dice POR QUÉ se excluyen.
+
+   b) routes/dispatches.ts línea ~115 y ~138 — `buildDispatchRow` y
+      `buildDispatchDetail` hacen `eq(salesTable.id, d.ventaId)`.
+      → Cuando tipo='traslado', no buscar venta: resolver los datos de la carga
+      desde `traslados` + `deliveries` (referencia, origen, destino) en su lugar.
+
+   c) routes/dispatches.ts POST /dispatches (línea ~162) — hoy exige que la
+      venta exista y compara capacidad contra sale.pesoTotal/volumenTotal.
+      → Aceptar también `{ tipo: 'traslado', trasladoId }`. Validar que el
+      traslado existe. La comparación de capacidad usa el PESO EFECTIVO del
+      traslado (ver punto 4), no los totales de la venta.
+      → Mantener intacta la regla actual: null = sin dato NO bloquea el
+      despacho (no se puede comparar lo que no se conoce).
+
+   d) routes/dispatches.ts POST y routes/driver.ts línea ~175 — llaman
+      `syncSaleEstadoFromDispatch(dispatch.ventaId)`.
+      → Llamarla SOLO cuando tipo='venta'. Un traslado nunca debe tocar
+      sales.estado.
+
+   e) services/deliverySync.ts líneas ~285-298 — construye dispatchBySaleId.
+      → Agregar el filtro `tipo='venta'` por la misma razón que (a).
+
+3. PATCH /traslados/{id} — ÚNICOS CAMPOS EDITABLES
+
+   Nuevo endpoint que permite editar SOLO `pesoEstimadoKg` y `notas`.
+   Todo lo demás del traslado viene de Odoo y es de solo lectura.
+
+   - `pesoEstimadoKg` acepta un número positivo o null (para borrar la
+     estimación). Rechazar 0 y negativos con 400: un 0 no es "sin dato".
+   - Definir primero en openapi.yaml, después codegen, router ya existente
+     (src/routes/traslados.ts).
+
+4. CONCEPTO "PESO EFECTIVO" EN EL CONTRATO
+
+   Agregar a TrasladoSummary y TrasladoDetail dos campos derivados:
+
+     pesoEfectivoKg   number | null   -- pesoCalculadoKg ?? pesoEstimadoKg
+     origenPeso       "odoo" | "estimado" | null
+
+   Reglas:
+     - Si pesoCalculadoKg tiene valor → pesoEfectivoKg = ese, origenPeso='odoo'
+     - Si no, y pesoEstimadoKg tiene valor → origenPeso='estimado'
+     - Si ninguno → ambos null
+   El dato de Odoo SIEMPRE gana sobre la estimación. Nunca se mezclan ni se
+   suman.
+
+   Exponer también `pesoEstimadoKg` crudo en el detalle (para poder editarlo).
+
+   ⚠ NO toques lib/fleet.ts ni ningún helper compartido de medidas. Lee
+   .agents/memory/measurement-domain-semantics.md: ventas tratan los totales
+   no positivos como ausencia por seguridad de capacidad, traslados reservan
+   null. Cambiar el helper compartido rompería Ventas, Pre-Despacho y los
+   wizards en silencio. La lógica de peso efectivo vive en el dominio de
+   traslados.
+
+5. UI: EDITAR EL PESO ESTIMADO DESDE EL DETALLE
+
+   En artifacts/logistics/src/components/traslado-detail-sheet.tsx, donde hoy
+   se muestra "Peso: sin dato en Odoo":
+
+   - Si origenPeso='odoo': mostrar el valor como hoy, sin permitir edición.
+     El dato de Odoo no se sobrescribe a mano.
+   - Si origenPeso='estimado': mostrar el valor con una marca visual clara de
+     que es una estimación (no un badge agresivo — algo del nivel de la
+     itálica gris que ya usas para "sin dato en Odoo"), y permitir editarlo.
+   - Si origenPeso=null: mostrar "sin dato en Odoo" + una acción discreta para
+     estimar el peso.
+
+   La estimación NUNCA debe poder confundirse visualmente con el dato real de
+   Odoo. Ese es el punto entero de separarlos.
+
+   Tras guardar, invalidar la query con el patrón de
+   .agents/memory/cache-bust-pattern.md (removeQueries + invalidateQueries).
+
+════════ NO HAGAS ════════
+- NO toques Pre-Despacho, los wizards, ni la pantalla de Despachos. La
+  planificación de traslados es la tarea SIGUIENTE.
+- NO toques lib/fleet.ts ni la Calculadora de Carga.
+- NO toques la app chofer (artifacts/chofer).
+- NO modifiques deliverySync.ts más allá del filtro `tipo='venta'` del punto 2e.
+- NO permitas editar ningún campo del traslado que venga de Odoo.
+- NO edites directorios `generated/`.
+
+════════ VERIFICACIÓN ════════
+- Reiniciar el api-server: sin SCHEMA MISMATCH. `pnpm run typecheck` limpio.
+- Migraciones idempotentes: correrlas dos veces seguidas sin fallo.
+- `pnpm --filter @workspace/e2e run test:api` en verde, incluidos los tests
+  existentes de traslados y de despachos SIN modificarlos.
+- SQL: intentar insertar a mano un dispatch con venta_id Y traslado_id ambos
+  poblados debe fallar por el CHECK. Lo mismo con ambos en null.
+- Los despachos existentes siguen funcionando: GET /dispatches devuelve las
+  mismas filas que antes, todas con tipo='venta'.
+- PATCH /traslados/{id} con pesoEstimadoKg=0 devuelve 400.
+- PATCH /traslados/{id} con pesoEstimadoKg=null borra la estimación.
+- Un traslado con peso de Odoo devuelve origenPeso='odoo' y NO permite editar.
+- Un traslado sin peso al que se le estima 3500 devuelve pesoEfectivoKg=3500
+  y origenPeso='estimado'.
+- Reportar cuántos de los 144 traslados quedan en cada categoría de origenPeso.
