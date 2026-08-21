@@ -1,0 +1,108 @@
+════════ TAREA ════════
+
+Diagnóstico único, no una feature. Necesito el reporte completo del sync de
+traslados corriendo la lógica directamente (no por HTTP, porque las rutas
+están protegidas por Clerk — ver .agents/memory/run-server-code-standalone.md).
+Sigue exactamente el patrón de artifacts/api-server/scripts/run-product-sync.mjs
++ verify-product-sync.ts.
+
+1. Crea artifacts/api-server/scripts/traslados-report.ts:
+
+import { eq, inArray } from "drizzle-orm";
+import {
+  db,
+  almacenesTable,
+  deliveriesTable,
+  trasladosTable,
+} from "@workspace/db";
+import { syncOdooOrders } from "../src/services/odooSync";
+import { backfillSaleItemProducts } from "../src/services/productBackfill";
+import { backfillDestinos } from "../src/services/destinoBackfill";
+import {
+  syncDeliveries,
+  backfillInternalTransfers,
+} from "../src/services/deliverySync";
+import { recomputeDeliveryDerivedState } from "../src/services/deliveryEstado";
+
+async function step<T>(label: string, fn: () => Promise<T>): Promise<T> {
+  console.log(`\n--- ${label} ---`);
+  const result = await fn();
+  console.log(JSON.stringify(result, null, 2));
+  return result;
+}
+
+async function main() {
+  await step("sync (ventas)", () => syncOdooOrders());
+  await step("backfill-products", () => backfillSaleItemProducts());
+  await step("backfill-destinos", () => backfillDestinos());
+  await step("sync-deliveries", () => syncDeliveries());
+  await step("backfill-deliveries", () => recomputeDeliveryDerivedState());
+  await step("backfill-traslados", () => backfillInternalTransfers());
+
+  console.log("\n--- SQL: deliveries agrupado por tipo ---");
+  const todas = await db.select({ tipo: deliveriesTable.tipo }).from(deliveriesTable);
+  const porTipo = todas.reduce<Record<string, number>>((acc, r) => {
+    const key = r.tipo ?? "null";
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+  console.log(porTipo);
+
+  console.log("\n--- SQL: traslados con almacén sin resolver ---");
+  const traslados = await db.select().from(trasladosTable);
+  const sinResolver = traslados.filter(
+    (t) => t.almacenOrigenId === null || t.almacenDestinoId === null,
+  );
+  console.log(`${sinResolver.length} de ${traslados.length} traslados sin almacén resuelto`);
+  if (sinResolver.length > 0) console.log(sinResolver);
+
+  console.log("\n--- Casos de control: Urbin/INT/00001, 00003, 00014 ---");
+  const almacenes = await db.select().from(almacenesTable);
+  const nombrePorId = new Map(almacenes.map((a) => [a.id, a.codigo]));
+  const casos = await db
+    .select({
+      nombre: deliveriesTable.nombre,
+      estadoOdoo: deliveriesTable.estado,
+      estadoLogistico: trasladosTable.estadoLogistico,
+      origenId: trasladosTable.almacenOrigenId,
+      destinoId: trasladosTable.almacenDestinoId,
+    })
+    .from(deliveriesTable)
+    .leftJoin(trasladosTable, eq(trasladosTable.deliveryId, deliveriesTable.id))
+    .where(
+      inArray(deliveriesTable.nombre, [
+        "Urbin/INT/00001",
+        "Urbin/INT/00003",
+        "Urbin/INT/00014",
+      ]),
+    );
+  for (const c of casos) {
+    console.log({
+      ...c,
+      origen: c.origenId != null ? nombrePorId.get(c.origenId) : null,
+      destino: c.destinoId != null ? nombrePorId.get(c.destinoId) : null,
+    });
+  }
+
+  process.exit(0);
+}
+
+main().catch((e) => {
+  console.error(e);
+  process.exit(1);
+});
+
+2. Crea artifacts/api-server/scripts/run-traslados-report.mjs copiando
+   EXACTAMENTE run-product-sync.mjs, cambiando solo el nombre del entry point
+   de "verify-product-sync.ts" a "traslados-report.ts" y el nombre del archivo
+   de salida de "verify-product-sync.mjs" a "traslados-report.mjs" (dos
+   lugares). No cambies nada del setup de esbuild ni del plugin de pino.
+
+3. Ejecútalo: node artifacts/api-server/scripts/run-traslados-report.mjs
+
+4. Pégame la salida COMPLETA de la consola, sin resumir ni recortar.
+
+════════ NO HAGAS ════════
+- NO commitees estos dos archivos todavía si el resultado muestra algún
+  problema — primero repórtame la salida.
+- NO modifiques deliverySync.ts, odooSync.ts ni ningún servicio.
