@@ -1,0 +1,286 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet: gestión logística de flota. Monorepo pnpm, Node 24, TS 5.9.
+
+  lib/api-spec/         openapi.yaml — contrato + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui + React Query
+  artifacts/chofer/     App móvil Expo (expo-router)
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` y `.agents/memory/`. Para esta tarea son críticos:
+  - .agents/memory/hook-call-convention.md   (los hooks generados exigen pasar
+                                              queryKey: useHook(id, { query: { queryKey: getXQueryKey(id) } }))
+  - .agents/memory/chofer-expo-quirks.md
+  - .agents/memory/cache-bust-pattern.md
+  - .agents/memory/api-server-restart-after-codegen.md
+  - .agents/memory/visual-verify-behind-auth.md
+
+REGLAS DEL REPO:
+  1. Contrato primero: openapi.yaml + `pnpm --filter @workspace/api-spec run codegen`.
+     `generated/` NUNCA se edita a mano.
+  2. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  3. null = "sin dato". NUNCA 0 ni "".
+
+════════ REQUISITO PREVIO ════════
+
+La tarea "Registrar actas de llegada por despacho" ya dejó:
+  - tabla `actas_llegada` (una por despacho, `despachoId` UNIQUE)
+  - `services/actasLlegada.ts`: `registrarLlegada`, `confirmarRecepcion`,
+    `getActaPorDespacho`, `parseFechaLlegada`, `serializeActaLlegada`,
+    `HORAS_RECEPCION_SIN_VALIDAR = 24`
+  - `services/currentPerson.ts`: `resolveCurrentPerson(req)`
+  - `routes/actas.ts`: GET / POST / PATCH `/dispatches/{id}/acta`
+  - `POST /driver/dispatches/{id}/status` acepta `fechaLlegada` y
+    `novedadesViaje` opcionales cuando `estado === "entregado"`
+  - `TrasladoDetail.acta` y `TrasladoSummary.recepcionSinValidar`
+
+Si algo falta, DETENTE y repórtalo.
+
+════════ PARTE A — TRES GUARDS DE BACKEND ════════
+
+Salieron de revisar la tarea anterior. Son chicos; van primero.
+
+A1. RECHAZAR FECHAS DE LLEGADA EN EL FUTURO.
+
+    Hoy no hay tope superior. Un celular con el reloj mal configurado (cosa
+    común en Android barato) registra una llegada en 2099. Y como la alerta de
+    recepción pregunta `fecha_llegada < now() - 24h`, ese traslado NUNCA va a
+    aparecer como "recepción sin validar".
+
+    Es el peor tipo de bug: falla en silencio y justo en la dirección
+    peligrosa — el caso que la alerta existe para atrapar es exactamente el
+    que se pierde.
+
+    En `services/actasLlegada.ts`, exportar
+    `TOLERANCIA_RELOJ_MINUTOS = 10` y rechazar `fechaLlegada` mayor a
+    `now() + TOLERANCIA_RELOJ_MINUTOS`. La tolerancia existe porque el reloj
+    del celular puede ir unos minutos adelantado sin que nadie tenga la culpa.
+
+    Respuesta: 400 `{ error: "fecha_llegada_futura" }`, tanto en
+    `POST /dispatches/{id}/acta` como en el endpoint del chofer.
+
+A2. RECHAZAR ACTAS SOBRE DESPACHOS QUE NO SALIERON.
+
+    Hoy se puede registrar una llegada sobre un despacho en `pre-despacho`
+    (que nunca salió del almacén) o sobre uno `cancelado`. No corrompe nada
+    —las lecturas ya filtran los cancelados— pero es un dato sin sentido que
+    el sistema deja crear.
+
+    En `POST /dispatches/{id}/acta`: si el despacho no está en `en-ruta` ni en
+    `entregado` → 409 `{ error: "despacho_sin_salir" }`.
+
+    NO agregues este guard dentro de `registrarLlegada()`: el endpoint del
+    chofer la llama justo después de mover el despacho a `entregado`, así que
+    ahí la condición siempre se cumple. El guard va en el router.
+
+A3. `confirmadaAt` SE SELLA UNA SOLA VEZ.
+
+    Hoy un `PATCH` para corregir un typo en `recibidoPor` reescribe la hora de
+    confirmación. En `confirmarRecepcion()`, `confirmadaAt` y `confirmadaPorId`
+    solo se escriben si `confirmadaAt` está en null. Una corrección posterior
+    actualiza los textos pero no mueve la firma original.
+
+════════ PARTE B — CONTRATO: FALTA EL DESPACHO EN TrasladoDetail ════════
+
+Para registrar o confirmar un acta desde la web hace falta el `despachoId`, y
+`TrasladoDetail` no lo expone. Si el traslado todavía no tiene acta, la web no
+tiene forma de saber sobre qué despacho actuar.
+
+En `openapi.yaml`, agregar a `TrasladoDetail`:
+
+    despachoActivo:
+      oneOf:
+        - type: object
+          required: [id, estado]
+          properties:
+            id: { type: integer }
+            estado: { type: string }
+        - type: "null"
+
+Es el MISMO despacho no cancelado que `getTraslado` ya resuelve para poblar
+`acta` — reusa esa consulta, no escribas una segunda con otro criterio. Dos
+reglas distintas para "cuál es el despacho del traslado" es como se empiezan
+a contradecir las pantallas.
+
+Después: `pnpm --filter @workspace/api-spec run codegen`.
+
+════════ PARTE C — APP DEL CHOFER ════════
+
+Archivo: `artifacts/chofer/app/despacho/[id].tsx`.
+
+Hoy "Marcar entregado" abre un `Alert.alert` de confirmación y manda
+`{ estado: "entregado" }`. Ahora tiene que capturar además la hora real de
+llegada y las novedades del viaje.
+
+C1. `Alert.alert` NO PUEDE tener formulario. Usa el `Modal` de react-native.
+    Ya hay un patrón montado en `artifacts/chofer/components/ErrorFallback.tsx`
+    (visible / transparent / onRequestClose): cópialo, no inventes otro.
+    Para el TextInput usa `KeyboardAwareScrollViewCompat` (ya existe en
+    `components/`), si no el teclado tapa el botón de guardar.
+
+C2. NO INSTALES UN DATE-TIME PICKER. No hay ninguno en las dependencias y no
+    hace falta.
+
+    El modal arranca con la hora ACTUAL y ofrece ajustes relativos como
+    botones: "Ahora" · "hace 30 min" · "hace 1 h" · "hace 2 h", mostrando
+    siempre debajo la hora resultante en texto legible ("hoy 3:45 PM").
+
+    POR QUÉ así y no un picker: un chofer parado al lado del camión, con el
+    celular en una mano, toca un botón en un segundo; un picker de fecha y hora
+    son cinco gestos y se equivoca de día. Además, offsets hacia atrás hacen
+    IMPOSIBLE mandar una fecha futura, que es justo lo que el guard A1 está
+    tapando por el otro lado.
+
+C3. Campo de novedades: `TextInput` multilínea, opcional, con placeholder tipo
+    "¿Alguna novedad del viaje? (opcional)". Si queda vacío se manda
+    `novedadesViaje: null` — NUNCA "" (el backend igual lo normaliza, pero no
+    le mandes basura).
+
+C4. El botón de guardar llama al MISMO `useUpdateDriverDispatchStatus` que ya
+    existe, ahora con `{ estado: "entregado", fechaLlegada, novedadesViaje }`.
+    Una sola llamada, no dos: si se partiera en "cambiar estado" + "registrar
+    acta", un chofer con señal mala podría dejar el despacho entregado sin
+    acta y sin forma de reintentar desde la app.
+
+C5. "Iniciar ruta" NO cambia: sigue con su `Alert.alert` simple. Los campos del
+    acta con `estado: "en-ruta"` dan 400 `acta_fuera_de_contexto`.
+
+C6. Manejo de errores: el modal muestra el mensaje del backend y NO se cierra
+    si la llamada falla, para que el chofer pueda reintentar sin volver a
+    teclear las novedades. Recuerda que el paquete de api-client no exporta
+    `ApiError` — castea a `{ status?: number; data?: { message?: string } }`
+    como ya hace el archivo.
+
+C7. Si el despacho YA tiene acta (relee la pantalla después de entregar),
+    mostrar la hora de llegada registrada como un `InfoRow` más. No hace falta
+    que el chofer pueda editarla desde la app.
+
+════════ PARTE D — WEB: TARJETA DEL ACTA ════════
+
+Archivo: `artifacts/logistics/src/components/traslado-detail-sheet.tsx`.
+
+D1. Tarjeta nueva "Acta de llegada", en el cuerpo con scroll, ARRIBA de
+    "Líneas del Traslado". Tres estados:
+
+    (a) `despachoActivo === null` → no se muestra la tarjeta. Un traslado sin
+        despacho no tiene llegada que registrar.
+
+    (b) `acta === null` → "Sin acta de llegada" y, solo si
+        `despachoActivo.estado` es `en-ruta` o `entregado`, un botón
+        "Registrar llegada" que abre el formulario de la mitad del chofer
+        (fecha/hora + novedades del viaje) y hace `POST`.
+        Si el despacho está en `pre-despacho` o `aprobado`, texto explicativo
+        y sin botón — el guard A2 lo rechazaría igual, pero un botón que
+        siempre falla es peor que no tenerlo.
+
+    (c) `acta !== null` → mostrar la mitad del chofer (hora de llegada,
+        novedades del viaje, quién la registró). Debajo:
+        · si `confirmadaAt === null` → formulario "Confirmar recepción"
+          (recibidoPor + novedades de recepción) que hace `PATCH`.
+        · si `confirmadaAt !== null` → los datos de recepción en solo lectura,
+          con quién confirmó y cuándo.
+
+D2. TRAMPA DEL `datetime-local`. Para la fecha usa `<Input type="datetime-local">`
+    con `max` puesto en el momento actual (refuerza A1 del lado del cliente).
+
+    El valor que devuelve ese input es hora LOCAL sin zona ("2026-08-21T15:30").
+    La conversión correcta es `new Date(value).toISOString()` — JS lo interpreta
+    como hora local del navegador y produce el UTC correcto.
+    NO le concatenes "Z" al string ni uses `.slice()` para armar el ISO a mano:
+    eso manda la hora local etiquetada como UTC y el acta queda corrida las
+    horas del huso (en Venezuela, 4 horas). Es un error clásico y silencioso:
+    la fecha se ve "casi bien" y nadie lo nota hasta que descuadra un reporte.
+
+D3. Los campos de texto vacíos se mandan como `null`, no como "".
+
+D4. Al guardar (POST o PATCH), invalidar siguiendo el patrón de cache-bust que
+    ya usa este archivo para el peso estimado: `getGetTrasladoQueryKey(id)` y
+    `getListTrasladosQueryKey()`. La lista tiene que refrescar porque
+    `recepcionSinValidar` puede cambiar.
+
+D5. Nombres de los hooks generados: `useRegisterDispatchActa`,
+    `useConfirmDispatchActa`, `useGetDispatchActa` /
+    `getGetDispatchActaQueryKey`. No hace falta llamar a `useGetDispatchActa`
+    en esta pantalla — el acta ya viene embebida en `TrasladoDetail`.
+
+════════ PARTE E — WEB: BADGE Y FILTRO EN LA LISTA ════════
+
+Archivo: `artifacts/logistics/src/pages/traslados.tsx`.
+
+E1. Badge de advertencia en la columna Estado cuando
+    `traslado.recepcionSinValidar === true`. Texto: "Recepción pendiente".
+    Usa un color de advertencia (ámbar), NO destructivo/rojo: no es un error,
+    es un recordatorio de que alguien tiene que validar en Odoo.
+    Tooltip: "LogiFleet registró la llegada hace más de 24 horas, pero Odoo
+    todavía no tiene validada la recepción."
+
+E2. Filtro nuevo, un `<select>` más al lado de los que ya están (mismo estilo
+    exacto, con su `data-testid`):
+      "Recepción: Todas" | "Solo pendientes en Odoo"
+
+    Es un filtro CLIENT-SIDE sobre `filteredTraslados`, no un query param:
+    `recepcionSinValidar` es un campo derivado, no una columna, y agregarlo
+    como filtro del servidor obligaría a repetir esa lógica en el WHERE.
+    Ya existe el patrón de filtrado local en ese archivo — súmate a él.
+
+E3. El texto de "sin resultados" ya enumera los filtros activos para decidir
+    entre "Sin resultados para los filtros actuales" y "No hay traslados
+    registrados". Acuérdate de incluir el filtro nuevo en esa condición, si no
+    un usuario con el filtro puesto y cero resultados va a leer "No hay
+    traslados registrados" y va a pensar que se le borró la base.
+
+════════ NO HAGAS ════════
+- NO instales dependencias nuevas en `artifacts/chofer` (ver C2).
+- NO toques `pre-despacho.tsx`, `cargo-wizard.tsx`, `pending-traslados-card.tsx`
+  ni `nuevo-despacho-wizard.tsx`. La planificación no es parte de esto.
+- NO toques la máquina de estados de `traslados.estadoLogistico`, ni
+  `trasladoEstadoSync.ts`, ni `dispatchEstadoSync.ts`. "Recibido" se deriva de
+  que el acta tenga `confirmadaAt`; NO es un estado nuevo.
+- NO agregues roles ni permisos. Cualquier usuario autenticado puede registrar
+  y confirmar. Los roles por almacén son otra fase, a propósito.
+- NO agregues fotos ni firma: no hay almacenamiento de archivos en el proyecto.
+- NO captures cantidades recibidas: ya vienen de Odoo y ya se muestran en las
+  líneas del traslado.
+- NO edites `generated/`.
+
+════════ VERIFICACIÓN ════════
+- `pnpm run typecheck` limpio (incluye el typecheck de `artifacts/chofer`) y
+  api-server reiniciado.
+- Guards:
+  · `POST /dispatches/{id}/acta` con `fechaLlegada` dentro de 1 hora en el
+    futuro → 400 `fecha_llegada_futura`. Con 2 minutos en el futuro → pasa
+    (tolerancia de reloj).
+  · Mismo endpoint sobre un despacho en `pre-despacho` → 409
+    `despacho_sin_salir`.
+  · `PATCH` dos veces sobre la misma acta → `confirmadaAt` conserva el valor
+    del primer PATCH; `recibidoPor` sí se actualiza.
+- App del chofer, con un despacho de traslado en ruta:
+  · "Marcar entregado" abre el modal, no el Alert viejo.
+  · Guardar con "hace 1 h" → el despacho queda entregado y
+    `GET /dispatches/{id}/acta` muestra una `fechaLlegada` una hora anterior
+    a ahora (no la hora del guardado).
+  · Dejar las novedades vacías → se guarda NULL, no "".
+  · Simular error del servidor → el modal NO se cierra y el texto tecleado
+    sigue ahí.
+  · "Iniciar ruta" sigue funcionando igual que antes.
+- Web:
+  · Traslado sin despacho → la tarjeta del acta no aparece.
+  · Traslado con despacho aprobado y sin acta → mensaje, sin botón.
+  · Registrar llegada desde la web con `datetime-local` a las 3:45 PM hora
+    local → `GET /traslados/{id}` devuelve el ISO en UTC correcto. En
+    Venezuela (UTC-4) eso son las 19:45Z. Si te devuelve 15:45Z, caíste en la
+    trampa de D2.
+  · Confirmar recepción → la tarjeta pasa a solo lectura con quién confirmó.
+  · Un traslado 'entregado', Odoo en 'assigned' y acta de hace 30 h muestra el
+    badge "Recepción pendiente"; el filtro "Solo pendientes en Odoo" lo deja y
+    esconde a los demás; con el filtro puesto y cero resultados el texto dice
+    "Sin resultados para los filtros actuales".
+- Capturas: la app está detrás del login de Clerk, así que un screenshot
+  directo cae en el sign-in. Sigue el patrón de
+  .agents/memory/visual-verify-behind-auth.md (montar el componente en
+  `artifacts/mockup-sandbox` con datos representativos).
+- Tests: extender `e2e/tests/actas-llegada.test.ts` con los tres guards de la
+  Parte A.
