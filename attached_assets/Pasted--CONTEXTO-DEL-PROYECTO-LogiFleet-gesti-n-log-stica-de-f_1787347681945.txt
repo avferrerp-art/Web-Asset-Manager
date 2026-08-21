@@ -1,0 +1,194 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet: gestión logística de flota. Monorepo pnpm, Node 24, TS 5.9.
+
+  lib/db/               Drizzle: schema + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO — NO editar
+  artifacts/api-server/ API Express 5
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui
+  artifacts/chofer/     App móvil Expo
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` y `.agents/memory/`. Relevantes aquí:
+  - .agents/memory/chofer-expo-quirks.md
+  - .agents/memory/api-server-restart-after-codegen.md
+
+REGLAS: null = "sin dato", nunca 0 ni "". No edites `generated/`. Reinicia el
+workflow del api-server tras tocar cualquier lib.
+
+Son tres bugs independientes entre sí. El primero es el grave.
+
+════════ BUG 1 — LAS FECHAS DE DESPACHO SE CORREN 4 HORAS Y SE ACUMULAN ════════
+
+SÍNTOMA: cada vez que alguien edita y guarda un despacho, sus fechas estimadas
+de salida y llegada se adelantan 4 horas. Editarlo tres veces lo adelanta 12.
+
+CAUSA: `<input type="datetime-local">` trabaja con hora LOCAL sin zona
+("2026-08-21T08:00"). Pero el código lo llena con
+`new Date(...).toISOString().slice(0, 16)`, y `toISOString()` devuelve UTC.
+En Venezuela (UTC-4) eso mete un desfase de +4 horas cada vez.
+
+EL CICLO QUE LO HACE ACUMULATIVO — `artifacts/logistics/src/pages/despachos.tsx`:
+  1. La DB tiene "2026-08-21T08:00" (`fechaEstimadaSalida` es columna `text`,
+     se guarda el string crudo del input, sin zona).
+  2. `toDatetimeLocal()` (línea ~48) hace `new Date("...T08:00")` → JS lo
+     interpreta como hora LOCAL (así manda el estándar para date-time sin
+     offset) → 08:00 local. Después `.toISOString()` lo pasa a UTC → 12:00Z.
+     `.slice(0,16)` → "2026-08-21T12:00".
+  3. El formulario de edición muestra 12:00.
+  4. El usuario guarda sin tocar la fecha. `onSubmit` hace
+     `{ ...values }` y manda "2026-08-21T12:00" al PATCH.
+  5. Ahora la DB dice 12:00. La próxima edición mostrará 16:00.
+
+Los otros sitios afectados NO acumulan (son solo valores por defecto al crear),
+pero igual abren pre-llenados 4 horas adelantados:
+  - `artifacts/logistics/src/components/nuevo-despacho-wizard.tsx` líneas ~54 y ~59
+    (`defaultToday()` / `defaultTomorrow()`)
+  - `artifacts/logistics/src/pages/pre-despacho.tsx` líneas ~271, ~272, ~304, ~305
+    (los dos `form.reset(...)`, el de ventas y el de traslados)
+
+Son 7 sitios en 4 archivos. TODOS usan el mismo patrón malo.
+
+ARREGLO:
+
+1a. Crear `artifacts/logistics/src/lib/fechas.ts` con UN helper compartido:
+
+      /**
+       * Devuelve el valor que espera un <input type="datetime-local">:
+       * "YYYY-MM-DDTHH:mm" en hora LOCAL, sin zona.
+       * NUNCA usar toISOString() para esto — devuelve UTC y corre la hora.
+       */
+      export function toDatetimeLocalInput(value: Date | string | null | undefined): string
+
+    Devuelve "" para null/undefined/fecha inválida. Construye el string con
+    `getFullYear()`, `getMonth()+1`, `getDate()`, `getHours()`, `getMinutes()`
+    y padding a 2 dígitos — con los getters LOCALES, no los `getUTC*`.
+
+    El mismo helper sirve para los dos casos: pasarle un `Date` (valores por
+    defecto) y pasarle el string guardado (edición). Con el string guardado
+    round-trip exacto: "T08:00" entra y "T08:00" sale.
+
+1b. Reemplazar los 7 sitios por ese helper. Borrar `toDatetimeLocal` de
+    `despachos.tsx` y `defaultToday`/`defaultTomorrow` de
+    `nuevo-despacho-wizard.tsx`, no dejarlos como wrappers.
+
+1c. `artifacts/logistics/src/components/traslado-detail-sheet.tsx` ya tiene una
+    función local `toDatetimeLocalValue` (línea ~76) que hace exactamente esto
+    y BIEN. MUÉVELA a `lib/fechas.ts` como la implementación de
+    `toDatetimeLocalInput` (ampliándola para aceptar string además de Date) e
+    importa desde ahí. No dejes dos copias: la próxima vez que alguien arregle
+    una y no la otra, volvemos aquí.
+
+════════ BUG 2 — REINTENTOS INÚTILES EN LA APP DEL CHOFER ════════
+
+`artifacts/chofer/app/despacho/[id].tsx`: la query `useGetDispatchActa` no pasa
+`retry: false`. Un despacho entregado SIN acta devuelve 404 legítimamente (los
+campos del acta son opcionales en el endpoint del chofer), y React Query lo
+reintenta 3 veces antes de rendirse. La pantalla degrada bien —muestra "No hay
+acta de llegada registrada"— pero son 3 requests desperdiciados sobre una
+conexión de celular que puede estar mala.
+
+Agregar `retry: false` a esa query. Es el patrón que ya documenta
+`.agents/memory/chofer-expo-quirks.md` para `useGetDriverMe`, que tiene el
+mismo problema de 404 legítimo.
+
+════════ BUG 3 — `en_carga` ES UN ESTADO MUERTO QUE ADEMÁS SE PISARÍA SOLO ════════
+
+`en_carga` está en el schema, en el openapi y como opción del filtro de estado
+en la pantalla de Traslados. Pero NINGÚN código lo escribe: no hay forma de que
+un traslado llegue a ese estado. Hoy es inerte, y hay dos problemas distintos:
+
+3a. EL FILTRO PROMETE ALGO QUE NO EXISTE.
+    En `artifacts/logistics/src/pages/traslados.tsx` (línea ~132) hay
+    `<option value="en_carga">En carga</option>`. Filtrar por ahí siempre
+    devuelve cero resultados, y la conclusión natural del usuario no va a ser
+    "ese estado no se usa todavía" sino "esta pantalla está rota".
+
+    QUITA la opción del `<select>`. Vuelve el día que exista la funcionalidad.
+
+    PERO NO toques el mapeo de etiquetas en
+    `artifacts/logistics/src/lib/traslado-status.tsx` (`en_carga: "En carga"`):
+    ese sigue siendo correcto y hace falta para que el badge se renderice bien
+    si el estado aparece por cualquier vía. Tampoco lo saques del schema ni del
+    openapi — es parte de la máquina de estados diseñada.
+
+3b. CUANDO SE IMPLEMENTE, EL SYNC LO VA A BORRAR EN SILENCIO.
+    En `artifacts/api-server/src/services/trasladoEstadoSync.ts`, la derivación
+    solo protege 'confirmado_odoo' y 'cancelado'. Un traslado en `en_carga`
+    cuyo despacho todavía está en 'aprobado' se derivaría a 'planificado' — un
+    retroceso — en el próximo cambio de despacho.
+
+    Hoy no pasa porque nadie escribe `en_carga`. Pero el día que la Fase 3 o 4
+    agregue el botón "marcar en carga", el bug aparece ya montado y sin
+    síntoma visible: el estado simplemente se cae solo.
+
+    Arréglalo AHORA, que es de tres líneas y se puede testear:
+
+    - `en_carga` va entre `planificado` y `en_transito`, así que la regla es:
+      si hay un despacho activo pero ninguno en ruta ni entregado, y el
+      traslado YA está en `en_carga`, se queda en `en_carga`. Si está en
+      cualquier otra cosa, va a 'planificado' como hoy.
+
+    - En el `CASE` de `syncTrasladoEstadoFromDispatch`, la rama de 'planificado'
+      pasa a ser:
+        THEN CASE WHEN estado_logistico = 'en_carga' THEN 'en_carga'
+                  ELSE 'planificado' END
+
+    - `deriveTrasladoEstadoFromDispatch(dispatchEstados)` necesita saber el
+      estado actual para aplicar la misma regla: agrégale un segundo parámetro
+      `estadoActual?: string` y úsalo solo en esa rama. `reconcileTrasladoEstados`
+      ya tiene `traslado.estadoLogistico` a mano, pásaselo.
+
+    - Sumá `"en_carga"` al type `TrasladoEstadoFromDispatch`.
+
+    OJO: 'entregado' y 'en_transito' SIGUEN ganando sobre `en_carga`. Si el
+    chofer marca en-ruta, el traslado tiene que avanzar a 'en_transito' aunque
+    estuviera en `en_carga` — eso es progreso, no retroceso. Lo único que
+    cambia es que `en_carga` deja de caerse hacia atrás a 'planificado'.
+
+════════ NO HAGAS ════════
+- NO intentes reparar los datos ya corridos con una migración. No hay forma de
+  saber cuántas veces se editó cada despacho, así que cualquier corrección
+  automática sería adivinar y podría empeorar fechas que están bien. El
+  arreglo del código detiene la hemorragia; las fechas viejas se revisan a ojo.
+  Al terminar, reporta cuántos despachos NO cancelados tienen fecha estimada de
+  salida en el futuro, para que un humano las mire.
+- NO cambies `fechaEstimadaSalida`/`fechaEstimadaLlegada` de `text` a
+  `timestamptz`. Es lo "correcto" a largo plazo pero es otra tarea entera: hay
+  que decidir cómo interpretar los strings ya guardados (¿local? ¿UTC?
+  ¿corridos?) y toca el contrato, la app del chofer y los despachos existentes.
+  Esta tarea solo hace que la UI deje de mentir.
+- NO toques la lógica del acta de llegada ni sus endpoints.
+- NO agregues roles ni permisos.
+- NO edites `generated/`.
+
+════════ VERIFICACIÓN ════════
+- `pnpm run typecheck` limpio (incluye `artifacts/chofer`).
+- Bug 1, la prueba que importa — ciclo de edición sin cambios:
+  · Crear un despacho con salida a las 08:00.
+  · Abrirlo en Despachos → Editar: el formulario debe mostrar **08:00**, no 12:00.
+  · Guardar SIN tocar nada → consultar por SQL: `fecha_estimada_salida` sigue
+    diciendo "...T08:00".
+  · Repetir el ciclo tres veces: la hora NO se mueve. Antes de este arreglo
+    habría terminado en 20:00.
+- Bug 1, los defaults: abrir el wizard de nuevo despacho y el formulario de
+  Pre-Despacho (tanto desde una venta como desde un traslado) a una hora
+  conocida — deben pre-llenarse con la hora local actual, no 4 horas después.
+- Bug 1: `grep -rn "toISOString().slice" artifacts/logistics/src` no debe
+  devolver nada.
+- Bug 2: abrir en la app un despacho entregado SIN acta → la pantalla dice "No
+  hay acta de llegada registrada" y en la red se ve UN solo request 404, no 4.
+- Bug 3a: el filtro de estado en Traslados ya no ofrece "En carga"; los demás
+  filtros siguen funcionando igual.
+- Bug 3b, con SQL directo para simular el futuro:
+  · Poner un traslado con despacho en 'aprobado' a `estado_logistico='en_carga'`
+    a mano, llamar a `syncTrasladoEstadoFromDispatch` → sigue en `en_carga`.
+  · Con ese traslado en `en_carga`, pasar el despacho a 'en-ruta' y
+    sincronizar → avanza a `en_transito` (esto DEBE pasar).
+  · Cancelar el despacho y sincronizar → vuelve a 'por_planificar'.
+  · `reconcileTrasladoEstados` sobre un traslado en `en_carga` con despacho
+    activo → devuelve 0 correcciones y no lo mueve.
+- Agregar esos casos de `en_carga` a `e2e/tests/dispatches-traslados.test.ts`,
+  junto a la matriz de estados que ya está ahí.
