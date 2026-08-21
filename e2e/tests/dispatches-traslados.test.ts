@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import {
   almacenesTable,
   db,
@@ -24,6 +24,11 @@ import {
   TrasladoPesoOdooReadonlyError,
   updateTrasladoLocalFields,
 } from "../../artifacts/api-server/src/services/trasladoQueries";
+import {
+  deriveTrasladoEstadoFromDispatch,
+  reconcileTrasladoEstados,
+  syncTrasladoEstadoFromDispatch,
+} from "../../artifacts/api-server/src/services/trasladoEstadoSync";
 
 const suffix = `${process.pid}-${Math.floor(Math.random() * 1_000_000)}`;
 const negativeOdooId = -1_700_000_000 + Math.floor(Math.random() * 100_000);
@@ -256,6 +261,7 @@ describe("migración de despachos polimórficos", () => {
   });
 });
 
+
 describe("peso efectivo y edición local del traslado", () => {
   it("rechaza cero y negativos en el contrato, pero acepta null", () => {
     expect(UpdateTrasladoBody.safeParse({ pesoEstimadoKg: 0 }).success).toBe(false);
@@ -329,7 +335,7 @@ describe("despachos de venta y traslado", () => {
     });
   });
 
-  it("no bloquea medidas desconocidas y sí bloquea pesos conocidos sobre capacidad", () => {
+  it("no bloquea medidas desconocidas y sí bloquea pesos o volúmenes conocidos sobre capacidad", async () => {
     const capacidad = { capacidadPeso: 1_000, capacidadVolumen: 10 };
     expect(
       exceedsDispatchCapacity(capacidad, { pesoKg: null, volumenM3: null }),
@@ -340,5 +346,157 @@ describe("despachos de venta y traslado", () => {
     expect(
       exceedsDispatchCapacity(capacidad, { pesoKg: 999, volumenM3: 11 }),
     ).toBe(true);
+
+    const unknownMeasures = await getTraslado(trasladoIds[0]!);
+    const knownVolume = await getTraslado(trasladoIds[1]!);
+    expect(
+      exceedsDispatchCapacity(
+        { capacidadPeso: 10_000, capacidadVolumen: 1 },
+        {
+          pesoKg: unknownMeasures!.pesoEfectivoKg,
+          volumenM3: unknownMeasures!.volumenCalculadoM3,
+        },
+      ),
+    ).toBe(false);
+    expect(
+      exceedsDispatchCapacity(
+        { capacidadPeso: 10_000, capacidadVolumen: 1 },
+        {
+          pesoKg: knownVolume!.pesoEfectivoKg,
+          volumenM3: knownVolume!.volumenCalculadoM3,
+        },
+      ),
+    ).toBe(true);
+  });
+
+  it("deriva la secuencia completa sin retroceder estados terminales de Odoo", async () => {
+    const trasladoId = trasladoIds[0]!;
+    const originalDispatchId = dispatchIds[1]!;
+
+    expect(deriveTrasladoEstadoFromDispatch([])).toBe("por_planificar");
+    expect(deriveTrasladoEstadoFromDispatch(["cancelado", "aprobado"])).toBe(
+      "planificado",
+    );
+    expect(
+      deriveTrasladoEstadoFromDispatch(["entregado", "en-ruta", "aprobado"]),
+    ).toBe("entregado");
+
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    let traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("planificado");
+
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "en-ruta" })
+      .where(eq(dispatchesTable.id, originalDispatchId));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("en_transito");
+
+    const [deliveredDispatch] = await db
+      .insert(dispatchesTable)
+      .values({
+        tipo: "traslado",
+        ventaId: null,
+        trasladoId,
+        vehiculoId: vehicleId!,
+        choferId: driverId!,
+        fechaEstimadaSalida: "2035-01-03T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-01-03T18:00:00.000Z",
+        estado: "entregado",
+      })
+      .returning({ id: dispatchesTable.id });
+    dispatchIds.push(deliveredDispatch!.id);
+
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("entregado");
+
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "cancelado" })
+      .where(eq(dispatchesTable.id, deliveredDispatch!.id));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("en_transito");
+
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "cancelado" })
+      .where(eq(dispatchesTable.id, originalDispatchId));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("por_planificar");
+
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "pre-despacho" })
+      .where(eq(dispatchesTable.id, originalDispatchId));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    await db
+      .delete(dispatchesTable)
+      .where(eq(dispatchesTable.id, originalDispatchId));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("por_planificar");
+
+    await db
+      .update(trasladosTable)
+      .set({ estadoLogistico: "confirmado_odoo" })
+      .where(eq(trasladosTable.id, trasladoId));
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "entregado" })
+      .where(eq(dispatchesTable.id, deliveredDispatch!.id));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("confirmado_odoo");
+
+    await db
+      .update(trasladosTable)
+      .set({ estadoLogistico: "cancelado" })
+      .where(eq(trasladosTable.id, trasladoId));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("cancelado");
+  });
+
+  it("reconcilia inconsistencias una sola vez y conserva estados de Odoo", async () => {
+    const trasladoId = trasladoIds[1]!;
+    const [dispatch] = await db
+      .insert(dispatchesTable)
+      .values({
+        tipo: "traslado",
+        ventaId: null,
+        trasladoId,
+        vehiculoId: vehicleId!,
+        choferId: driverId!,
+        fechaEstimadaSalida: "2035-01-04T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-01-04T18:00:00.000Z",
+        estado: "en-ruta",
+      })
+      .returning({ id: dispatchesTable.id });
+    dispatchIds.push(dispatch!.id);
+
+    await db
+      .update(trasladosTable)
+      .set({ estadoLogistico: "por_planificar" })
+      .where(eq(trasladosTable.id, trasladoId));
+    expect(await reconcileTrasladoEstados([trasladoId])).toBe(1);
+    let traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("en_transito");
+    expect(await reconcileTrasladoEstados([trasladoId])).toBe(0);
+
+    await db
+      .update(trasladosTable)
+      .set({ estadoLogistico: "confirmado_odoo" })
+      .where(eq(trasladosTable.id, trasladoId));
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "entregado" })
+      .where(eq(dispatchesTable.id, dispatch!.id));
+    expect(await reconcileTrasladoEstados([trasladoId])).toBe(0);
+    traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("confirmado_odoo");
   });
 });

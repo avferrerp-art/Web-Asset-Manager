@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and, asc, desc } from "drizzle-orm";
 import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable, saleItemsTable } from "@workspace/db";
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
-import { syncSaleEstadoFromDispatch } from "../services/saleEstadoSync";
+import { syncLinkedDispatchEntity } from "../services/dispatchEstadoSync";
 import { getTraslado, getTrasladoSummary } from "../services/trasladoQueries";
 import {
   ListDispatchesQueryParams,
@@ -198,12 +198,6 @@ export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect
   };
 }
 
-async function syncLinkedSale(d: typeof dispatchesTable.$inferSelect) {
-  if (d.tipo === "venta" && d.ventaId !== null) {
-    await syncSaleEstadoFromDispatch(d.ventaId);
-  }
-}
-
 router.get("/dispatches", async (req, res): Promise<void> => {
   const query = ListDispatchesQueryParams.safeParse(req.query);
   let dispatches = await db.select().from(dispatchesTable).orderBy(desc(dispatchesTable.createdAt));
@@ -251,7 +245,7 @@ router.post("/dispatches", async (req, res): Promise<void> => {
   const volumenCarga =
     dispatchData.tipo === "venta"
       ? sale?.volumenTotal ?? null
-      : null;
+      : traslado?.volumenCalculadoM3 ?? null;
   if (exceedsDispatchCapacity(vehicle, { pesoKg: pesoCarga, volumenM3: volumenCarga })) {
     const fuente = dispatchData.tipo === "venta" ? "esta venta" : "este traslado";
     res.status(400).json({
@@ -287,7 +281,7 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     );
   }
 
-  await syncLinkedSale(dispatch);
+  await syncLinkedDispatchEntity(dispatch);
 
   const row = await buildDispatchRow(dispatch);
   res.status(201).json(row);
@@ -341,7 +335,7 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     return;
   }
   if ("estado" in parsed.data) {
-    await syncLinkedSale(dispatch);
+    await syncLinkedDispatchEntity(dispatch);
   }
   const row = await buildDispatchRow(dispatch);
   res.json(row);
@@ -358,7 +352,7 @@ router.delete("/dispatches/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Dispatch not found" });
     return;
   }
-  await syncLinkedSale(dispatch);
+  await syncLinkedDispatchEntity(dispatch);
   res.sendStatus(204);
 });
 
@@ -377,7 +371,7 @@ router.post("/dispatches/:id/approve", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Dispatch not found" });
     return;
   }
-  await syncLinkedSale(dispatch);
+  await syncLinkedDispatchEntity(dispatch);
   const row = await buildDispatchRow(dispatch);
   res.json(row);
 });

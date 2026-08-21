@@ -757,7 +757,14 @@ export async function syncDeliveries(
               deliveryId: sql`excluded.delivery_id`,
               almacenOrigenId: sql`excluded.almacen_origen_id`,
               almacenDestinoId: sql`excluded.almacen_destino_id`,
-              estadoLogistico: sql`excluded.estado_logistico`,
+              estadoLogistico: sql`
+                CASE
+                  WHEN ${trasladosTable.estadoLogistico} IN ('confirmado_odoo', 'cancelado')
+                    AND excluded.estado_logistico NOT IN ('confirmado_odoo', 'cancelado')
+                  THEN ${trasladosTable.estadoLogistico}
+                  ELSE excluded.estado_logistico
+                END
+              `,
               pesoCalculadoKg: sql`excluded.peso_calculado_kg`,
               volumenCalculadoM3: sql`excluded.volumen_calculado_m3`,
             },

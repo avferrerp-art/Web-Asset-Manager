@@ -3,6 +3,7 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startOdooPolling } from "./services/odooSync";
 import { reconcileSaleEstados } from "./services/saleEstadoSync";
+import { reconcileTrasladoEstados } from "./services/trasladoEstadoSync";
 
 const rawPort = process.env["PORT"];
 
@@ -63,5 +64,8 @@ app.listen(port, (err) => {
   startOdooPolling();
   void reconcileSaleEstados().catch((err) =>
     logger.error({ err }, "Reconciliación de estados de venta falló"),
+  );
+  void reconcileTrasladoEstados().catch((err) =>
+    logger.error({ err }, "Reconciliación de estados de traslado falló"),
   );
 });
