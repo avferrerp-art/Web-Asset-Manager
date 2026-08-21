@@ -1,0 +1,313 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas y
+traslados internos desde Odoo, planifica despachos (vehículo + chofer + ruta),
+calcula costos, y tiene una app móvil Expo para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO desde el spec — NO editar
+  lib/api-client-react/ GENERADO desde el spec (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5 (routers en src/routes/, servicios en src/services/)
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui
+  artifacts/chofer/     App móvil Expo
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` en la raíz y `.agents/memory/`. Para esta tarea son relevantes:
+  - .agents/memory/db-migrations-boot.md
+  - .agents/memory/clerk-auth-setup.md
+  - .agents/memory/api-server-restart-after-codegen.md
+  - .agents/memory/codegen-merge-conflicts.md
+  - .agents/memory/shared-db-transfer-tests.md
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: todo cambio de API se edita en lib/api-spec/openapi.yaml
+     y luego `pnpm --filter @workspace/api-spec run codegen`. Los directorios
+     `generated/` NUNCA se editan a mano. El título del spec sigue siendo "Api".
+  2. Schema = archivo + migración numerada e idempotente en
+     lib/db/src/migrations/, registrada en su index.ts. `drizzle-kit push` solo
+     NO sobrevive el merge a main.
+  3. La autorización es el ORDEN de los routers en src/routes/index.ts: solo
+     healthRouter va antes de requireAuth. Todo router nuevo va DESPUÉS.
+  4. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  5. null = "sin dato". NUNCA representar la ausencia de dato con 0 ni con "".
+
+Esta tarea es BACKEND + CONTRATO. La UI (app del chofer y web) va en una tarea
+aparte que viene después.
+
+════════ REQUISITO PREVIO ════════
+
+Deben existir ya (si algo falta, DETENTE y repórtalo):
+  - tabla `dispatches` polimórfica: `tipo` ('venta'|'traslado'), `ventaId` y
+    `trasladoId` nullable con el CHECK `dispatches_fuente_exclusiva_check`
+  - tabla `traslados` con `estadoLogistico`
+  - `artifacts/api-server/src/services/dispatchEstadoSync.ts` con
+    `syncLinkedDispatchEntity()`
+  - `artifacts/api-server/src/services/trasladoEstadoSync.ts`
+  - `artifacts/api-server/src/services/trasladoQueries.ts` con `selectTraslados`
+  - `artifacts/api-server/src/routes/driver.ts` con la función local
+    `resolveDriver(req, res)`
+  - la última migración es `0010_dispatches_polimorficos.ts`
+
+════════ POR QUÉ ESTA TAREA ════════
+
+Odoo pasa un traslado de `Listo` a `Hecho` cuando el almacén de destino valida
+la recepción. Durante todo el viaje el inventario dice que la mercancía sigue
+en el origen. LogiFleet ya cubre ese hueco con `estadoLogistico`, pero le falta
+el registro de lo que efectivamente pasó al llegar.
+
+Hoy `dispatches` NO guarda ninguna hora real: solo `fechaEstimadaSalida` y
+`fechaEstimadaLlegada`. Cuando el chofer marca "entregado" desde el celular no
+se registra CUÁNDO llegó. El acta de llegada es el único lugar donde ese dato
+existiría.
+
+El acta tiene DOS MITADES, escritas por personas distintas en momentos
+distintos:
+  - mitad del chofer: hora real de llegada + novedades del viaje
+  - mitad del almacén: quién recibió + novedades de la mercancía
+
+════════ TRAMPAS — LEE ESTO ANTES DE ESCRIBIR CÓDIGO ════════
+
+TRAMPA 1 — El GROUP BY de selectTraslados.
+`selectTraslados` en `services/trasladoQueries.ts` calcula
+`cantidadLineas: count(deliveryItemsTable.id)` con un `.groupBy(...)`.
+Si agregas un `.leftJoin()` hacia `dispatches` o hacia la tabla nueva de actas,
+un traslado con DOS despachos va a duplicar sus filas de `delivery_items` y
+`cantidadLineas` va a salir al doble. Es un bug silencioso: nadie mira el
+número hasta que un usuario reclama.
+→ El campo nuevo se calcula con una SUBCONSULTA CORRELACIONADA `EXISTS (...)`
+  dentro del `.select({...})`, NO con un join. No toques el groupBy.
+
+TRAMPA 2 — Un traslado puede tener varios despachos.
+El acta cuelga de `despachoId`, y un traslado puede tener un despacho cancelado
+más uno activo. Toda consulta que vaya de traslado hacia acta debe filtrar
+`dispatches.estado <> 'cancelado'`, si no vas a leer el acta de un viaje que se
+canceló.
+
+TRAMPA 3 — `fechaLlegada` NO es `createdAt`.
+El chofer llega a las 3 y registra a las 5 porque no tenía señal. `createdAt`
+dice cuándo se tecleó; `fechaLlegada` dice cuándo llegó el camión. Son dos
+columnas distintas y ninguna se deriva de la otra. No pongas
+`DEFAULT now()` en `fechaLlegada`.
+
+TRAMPA 4 — Las novedades son null, nunca "".
+Si el usuario no escribe nada, se guarda NULL. Nunca "" ni "ninguna" ni "N/A".
+Es la regla 5 del repo aplicada a texto.
+
+════════ TAREA ════════
+
+1. SCHEMA — `lib/db/src/schema/actas_llegada.ts`, tabla `actas_llegada`:
+
+     id                 serial PK
+     despachoId         integer NOT NULL UNIQUE REFERENCES dispatches(id) ON DELETE CASCADE
+     -- mitad del chofer
+     fechaLlegada       timestamptz NOT NULL
+     registradaPorId    integer REFERENCES personnel(id)
+     novedadesViaje     text
+     -- mitad del almacén
+     recibidoPor        text
+     confirmadaPorId    integer REFERENCES personnel(id)
+     confirmadaAt       timestamptz
+     novedadesRecepcion text
+     createdAt          timestamptz NOT NULL DEFAULT now()
+
+   Exportarla desde `lib/db/src/schema/index.ts`.
+
+   `despachoId` UNIQUE es deliberado: UN acta por despacho. Si hay que
+   corregirla se edita, no se crea otra — así nadie tiene que preguntarse cuál
+   de tres actas es la buena.
+
+   `recibidoPor` es texto libre Y ADEMÁS existe `confirmadaPorId`: quien recibe
+   físicamente el camión (un obrero del galpón) casi nunca es el mismo que
+   teclea la confirmación en el sistema, y puede no tener cuenta. El texto
+   captura el hecho; el FK captura la responsabilidad.
+
+2. MIGRACIÓN — `lib/db/src/migrations/0011_actas_llegada.ts`, SQL idempotente
+   (CREATE TABLE IF NOT EXISTS, constraints con guardas sobre `pg_constraint`
+   igual que hace `0010_dispatches_polimorficos.ts`), registrada en
+   `lib/db/src/migrations/index.ts` siguiendo el patrón del archivo.
+   Incluir `CREATE INDEX IF NOT EXISTS actas_llegada_despacho_id_idx`.
+
+3. REFACTOR — sacar la resolución de identidad a un servicio compartido.
+
+   Hoy la lógica Clerk → email → `personnel` vive como función local
+   `resolveDriver(req, res)` dentro de `routes/driver.ts`, escrita solo para
+   choferes (hasta el mensaje de error dice "No hay un chofer registrado...").
+   La mitad del almacén se confirma desde la web, así que necesita lo mismo en
+   otro contexto. Duplicarla es exactamente el error que ya cometimos una vez
+   con la sincronización de estados.
+
+   Crear `artifacts/api-server/src/services/currentPerson.ts`:
+
+     export type CurrentPersonResult =
+       | { ok: true; person: Personnel }
+       | { ok: false; reason: "unauthorized" | "no_email" | "not_linked"; email?: string };
+
+     export async function resolveCurrentPerson(req): Promise<CurrentPersonResult>
+
+   OJO: la función NUEVA no escribe en `res` — devuelve un resultado y el
+   llamador decide la respuesta HTTP. Eso es lo que la hace reusable.
+
+   Después, `driver.ts` consume `resolveCurrentPerson` y mapea el resultado a
+   las MISMAS respuestas que da hoy, **con los mensajes idénticos palabra por
+   palabra** (`"no_email"` → 404 "Tu cuenta no tiene un email asociado.";
+   `"not_linked"` → 404 "No hay un chofer registrado con el email X. Pide al
+   administrador que agregue tu email en Personal."). La app del chofer muestra
+   esos textos al usuario: si los cambias, cambias su UX sin querer.
+
+   Este paso NO debe cambiar ninguna conducta observable. Es refactor puro.
+
+4. SERVICIO — `artifacts/api-server/src/services/actasLlegada.ts`:
+
+   - `getActaPorDespacho(despachoId): Promise<Acta | null>`
+   - `registrarLlegada(despachoId, { fechaLlegada, novedadesViaje, registradaPorId })`
+     Upsert sobre `despachoId` (ON CONFLICT DO UPDATE) — re-registrar corrige,
+     no duplica. NO toca los campos de la mitad del almacén.
+   - `confirmarRecepcion(despachoId, { recibidoPor, novedadesRecepcion, confirmadaPorId })`
+     Sella `confirmadaAt = now()`. Si NO existe acta para ese despacho,
+     devuelve null → el router responde 409 con
+     `{ error: "acta_no_registrada" }`. El almacén no puede confirmar una
+     llegada que nadie registró.
+   - Constante exportada `HORAS_RECEPCION_SIN_VALIDAR = 24`.
+     Va UNA sola vez, aquí. Es el número que más probablemente vamos a querer
+     mover después de un mes de uso real: tiene que ser un cambio de una línea.
+
+5. CONTRATO — en `lib/api-spec/openapi.yaml`, y DESPUÉS
+   `pnpm --filter @workspace/api-spec run codegen`:
+
+   5a. Schema `ActaLlegada` con todos los campos de la tabla (fechas en
+       formato date-time ISO, los nullables como `type: ["string","null"]`
+       siguiendo el estilo que ya usa `TrasladoSummary`).
+
+   5b. `GET /dispatches/{id}/acta` → `ActaLlegada` | 404.
+
+   5c. `POST /dispatches/{id}/acta` — mitad del chofer desde la web
+       (para cuando el chofer no la registró, o para corregirla).
+       Body: `{ fechaLlegada (date-time, requerido), novedadesViaje (string|null) }`.
+
+   5d. `PATCH /dispatches/{id}/acta` — mitad del almacén.
+       Body: `{ recibidoPor (string|null), novedadesRecepcion (string|null) }`,
+       `minProperties: 1`, `additionalProperties: false`.
+       409 `acta_no_registrada` si todavía no existe el acta.
+
+   5e. Ampliar `DriverStatusUpdateInput` con dos campos OPCIONALES:
+       `fechaLlegada` (date-time) y `novedadesViaje` (string|null).
+       Solo son válidos junto con `estado: "entregado"`. Si vienen con
+       `estado: "en-ruta"` → 400 `{ error: "acta_fuera_de_contexto" }`.
+
+       Son OPCIONALES a propósito: un despacho marcado entregado sin acta debe
+       seguir funcionando exactamente como hoy. La app los va a mandar siempre
+       (eso es la tarea siguiente), pero el contrato no puede romperse si no
+       llegan.
+
+   5f. Agregar `acta: ActaLlegada | null` a `TrasladoDetail`.
+
+   5g. Agregar `recepcionSinValidar: boolean` a `TrasladoSummary`.
+
+6. ROUTER — `artifacts/api-server/src/routes/actas.ts` con 5b/5c/5d, montado en
+   `src/routes/index.ts` DESPUÉS de `requireAuth`.
+
+   `registradaPorId` y `confirmadaPorId` se llenan con
+   `resolveCurrentPerson(req)`. Si el usuario está autenticado pero su email no
+   está en `personnel`, la operación IGUAL procede y esos campos quedan en null
+   — no es un error. Estamos registrando un hecho operativo; el padrón de
+   personal incompleto no puede bloquearlo.
+
+7. DRIVER — en `routes/driver.ts`, el handler de
+   `POST /driver/dispatches/:id/status`: cuando el nuevo estado es "entregado"
+   y vienen los campos del acta, llamar a `registrarLlegada()` con
+   `registradaPorId = person.id` DESPUÉS de que la transición de estado se
+   haya aplicado con éxito y DESPUÉS de `syncLinkedDispatchEntity(updated)`.
+   Si la transición falla, no se registra ningún acta.
+
+8. `recepcionSinValidar` — en `services/trasladoQueries.ts`.
+
+   Semántica: LogiFleet dice que llegó, Odoo sigue sin validar la recepción, y
+   ya pasaron más de `HORAS_RECEPCION_SIN_VALIDAR` desde la llegada real.
+
+   En el `.select({...})` de `selectTraslados`, agregar un booleano con
+   subconsulta correlacionada (RELEE LA TRAMPA 1 — no es un join):
+
+     actaVencida: sql<boolean>`EXISTS (
+       SELECT 1 FROM dispatches d
+       JOIN actas_llegada a ON a.despacho_id = d.id
+       WHERE d.traslado_id = ${trasladosTable.id}
+         AND d.estado <> 'cancelado'
+         AND a.fecha_llegada < now() - interval '24 hours'
+     )`
+
+   (el 24 sale de la constante del punto 4 — interpólala, no la escribas dos
+   veces)
+
+   Y en `toSummary`, derivar el campo público:
+
+     recepcionSinValidar:
+       row.estadoLogistico === "entregado" &&
+       row.estadoOdoo !== "done" &&
+       row.actaVencida
+
+   `actaVencida` es interno: NO lo expongas en la respuesta, solo
+   `recepcionSinValidar`.
+
+9. `getTraslado(id)` devuelve además `acta`: el acta del despacho NO cancelado
+   del traslado (relee la TRAMPA 2), o null si no hay.
+
+10. NO se crea ninguna tabla de alertas. La condición del punto 8 se deriva en
+    la consulta, no se persiste: así no hay que deduplicar alertas en cada
+    corrida del poller, no hay ciclo de vida `resuelta`/`resolvedAt` que
+    mantener, y la alerta se cura sola en cuanto el almacén valida en Odoo.
+
+════════ NO HAGAS ════════
+- NO toques la máquina de estados de `traslados.estadoLogistico`. Es tentador
+  meter un estado `recibido` entre 'entregado' y 'confirmado_odoo': NO. Se
+  acaba de estabilizar con la regla de oro y tiene tests e2e. "Recibido" se
+  deriva de que el acta tenga `confirmadaAt`, es un dato de presentación.
+- NO toques `trasladoEstadoSync.ts` ni `dispatchEstadoSync.ts`.
+- NO agregues roles, permisos ni middleware de autorización. Esta tarea NO
+  cambia quién puede hacer qué: sigue siendo "cualquier usuario autenticado".
+  Los roles por almacén son una fase aparte, a propósito.
+- NO captures cantidades recibidas en el acta. Eso ya viene de Odoo en
+  `delivery_items` (`cantidadDemanda` vs `cantidadEntregada`) y ya se muestra
+  en el detalle. Duplicarlo crea dos verdades sobre el mismo hecho.
+- NO agregues fotos ni firma. No existe almacenamiento de archivos en el
+  proyecto (el único multer usa memoryStorage y descarta el archivo).
+- NO toques `artifacts/logistics` ni `artifacts/chofer` — la UI va en la
+  tarea siguiente. Sí corre el codegen para que los hooks queden listos.
+- NO edites directorios `generated/`.
+
+════════ VERIFICACIÓN ════════
+- `pnpm run typecheck` limpio y api-server reiniciado sin SCHEMA MISMATCH.
+- Migraciones dos veces seguidas: la segunda no falla ni duplica.
+- El refactor del punto 3 no cambió nada: `GET /driver/me` con un email que NO
+  está en `personnel` sigue devolviendo 404 con el mensaje "No hay un chofer
+  registrado con el email ..." palabra por palabra.
+- Flujo completo por API sobre un traslado con despacho:
+  · `POST /driver/dispatches/{id}/status` con
+    `{estado:"entregado", fechaLlegada:"...", novedadesViaje:"llegué tarde"}`
+    → el despacho queda entregado, `estadoLogistico` pasa a 'entregado', y
+    `GET /dispatches/{id}/acta` devuelve el acta con `confirmadaAt: null`.
+  · `PATCH /dispatches/{id}/acta` con `{recibidoPor:"Juan"}` → `confirmadaAt`
+    queda sellado y `confirmadaPorId` apunta a la persona correcta.
+  · `PATCH` sobre un despacho SIN acta → 409 `acta_no_registrada`.
+  · `POST /driver/dispatches/{id}/status` con `{estado:"en-ruta", fechaLlegada:"..."}`
+    → 400 `acta_fuera_de_contexto`.
+  · `POST /driver/dispatches/{id}/status` con `{estado:"entregado"}` y NADA más
+    → sigue funcionando igual que hoy, sin acta, sin error.
+- Registrar la llegada DOS veces sobre el mismo despacho → sigue habiendo UNA
+  sola fila en `actas_llegada` (upsert), y si ya estaba confirmada, la
+  confirmación NO se borra.
+- Novedades vacías: mandar `novedadesViaje: ""` → se guarda NULL, no "".
+- `cantidadLineas` NO cambió: comparar el valor de `GET /traslados` para un
+  traslado con 2 despachos antes y después de esta tarea. Si se duplicó,
+  caíste en la TRAMPA 1.
+- `recepcionSinValidar`:
+  · traslado 'entregado', Odoo 'assigned', acta de hace 30 h → true
+  · el mismo con acta de hace 2 h → false
+  · traslado 'entregado', Odoo 'done', acta de hace 30 h → false
+  · traslado 'en_transito' con acta vieja → false
+  · traslado cuyo único despacho con acta está cancelado → false (TRAMPA 2)
+- Agregar tests en `e2e/tests/` siguiendo el patrón de
+  `dispatches-traslados.test.ts` para: el upsert del acta, el 409, y la matriz
+  de `recepcionSinValidar` de arriba.
