@@ -32,6 +32,8 @@ tags:
     description: Driver mobile app endpoints (authenticated driver scope)
   - name: products
     description: Product catalog synced from Odoo (read-only except notas)
+  - name: almacenes
+    description: Canonical warehouse catalog
 
 paths:
   /healthz:
@@ -1547,6 +1549,22 @@ paths:
                 items:
                   $ref: "#/components/schemas/ActiveDispatch"
 
+  # --- ALMACENES ---
+  /almacenes:
+    get:
+      operationId: listAlmacenes
+      tags: [almacenes]
+      summary: List active warehouses
+      responses:
+        "200":
+          description: Active canonical warehouses
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Almacen"
+
 components:
   schemas:
     ErrorResponse:
@@ -1866,6 +1884,35 @@ components:
           type: integer
         sinPesoOdoo:
           type: integer
+
+    # --- ALMACENES ---
+    Almacen:
+      type: object
+      required: [id, codigo, odooPrefix, nombre, plaza, activo, createdAt]
+      properties:
+        id:
+          type: integer
+        codigo:
+          type: string
+          description: Código corto para la interfaz
+        odooPrefix:
+          type: string
+          description: Prefijo exacto del primer segmento de location_id en Odoo
+        nombre:
+          type: string
+        plaza:
+          type: string
+          description: "Caracas | Lecheria"
+        direccion:
+          type: ["string", "null"]
+        latitud:
+          type: ["number", "null"]
+        longitud:
+          type: ["number", "null"]
+        activo:
+          type: boolean
+        createdAt:
+          type: string
 
     # --- DELIVERIES ---
     DeliveryItem:

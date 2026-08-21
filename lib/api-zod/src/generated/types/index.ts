@@ -7,6 +7,7 @@
  */
 
 export * from './activeDispatch';
+export * from './almacen';
 export * from './costEstimate';
 export * from './dashboardSummary';
 export * from './delivery';

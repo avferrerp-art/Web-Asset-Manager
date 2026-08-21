@@ -1724,3 +1724,21 @@ export const GetActiveDispatchesResponseItem = zod.object({
 export const GetActiveDispatchesResponse = zod.array(GetActiveDispatchesResponseItem)
 
 
+/**
+ * @summary List active warehouses
+ */
+export const ListAlmacenesResponseItem = zod.object({
+  "id": zod.number(),
+  "codigo": zod.string().describe('Código corto para la interfaz'),
+  "odooPrefix": zod.string().describe('Prefijo exacto del primer segmento de location_id en Odoo'),
+  "nombre": zod.string(),
+  "plaza": zod.string().describe('Caracas | Lecheria'),
+  "direccion": zod.string().nullish(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish(),
+  "activo": zod.boolean(),
+  "createdAt": zod.string()
+})
+export const ListAlmacenesResponse = zod.array(ListAlmacenesResponseItem)
+
+

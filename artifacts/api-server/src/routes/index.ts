@@ -14,6 +14,7 @@ import odooRouter from "./odoo";
 import productsRouter from "./products";
 import driverRouter from "./driver";
 import deliveriesRouter from "./deliveries";
+import almacenesRouter from "./almacenes";
 import { requireAuth } from "../middlewares/requireAuth";
 
 const router: IRouter = Router();
@@ -34,5 +35,6 @@ router.use(odooRouter);
 router.use(productsRouter);
 router.use(driverRouter);
 router.use(deliveriesRouter);
+router.use(almacenesRouter);
 
 export default router;

@@ -223,6 +223,25 @@ export interface ProductStats {
   sinPesoOdoo: number;
 }
 
+export interface Almacen {
+  id: number;
+  /** Código corto para la interfaz */
+  codigo: string;
+  /** Prefijo exacto del primer segmento de location_id en Odoo */
+  odooPrefix: string;
+  nombre: string;
+  /** Caracas | Lecheria */
+  plaza: string;
+  /** @nullable */
+  direccion?: string | null;
+  /** @nullable */
+  latitud?: number | null;
+  /** @nullable */
+  longitud?: number | null;
+  activo: boolean;
+  createdAt: string;
+}
+
 export interface DeliveryItem {
   id: number;
   deliveryId: number;

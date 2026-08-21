@@ -21,6 +21,7 @@ import type {
 
 import type {
   ActiveDispatch,
+  Almacen,
   CostEstimate,
   DashboardSummary,
   Delivery,
@@ -5492,6 +5493,83 @@ export function useGetActiveDispatches<TData = Awaited<ReturnType<typeof getActi
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetActiveDispatchesQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getListAlmacenesUrl = () => {
+
+
+
+
+  return `/api/almacenes`
+}
+
+/**
+ * @summary List active warehouses
+ */
+export const listAlmacenes = async ( options?: RequestInit): Promise<Almacen[]> => {
+
+  return customFetch<Almacen[]>(getListAlmacenesUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAlmacenesQueryKey = () => {
+    return [
+    `/api/almacenes`
+    ] as const;
+    }
+
+
+export const getListAlmacenesQueryOptions = <TData = Awaited<ReturnType<typeof listAlmacenes>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAlmacenes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAlmacenesQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAlmacenes>>> = ({ signal }) => listAlmacenes({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAlmacenes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAlmacenesQueryResult = NonNullable<Awaited<ReturnType<typeof listAlmacenes>>>
+export type ListAlmacenesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List active warehouses
+ */
+
+export function useListAlmacenes<TData = Awaited<ReturnType<typeof listAlmacenes>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAlmacenes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAlmacenesQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
