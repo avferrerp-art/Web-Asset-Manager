@@ -1,8 +1,21 @@
 uploads = []
-outputs = []
 
 [[generated]]
 id = "jzX_uRcTCuxbne9Ce0RUC"
 uri = "file://artifacts/chofer/assets/images/icon.png"
 type = "image"
 title = "generated_image"
+
+[[outputs]]
+id = "DJ4oJDm8o9nvsFzwUS2et"
+uri = "file://artifacts/api-server/scripts/traslados-report-console.log"
+type = "unspecified"
+title = "Salida completa — diagnóstico del sync de traslados"
+description = "Log literal de stdout y stderr de la corrida única, incluido el código de salida del proceso."
+logical_id = "2af5dfb4-1576-4a8e-a2b5-f59898f09725"
+content_hash = "sha256:d5b47fd15b02747002240966a567a0e56869d70cfc7cb6f5ebd9a10d7298f681"
+size = 6086
+mtime_ms = 1787328870849
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/2af5dfb4-1576-4a8e-a2b5-f59898f09725/3788c120-1558-4f23-b01f-93c660a06134"
+storage_version_token = "1787328924897286"
+content_type = "application/octet-stream"
