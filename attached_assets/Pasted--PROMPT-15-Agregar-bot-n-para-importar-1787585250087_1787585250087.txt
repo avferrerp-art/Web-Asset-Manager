@@ -1,0 +1,133 @@
+════════════════════════════════════════════════════════════
+PROMPT 15 — Agregar botón para importar los traslados históricos de Odoo
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm, TypeScript 5.9. Este prompt es 100% frontend — no
+toca el backend ni el contrato, ambos ya tienen todo lo necesario.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Investigué por qué la pantalla de Traslados solo muestra un puñado de
+registros (4 en tu caso) mientras que Ventas ya tiene 839. No es un bug de
+la tabla ni del filtro — es que la sincronización normal con Odoo
+(`POST /odoo/sync-deliveries`, el botón "Sincronizar albaranes") solo trae
+traslados internos **nuevos**, a partir de una marca de agua (`watermark`)
+que avanza con cada sincronización. Los traslados internos que ya existían
+en Odoo antes de esa marca nunca se importan por esa vía.
+
+Ya existe una función hecha específicamente para resolver esto —
+`backfillInternalTransfers()` en
+`artifacts/api-server/src/services/deliverySync.ts` — que trae **todos**
+los traslados internos históricos sin tocar la marca de agua normal (no
+interfiere con la sincronización incremental de todos los días). Incluso
+ya tiene su endpoint (`POST /odoo/backfill-traslados`, documentado en el
+contrato) y su hook generado (`useBackfillOdooInternalTransfers`). Lo único
+que falta es un botón en la pantalla que lo dispare — hoy no hay ninguno,
+por eso nunca se ejecutó en tu ambiente. Es seguro correrlo más de una vez
+(hace upsert por `odoo_picking_id`, no duplica nada).
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. No implementes nada nuevo en el backend — `backfillInternalTransfers()`,
+   la ruta `POST /odoo/backfill-traslados` y el hook
+   `useBackfillOdooInternalTransfers` ya existen y funcionan. Esta tarea es
+   solo agregar el botón y su manejo en `odoo-sync-card.tsx`.
+2. No lo mezcles con el botón "Sincronizar albaranes" existente —son cosas
+   distintas (uno es incremental con watermark, el otro es un backfill
+   completo). Agregalo como una fila/sección propia, siguiendo el mismo
+   patrón visual que ya usa la sección "Albaranes" de esta tarjeta (un
+   bloque con ícono, texto de estado, y botón a la derecha).
+3. La respuesta de este endpoint es del tipo `DeliverySyncResult` — mismo
+   shape que ya devuelve `sync-deliveries` (`transfersCreated`,
+   `transfersUpdated`, `orphanedTransfers`, etc.). Reusá ese mismo shape
+   para armar el mensaje del toast, no inventes campos nuevos.
+4. Después de que el backfill termine, invalidá las queries que dependen de
+   traslados (`getListTrasladosQueryKey`, y de paso
+   `getGetOdooStatusQueryKey`) para que la lista se refresque sola sin
+   necesidad de recargar la página.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+En `artifacts/logistics/src/components/odoo-sync-card.tsx`:
+
+1. Importá `useBackfillOdooInternalTransfers` y `getListTrasladosQueryKey`
+   desde `@workspace/api-client-react`.
+2. Agregá el mutation hook (mismo patrón que `syncDeliveriesMutation`):
+   ```ts
+   const backfillTrasladosMutation = useBackfillOdooInternalTransfers();
+   ```
+3. Agregá un handler `handleBackfillTraslados` que llame a
+   `backfillTrasladosMutation.mutate(undefined, { onSuccess, onError })`:
+   - En `onSuccess`: invalidá `getListTrasladosQueryKey()` y
+     `getGetOdooStatusQueryKey()`. Si `data.ok`, armá un toast con
+     `transfersCreated`/`transfersUpdated` (mismo estilo de mensaje que
+     `handleSyncDeliveries` ya arma con `created`/`updated`/`deleted`).
+   - En `onError`: mismo patrón de toast destructivo que los otros
+     handlers de este archivo.
+4. Agregá una sección nueva en el JSX, debajo de la sección "Albaranes"
+   existente (el bloque `data-testid="section-odoo-deliveries"`), con la
+   misma estructura: ícono (podés reusar `ArrowRightLeft` de `lucide-react`,
+   ya usado en otras pantallas de este proyecto para traslados), texto
+   "Traslados históricos" con una descripción corta ("Importa todos los
+   traslados internos de Odoo, incluidos los anteriores a la
+   sincronización normal"), y un botón:
+   ```tsx
+   <Button
+     data-testid="button-odoo-backfill-traslados"
+     variant="outline"
+     size="sm"
+     onClick={handleBackfillTraslados}
+     disabled={backfillTrasladosMutation.isPending}
+     className="gap-1.5 shrink-0"
+   >
+     {backfillTrasladosMutation.isPending ? (
+       <Loader2 className="w-3.5 h-3.5 animate-spin" />
+     ) : (
+       <RefreshCw className="w-3.5 h-3.5" />
+     )}
+     Importar traslados históricos
+   </Button>
+   ```
+   Envolvé toda esta sección nueva en `{configured && (...)}`, igual que la
+   sección de Albaranes (no tiene sentido mostrarla si Odoo no está
+   configurado).
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, ni ningún archivo `generated/` —
+  todo lo que necesitás ya existe.
+- No agregues esta acción en ningún otro lugar de la app — solo en
+  `odoo-sync-card.tsx`, junto a las otras acciones de sincronización.
+- No lo conviertas en una acción automática/programada — sigue siendo un
+  botón manual, igual que "Sincronizar ahora" y "Sincronizar albaranes".
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. En Pre-Despacho (o donde esté montado `OdooSyncCard`), con Odoo
+   configurado, aparece la nueva sección "Traslados históricos" con su
+   botón.
+2. Click en "Importar traslados históricos" → mientras corre muestra el
+   ícono girando y el botón se deshabilita. Al terminar, aparece un toast
+   con la cantidad de traslados creados/actualizados.
+3. Andá a **Traslados** (la página completa) y confirmá que ahora aparecen
+   muchos más registros que antes — deberían acercarse a la cantidad real
+   de movimientos internos históricos en Odoo, no solo 4.
+4. Volvé a **Pre-Despacho** y confirmá que la tarjeta "Traslados por
+   Planificar" ahora sí trae varias filas (las que estén en estado "Por
+   planificar" con origen y destino distintos).
+5. Corré el botón una segunda vez y confirmá que no duplica nada — los
+   mismos traslados se actualizan en lugar de crearse de nuevo.
