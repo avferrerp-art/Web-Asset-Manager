@@ -1,0 +1,194 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet: gestión logística de flota. Monorepo pnpm, Node 24, TS 5.9.
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` y `.agents/memory/`. Relevantes aquí:
+  - .agents/memory/db-migrations-boot.md
+  - .agents/memory/api-server-restart-after-codegen.md
+  - .agents/memory/codegen-merge-conflicts.md
+
+REGLAS: null = "sin dato", nunca 0 ni "". Contrato primero: openapi.yaml +
+`pnpm --filter @workspace/api-spec run codegen`, nunca editar `generated/`.
+Schema = archivo + migración numerada idempotente en lib/db/src/migrations/,
+registrada en su index.ts. Reiniciar el workflow del api-server tras tocar
+cualquier lib.
+
+════════ ADVERTENCIA — LEE ESTO ANTES DE EMPEZAR ════════
+
+Esta tarea es el primer paso hacia autorización real en LogiFleet. HOY no
+existe ninguna: `requireAuth` solo verifica que haya sesión de Clerk, y
+`personnel.rol` (chofer | ayudante) nunca decide nada — sus únicos usos en
+todo el repo son filtros de dropdown.
+
+ESTA TAREA — PARTE 1 — SOLO CONSTRUYE EL MODELO DE DATOS. NO CAMBIA QUIÉN
+PUEDE HACER QUÉ. Ni un endpoint nuevo queda protegido por rol. Todo usuario
+autenticado sigue pudiendo hacer exactamente lo mismo que hace hoy al
+terminar esta tarea.
+
+Por qué separado así: el día que se encienda de verdad la autorización (tarea
+2, aparte, más adelante), el riesgo es que alguien —incluido el dueño del
+sistema— quede afuera de su propia aplicación por un dato mal cargado. Ese
+riesgo se reduce a casi cero si los datos de quién-ve-qué-almacén ya llevan
+un tiempo cargados y verificados ANTES de que cualquier código empiece a
+consultarlos para decidir accesos. Por eso esta tarea entrega el modelo y la
+manera de poblarlo, sin tocar la aplicación de reglas.
+
+════════ POR QUÉ MUCHOS-A-MUCHOS Y NO UN CAMPO ÚNICO ════════
+
+La opción obvia sería `personnel.almacenId` (un almacén por persona). NO se
+usa: ya se confirmó que existen supervisores por plaza — alguien de Caracas
+que debe ver Urbina Y Caracas a la vez, alguien de Lechería que ve Lechería Y
+Nueva Barcelona. Un campo único no puede expresar eso.
+
+TAMPOCO se modela como `personnel.plaza`, aunque hoy los supervisores
+coincidan exactamente con las plazas. Esa columna ata el permiso a una
+agrupación geográfica que puede cambiar — una suplencia entre LEC y CCS, un
+quinto almacén — y el día que eso pase hay que migrar de nuevo. La tabla de
+muchos-a-muchos representa las plazas de hoy y cualquier otra combinación de
+mañana, al mismo costo de construcción.
+
+════════ TAREA ════════
+
+1. SCHEMA — `lib/db/src/schema/personal_almacenes.ts`:
+
+     personaId   integer NOT NULL REFERENCES personnel(id) ON DELETE CASCADE
+     almacenId   integer NOT NULL REFERENCES almacenes(id) ON DELETE CASCADE
+     PRIMARY KEY (personaId, almacenId)
+
+   Sin columna `id`: la clave primaria compuesta ya identifica la fila y evita
+   duplicados por construcción (una persona no puede tener el mismo almacén
+   dos veces). Exportarla desde `lib/db/src/schema/index.ts`.
+
+2. MIGRACIÓN — `lib/db/src/migrations/0012_personal_almacenes.ts`, idempotente
+   (CREATE TABLE IF NOT EXISTS, constraints con guardas sobre `pg_constraint`
+   como ya hace `0010_dispatches_polimorficos.ts`), registrada en
+   `lib/db/src/migrations/index.ts`.
+
+3. SEMÁNTICA DE `rol` — documentar, no migrar todavía.
+
+   `personnel.rol` sigue siendo `text` libre; NO agregues un CHECK constraint
+   ni un enum — ya es texto libre hoy y cambiarlo a restringido es un cambio
+   de comportamiento que no toca a esta tarea. Lo que sí hace falta es dejar
+   escrito, en un comentario arriba de la columna en
+   `lib/db/src/schema/personnel.ts`, los valores que el sistema va a reconocer
+   de ahora en adelante:
+
+     // Valores reconocidos: "chofer" | "ayudante" | "almacenista" | "oficina".
+     // "oficina" ve todo, ignora personal_almacenes.
+     // "almacenista" ve solo los almacenes en personal_almacenes.
+     // "chofer" / "ayudante" no se filtran por almacén (se filtran por
+     // choferId/ayudanteId, ya implementado en driver.ts).
+     // Sigue siendo texto libre — el valor no se valida todavía.
+
+   Es seguro agregar los dos valores nuevos: verifica que los filtros
+   existentes en el frontend usan `=== "chofer"` / `=== "ayudante"` — un rol
+   nuevo simplemente no aparece en esos dropdowns, no rompe nada.
+
+4. SERVICIO — `artifacts/api-server/src/services/personAlmacenes.ts`:
+
+   - `getAlmacenesDePersona(personaId): Promise<Almacen[]>`
+   - `setAlmacenesDePersona(personaId, almacenIds: number[]): Promise<void>`
+     Reemplaza el conjunto completo dentro de una transacción (borra las filas
+     de esa persona que no están en la lista nueva, inserta las que faltan).
+     Vacío es válido: significa "sin almacenes asignados todavía", no error.
+
+5. CONTRATO — en `openapi.yaml`, y DESPUÉS
+   `pnpm --filter @workspace/api-spec run codegen`:
+
+   5a. Agregar a `Personnel`: `almacenes: Almacen[]` (reusa el schema
+       `Almacen` que ya existe para `GET /almacenes`).
+   5b. `PUT /personnel/{id}/almacenes` — body `{ almacenIds: integer[] }`,
+       responde `Personnel` actualizado (con `almacenes` ya poblado).
+       `PUT`, no `PATCH`: siempre reemplaza el conjunto completo, nunca
+       agrega ni quita una sola fila — así no hay ambigüedad de qué significa
+       un array vacío en el body.
+
+6. ROUTER — extender `artifacts/api-server/src/routes/personnel.ts`:
+   - `GET /personnel` y `GET /personnel/:id` devuelven `almacenes` poblado
+     (usa `getAlmacenesDePersona` por cada fila; para la lista, evita N+1
+     haciendo un solo query con `inArray` sobre todos los `personaId` en vez
+     de una consulta por persona).
+   - Nuevo handler `PUT /personnel/:id/almacenes`: 404 si la persona no
+     existe, 400 si algún `almacenId` no existe en `almacenes` (usa `inArray`
+     para verificarlos todos de una vez, no un loop de selects).
+
+7. HERRAMIENTA DE VERIFICACIÓN — endpoint de solo lectura para que Pedro
+   pueda comprobar el padrón ANTES de que nada dependa de él:
+
+   `GET /personnel/reporte-almacenes` → lista cada persona con `rol` distinto
+   de "chofer"/"ayudante" (o sea "almacenista"/"oficina"/cualquier valor no
+   reconocido) junto con sus `almacenes` asignados y un flag
+   `sinAsignar: boolean` (true si `rol === "almacenista"` y el array está
+   vacío). Ordenado con los `sinAsignar: true` primero.
+
+   Este endpoint es la forma de responder, sin adivinar, "¿quién quedaría mal
+   configurado si prendiera la autorización hoy?" — que es exactamente la
+   pregunta que hay que poder responder antes de escribir la tarea 2.
+
+8. WEB — `artifacts/logistics/src/pages/personal.tsx`:
+
+   8a. El `<Select>` de rol (línea ~119) suma las dos opciones nuevas:
+       `<SelectItem value="almacenista">Almacenista</SelectItem>` y
+       `<SelectItem value="oficina">Oficina</SelectItem>`.
+
+   8b. Cuando el rol elegido es "almacenista", mostrar un selector
+       multi-almacén (usa `useListAlmacenes` para las opciones) debajo del
+       campo de rol. Al guardar, primero el POST/PATCH de personnel normal, y
+       DESPUÉS `PUT /personnel/{id}/almacenes` con los IDs elegidos — dos
+       llamadas, no una: así el contrato de creación de personal no cambia
+       para nadie que no use almacenes.
+       Para "oficina", "chofer" o "ayudante" el selector no se muestra.
+
+   8c. En la tabla de Personal, columna nueva "Almacenes" que muestra los
+       nombres separados por coma, o "—" si está vacío (NO "0 almacenes" ni
+       "[]" — sigue la regla de "sin dato").
+
+════════ NO HAGAS ════════
+- NO agregues middleware de autorización. NO toques `requireAuth.ts`. NO crees
+  `requireRol`. Eso es la tarea 2, después de que Pedro verifique el padrón
+  con el reporte del punto 7.
+- NO valides ni restrinjas los valores de `rol` con un constraint. Sigue
+  siendo texto libre en esta tarea.
+- NO toques `driver.ts` ni `resolveCurrentPerson` — su lógica de chofer sigue
+  intacta y sin relación con almacenes.
+- NO agregues `ADMIN_EMAILS` ni ninguna variable de entorno nueva — eso
+  pertenece a la tarea 2, junto con el middleware que la va a leer.
+- NO cambies ningún comportamiento observable de ningún endpoint existente.
+  Si un test viejo empieza a fallar por esta tarea, es una señal de que algo
+  se filtró de la tarea 2 hacia acá.
+- NO edites `generated/`.
+
+════════ VERIFICACIÓN ════════
+- `pnpm run typecheck` limpio y api-server reiniciado sin SCHEMA MISMATCH.
+- Migración dos veces seguidas: la segunda no falla ni duplica.
+- `GET /personnel` y `GET /personnel/:id` siguen respondiendo con el mismo
+  shape de antes MÁS el campo `almacenes` — ningún cliente existente se rompe
+  por un campo nuevo.
+- Asignar a una persona los almacenes URB y CCS con
+  `PUT /personnel/{id}/almacenes` → `GET /personnel/{id}` los devuelve.
+  Volver a llamar con `{almacenIds: [CCS]}` → URB queda fuera, CCS se queda
+  (reemplazo completo, no un merge).
+- `PUT` con un `almacenId` inexistente → 400, no crea nada.
+- `PUT` con `{almacenIds: []}` → 200, la persona queda sin almacenes (no es
+  un error).
+- `GET /personnel/reporte-almacenes`: crear una persona con
+  `rol: "almacenista"` sin asignarle almacenes → aparece con
+  `sinAsignar: true`, primera en la lista.
+- Confirmar por SQL que NINGÚN endpoint fuera de `/personnel/*` cambió de
+  comportamiento: un chofer sigue viendo solo sus despachos, un traslado
+  sigue siendo visible para cualquier autenticado, etc. Esta tarea no debe
+  tener efecto observable fuera de la pantalla de Personal.
+- Web: crear una persona con rol "almacenista", asignarle Urbina y Lechería
+  desde el selector multi-almacén, guardar, refrescar la página → los datos
+  persisten y la columna "Almacenes" de la tabla los muestra.
+- Agregar tests en `e2e/tests/` para el servicio `personAlmacenes.ts` (el
+  reemplazo completo, el caso vacío, el 400 de almacén inexistente) y para el
+  reporte del punto 7.
