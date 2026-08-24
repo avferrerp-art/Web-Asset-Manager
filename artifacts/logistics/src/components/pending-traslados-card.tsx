@@ -96,9 +96,9 @@ export function PendingTrasladosCard({
         </div>
       </CardHeader>
       <CardContent className="p-0">
-        <div className="max-h-[560px] overflow-auto [&>div]:overflow-visible">
+        <div className="max-h-[420px] overflow-auto [&>div]:overflow-visible">
         <Table>
-          <TableHeader className="sticky top-0 z-10 bg-card">
+          <TableHeader className="sticky top-0 bg-card z-10">
             <TableRow>
               <TableHead>Referencia</TableHead>
               <TableHead>Origen → Destino</TableHead>
