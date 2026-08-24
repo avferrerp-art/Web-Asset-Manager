@@ -1,0 +1,370 @@
+# PROMPT 10 — Roles por almacén: aplicar el permiso a Traslados (Fase 3B, parte 2 de 2)
+
+```
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas desde Odoo,
+planifica despachos (vehículo + chofer + ruta), calcula costos de peajes y
+combustible, y tiene una app móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO desde el spec — NO editar
+  lib/api-client-react/ GENERADO desde el spec — NO editar
+  artifacts/api-server/ API Express 5 (routers en src/routes/, servicios en src/services/)
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui
+  artifacts/chofer/     App móvil Expo
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` en la raíz y `.agents/memory/` antes de empezar.
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: cambios de API en lib/api-spec/openapi.yaml + codegen de
+     Orval. Los `generated/` NUNCA se editan a mano. Esta tarea NO agrega
+     endpoints nuevos ni query params nuevos, así que probablemente no toques
+     el contrato — si en algún punto sientes que hace falta, deténte y
+     repiénsalo primero.
+  2. Schema = archivo + migración. Esta tarea NO toca el schema de la DB — la
+     migración 0012 (personal_almacenes) ya existe y ya corrió. Si crees que
+     necesitas una migración nueva, deténte: probablemente te saliste del
+     alcance.
+  3. La autorización hoy es el ORDEN de los routers en src/routes/index.ts.
+     Esta tarea NO cambia ese orden ni agrega middleware nuevo ahí — la
+     verificación de permiso vive DENTRO de los handlers de traslados.ts y
+     actas.ts, no como un middleware genérico montado en el router.
+  4. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  5. null = "sin dato". NUNCA 0 ni "".
+
+════════ REQUISITO PREVIO ════════
+
+PROMPT 9 (commit d994436) ya dejó, sin activar ningún comportamiento nuevo:
+  - Tabla `personnel_almacenes` (many-to-many, PK compuesta personnel_id +
+    almacen_id).
+  - `personnel.rol` reconoce (por convención, sin constraint) los valores
+    `chofer`, `ayudante`, `almacenista`, `oficina`.
+  - `artifacts/api-server/src/services/personnelAlmacenes.ts` →
+    `listarAlmacenesDePersonal(personnelId): Promise<PersonnelAlmacenAsignado[]>`
+    (cada item trae `.id`, `.codigo`, `.nombre`, `.plaza`, etc.)
+  - `GET /personnel/reporte-almacenes` — YA VERIFICADO por Pedro con datos
+    reales: confirma que el reporte calcula bien quién quedaría sin acceso.
+
+Si algo de esto falta, detente y repórtalo.
+
+Dato de contexto: hoy la base de Pedro tiene 4 personas de prueba con rol
+`almacenista`/`oficina` (creadas para verificar el reporte), y el resto del
+personal real es `chofer`/`ayudante`. El email de Pedro (el que usa para
+loguearse en la web) casi seguro NO tiene fila en `personnel` — por eso la
+salvaguarda de "no vinculado → acceso total" de abajo es la que más importa
+de las tres: es lo que evita que él mismo quede fuera de su propia app.
+
+════════ POR QUÉ ESTA TAREA ════════
+
+Hoy `personnel_almacenes` existe pero **no filtra nada** — es pura
+configuración sin efecto. Esta tarea prende el primer filtro real: un
+usuario con `rol = 'almacenista'` deja de ver TODOS los traslados y pasa a
+ver solo los que tocan alguno de sus almacenes asignados (como origen o como
+destino).
+
+Alcance deliberadamente angosto, decidido con Pedro antes de escribir esto:
+SOLO el módulo Traslados (`GET /traslados`, `GET /traslados/{id}`,
+`PATCH /traslados/{id}`) y la confirmación de recepción del acta
+(`PATCH /dispatches/{id}/acta`). Todo lo demás — crear/editar/aprobar/borrar
+despachos (`POST/PATCH/DELETE /dispatches`, `POST /dispatches/{id}/approve`),
+que hoy es código compartido entre ventas y traslados — queda explícitamente
+FUERA. Es lógica polimórfica que toca el flujo de ventas también, y meterle
+un permiso de almacén ahí es una tarea con su propio análisis, no un anexo de
+esta. Cuando 3B-2 lleve un tiempo corriendo en producción sin sorpresas, esa
+es la Fase 3B-3.
+
+Quiénes ven qué (decidido en el análisis de Fase 3B):
+
+| Situación de la persona autenticada | Qué ve en Traslados |
+|---|---|
+| `rol = 'oficina'` | Todo. `personnel_almacenes` no aplica. |
+| `rol = 'almacenista'` con almacenes asignados | Solo traslados donde alguno de sus almacenes es origen o destino. |
+| `rol = 'almacenista'` SIN ningún almacén asignado | Todo (ver TRAMPA 2 — es a propósito). |
+| `rol = 'chofer'` / `'ayudante'` | Todo, sin cambios — su restricción real es "solo sus despachos" y ya vive en `driver.ts`, en endpoints separados que esta tarea no toca. |
+| Email autenticado que NO tiene fila en `personnel` | Todo (ver TRAMPA 1 — es a propósito). |
+| Email en la variable de entorno `ADMIN_EMAILS` | Todo, sin importar lo anterior. |
+
+════════ TRAMPAS ════════
+
+1. **"No vinculado" tiene que fallar hacia ACCESO TOTAL, no hacia "sin
+   acceso".** `resolveCurrentPerson(req)` (en
+   `artifacts/api-server/src/services/currentPerson.ts`) devuelve
+   `{ ok: false, reason: "not_linked" | "no_email" | "unauthorized", email? }`
+   cuando el email de Clerk no tiene fila en `personnel`. Hoy TODOS los
+   usuarios autenticados —tengan o no fila en `personnel`— pueden ver
+   cualquier traslado. Si tu implementación trata "no vinculado" como "sin
+   permiso" o como "cero almacenes → cero traslados", la primera persona que
+   se queda afuera es casi seguro Pedro mismo, y la UI para arreglarlo
+   también estaría bloqueada. Este es EL riesgo que hace a esta fase
+   delicada. Cualquier caso ambiguo (no vinculado, sin email, rol
+   desconocido) resuelve hacia "ve todo", nunca hacia "no ve nada".
+
+2. **`almacenista` con CERO almacenes asignados también resuelve hacia
+   "ve todo"**, no hacia una lista vacía. Es la misma lógica del punto
+   anterior aplicada a una fila de `personnel` incompleta: alguien creó la
+   persona con rol `almacenista` y todavía no le asignó almacén (pasa,
+   Pedro mismo tiene una persona de prueba así: "Almacenista Sin Asignar
+   (prueba)"). Tratarlo como "sin acceso" convierte un dato incompleto en un
+   apagón. Este caso SÍ debe dejar un `logger.warn(...)` — es información
+   real de que hay que ir a asignarle almacén a esa persona, a diferencia
+   del caso 1 que es simplemente "esta persona no es de operación".
+
+3. **`ADMIN_EMAILS` se evalúa ANTES de mirar `personnel`, no como
+   desempate.** Si lo implementas como "buscar en `personnel`, y si el rol
+   no alcanza, revisar `ADMIN_EMAILS`", te queda un bug: alguien en
+   `ADMIN_EMAILS` pero SIN fila en `personnel` (el caso más probable, es
+   justo el de Pedro) pasaría primero por la rama "no vinculado" — que ya
+   resuelve a "ve todo" por la trampa 1, así que en la práctica no falla,
+   pero es un accidente, no diseño. Evalúa `ADMIN_EMAILS` primero y explícito,
+   como su propio camino corto, para que no dependa de qué tan permisiva sea
+   la rama de abajo. `ADMIN_EMAILS` es una lista separada por comas en el
+   entorno, comparar en minúsculas.
+
+4. **No dupliques la resolución de email.** `resolveCurrentPerson` ya hace
+   Clerk → email → `personnel` y expone el email incluso cuando falla
+   (`reason: "not_linked"` trae `email`). No llames a `clerkClient` de nuevo
+   para conseguir el email del usuario actual — usa el que ya devuelve
+   `resolveCurrentPerson`. El único caso sin email es `"no_email"` /
+   `"unauthorized"`; en esos, `ADMIN_EMAILS` simplemente no puede aplicar
+   (no hay con qué comparar) y cae en el fallback de "ve todo" igual.
+
+5. **El filtro de `GET /traslados` NO puede armarse con un `leftJoin` hacia
+   `personnel_almacenes`.** `selectTraslados()` en
+   `artifacts/api-server/src/services/trasladoQueries.ts` calcula
+   `cantidadLineas: count(deliveryItemsTable.id)` con un `.groupBy(...)`. Ya
+   sabes (viene de la Fase 3A) que cualquier join nuevo ahí duplica filas de
+   `delivery_items` y descuadra ese conteo. No hace falta ningún join nuevo
+   de todos modos: `trasladosTable.almacenOrigenId` y
+   `trasladosTable.almacenDestinoId` ya son columnas de `traslados`, así que
+   el filtro de permiso es una condición más sobre columnas que YA están en
+   el `FROM` — `inArray(...)` / `or(...)` de Drizzle, nada de join.
+
+6. **La confirmación de recepción se autoriza contra el almacén DESTINO, no
+   el origen.** `PATCH /dispatches/{id}/acta` es donde el almacén confirma
+   que recibió la mercancía (`recibidoPor`, `novedadesRecepcion`) — el que
+   confirma es el almacenista del almacén de LLEGADA. Si autorizas contra
+   `almacenOrigenId` por reflejo (es el primero que aparece en casi todo el
+   código de traslados), un almacenista de Urbina no podría confirmar la
+   recepción de un traslado QUE LE ESTÁ LLEGANDO desde Lechería.
+
+7. **`POST /dispatches/{id}/acta` (registrar llegada) NO se toca.** Ese es
+   el endpoint que usa el CHOFER desde la app para avisar que llegó — está en
+   el mismo router `actas.ts` que la confirmación, pero es una acción
+   distinta hecha por una persona distinta. Filtrarlo por almacén del
+   chofer no tiene sentido (el chofer no tiene almacén asignado, tiene
+   despachos asignados) y no es parte del alcance que se decidió. Igual con
+   `GET /dispatches/{id}/acta` (solo lectura) — se deja sin tocar.
+
+8. **La acta de un despacho de VENTA nunca pasa por este chequeo.** El
+   schema de actas soporta despachos de venta desde el día uno (3A), aunque
+   la UI hoy solo los usa para traslados. `dispatchesTable.tipo` puede ser
+   `'venta'`. Si `dispatch.tipo !== 'traslado'`, el chequeo de almacén se
+   salta por completo — no existe concepto de "almacén" para un despacho de
+   venta en este alcance, y bloquearlo por accidente rompería confirmaciones
+   de recepción de ventas que hoy funcionan sin restricción.
+
+════════ TAREA ════════
+
+1. Nuevo servicio `artifacts/api-server/src/services/authzAlmacenes.ts`:
+
+   ```ts
+   export type PermisosAlmacen =
+     | { alcance: "todos"; motivo: string }
+     | { alcance: "limitado"; almacenIds: number[] };
+
+   export async function resolvePermisosAlmacen(req: Request): Promise<PermisosAlmacen>
+   export function puedeVerAlmacen(permisos: PermisosAlmacen, almacenId: number | null): boolean
+   export function puedeVerTraslado(
+     permisos: PermisosAlmacen,
+     almacenOrigenId: number | null,
+     almacenDestinoId: number | null,
+   ): boolean
+   ```
+
+   `resolvePermisosAlmacen`, en este orden exacto:
+   a. Llama `resolveCurrentPerson(req)`.
+   b. Deriva el email disponible: `result.person.email` si `ok`, o
+      `result.email` si `reason === "not_linked"`; si no hay ninguno, sigue
+      sin email.
+   c. Si hay email y está en `ADMIN_EMAILS` (comparación case-insensitive) →
+      `{ alcance: "todos", motivo: "admin" }`. Parsear `ADMIN_EMAILS` una vez
+      (env var separada por comas, trim de cada valor).
+   d. Si `!result.ok` → `{ alcance: "todos", motivo: "no_vinculado" }`. Sin
+      log de advertencia — no vinculado es un estado normal (chofer, o
+      cualquier email autenticado que no es personal operativo), no una
+      configuración incompleta.
+   e. Si `result.person.rol === "oficina"` → `{ alcance: "todos", motivo: "oficina" }`.
+   f. Si `result.person.rol === "almacenista"`:
+      - `const almacenes = await listarAlmacenesDePersonal(result.person.id)`
+      - Si `almacenes.length === 0` → `logger.warn({ personId: result.person.id, email: result.person.email }, "Almacenista sin almacenes asignados — acceso total temporal")`
+        y devolver `{ alcance: "todos", motivo: "almacenista_sin_asignar" }`.
+      - Si no, `{ alcance: "limitado", almacenIds: almacenes.map(a => a.id) }`.
+   g. Cualquier otro rol (`chofer`, `ayudante`, o cualquier valor futuro) →
+      `{ alcance: "todos", motivo: "rol_no_gestionado" }`.
+
+   `puedeVerAlmacen`: `alcance === "todos"` → true; si no, `almacenId !== null && permisos.almacenIds.includes(almacenId)`.
+
+   `puedeVerTraslado`: `alcance === "todos"` → true; si no,
+   `puedeVerAlmacen(permisos, almacenOrigenId) || puedeVerAlmacen(permisos, almacenDestinoId)`.
+
+2. En `artifacts/api-server/src/services/trasladoQueries.ts`:
+   a. Agregar a `TrasladoFilters`: `almacenesPermitidos?: number[]`.
+   b. En `selectTraslados`, cuando `filters.almacenesPermitidos` esté
+      presente (array no vacío), agregar una condición:
+      `or(inArray(trasladosTable.almacenOrigenId, ids), inArray(trasladosTable.almacenDestinoId, ids))`
+      — importar `inArray` y `or` de `drizzle-orm` (ya se importan `and`,
+      `count`, `desc`, `eq`, `ne`, `sql` ahí). SIN joins nuevos (trampa 5).
+   c. Nueva función, liviana, para chequeos de autorización sin pagar el
+      join/groupBy completo de `selectTraslados`:
+      ```ts
+      export async function getTrasladoAlmacenIds(id: number) {
+        const [row] = await db
+          .select({
+            almacenOrigenId: trasladosTable.almacenOrigenId,
+            almacenDestinoId: trasladosTable.almacenDestinoId,
+          })
+          .from(trasladosTable)
+          .where(eq(trasladosTable.id, id));
+        return row ?? null;
+      }
+      ```
+
+3. En `artifacts/api-server/src/routes/traslados.ts`:
+   a. `GET /traslados`: después de parsear `parsed.data`, llamar
+      `resolvePermisosAlmacen(req)`. Si `alcance === "limitado"`, agregar
+      `almacenesPermitidos: permisos.almacenIds` al objeto de filtros que se
+      pasa a `listTraslados`.
+   b. `GET /traslados/:id`: ya hace `getTraslado(parsed.data.id)` y responde
+      404 si es null. Justo antes de `res.json(...)`, llamar
+      `resolvePermisosAlmacen(req)` y
+      `puedeVerTraslado(permisos, traslado.almacenOrigen?.id ?? null, traslado.almacenDestino?.id ?? null)`.
+      Si es `false`: `res.status(403).json({ error: "almacen_no_autorizado" })`.
+      (`getTraslado` ya devuelve `almacenOrigen`/`almacenDestino` como
+      objetos `{id, codigo, nombre, plaza} | null` — no hace falta una
+      consulta aparte acá.)
+   c. `PATCH /traslados/:id`: antes de llamar
+      `updateTrasladoLocalFields`, resolver `getTrasladoAlmacenIds(id)`; si
+      es `null`, 404 igual que hoy. Si no es null, chequear
+      `resolvePermisosAlmacen(req)` + `puedeVerTraslado(...)` con esos
+      `almacenOrigenId`/`almacenDestinoId`; si `false`, 403
+      `{ error: "almacen_no_autorizado" }` ANTES de tocar la DB.
+
+4. En `artifacts/api-server/src/routes/actas.ts`:
+   a. Extender `getDispatch` para traer también `tipo` y `trasladoId`:
+      ```ts
+      async function getDispatch(id: number) {
+        const [dispatch] = await db
+          .select({
+            id: dispatchesTable.id,
+            estado: dispatchesTable.estado,
+            tipo: dispatchesTable.tipo,
+            trasladoId: dispatchesTable.trasladoId,
+          })
+          .from(dispatchesTable)
+          .where(eq(dispatchesTable.id, id));
+        return dispatch ?? null;
+      }
+      ```
+      (Es aditivo — `GET`/`POST /dispatches/:id/acta` que ya usan
+      `getDispatch` siguen funcionando igual, solo ignoran los campos
+      nuevos.)
+   b. En el handler `PATCH /dispatches/:id/acta` (confirmar recepción),
+      DESPUÉS de confirmar que el despacho existe y ANTES de la validación
+      de `getActaPorDespacho`, agregar: si
+      `dispatch.tipo === "traslado" && dispatch.trasladoId !== null`,
+      resolver `getTrasladoAlmacenIds(dispatch.trasladoId)` y
+      `resolvePermisosAlmacen(req)`, y chequear
+      `puedeVerAlmacen(permisos, traslado.almacenDestinoId)` (DESTINO, no
+      origen — trampa 6). Si `false`: 403
+      `{ error: "almacen_no_autorizado" }`. Si `dispatch.tipo !== "traslado"`,
+      no se agrega ningún chequeo (trampa 8).
+   c. `GET /dispatches/:id/acta` y `POST /dispatches/:id/acta` (registrar
+      llegada) quedan exactamente como están (trampa 7).
+
+5. Variable de entorno `ADMIN_EMAILS`: documentarla en `replit.md` (o donde
+   el repo documente variables de entorno — revisa primero cómo están
+   documentadas `ODOO_*` y sigue el mismo lugar/formato) como opcional,
+   lista separada por comas, sin valor por defecto (si no está seteada,
+   simplemente ningún email hace match y el resto de la lógica sigue igual).
+
+════════ NO HAGAS ════════
+- NO toques `POST /dispatches`, `PATCH /dispatches/:id`,
+  `DELETE /dispatches/:id`, ni `POST /dispatches/:id/approve`. Crear, editar,
+  aprobar o borrar despachos —de venta o de traslado— queda sin cambios en
+  esta tarea.
+- NO toques `artifacts/api-server/src/routes/driver.ts`. La restricción de
+  chofer/ayudante a sus propios despachos ya existe ahí y es independiente
+  de este sistema de permisos por almacén.
+- NO toques `POST /dispatches/:id/acta` ni `GET /dispatches/:id/acta`.
+- NO agregues un `CHECK` constraint sobre `personnel.rol` en la DB. Sigue
+  siendo texto libre.
+- NO agregues ninguna migración. El schema no cambia en esta tarea.
+- NO cambies el orden de los routers en `src/routes/index.ts` ni agregues un
+  middleware montado ahí. El chequeo vive dentro de los handlers.
+- NO toques la UI web de Traslados ni la de Personal. La lista de traslados
+  simplemente mostrará menos filas cuando el backend filtre; un 403 al abrir
+  el detalle se muestra hoy con el manejo de error genérico que ya existe en
+  `traslado-detail-sheet.tsx` (lee `error.response.data.error`), igual que
+  cualquier otro código de error del backend — no hace falta traducirlo a un
+  mensaje bonito en esta tarea.
+- NO restrinjas a `chofer`/`ayudante` en ningún endpoint de este archivo.
+  Sin cambios para ellos.
+
+════════ VERIFICACIÓN ════════
+
+Con los datos de prueba que ya existen en la base (creados para verificar el
+reporte de PROMPT 9):
+  - id 6, "Almacenista Urbina (prueba)", almacenista, almacén: Urbina (URB)
+  - id 7, "Supervisor Caracas (prueba)", almacenista, almacenes: Caracas (CCS) + Urbina (URB)
+  - id 8, "Almacenista Sin Asignar (prueba)", almacenista, sin almacenes
+  - id 9, "Personal Oficina (prueba)", oficina, sin almacenes
+
+Usando el patrón de mocking que ya existe en `e2e/tests/actas-llegada.test.ts`
+(`vi.mock` sobre `resolveCurrentPerson` con un `currentPersonMock.result`
+hoisted, más el mock de `requireAuth` que deja pasar con el header
+`x-test-auth: authenticated`), agregar `e2e/tests/authz-almacenes.test.ts`
+que cubra contra `GET /traslados` (con datos reales o sembrados en el test):
+
+1. **El caso más importante primero**: `resolveCurrentPerson` devolviendo
+   `{ ok: false, reason: "not_linked", email: "pedro@ejemplo.com" }` (sin
+   `ADMIN_EMAILS` seteada) → `GET /traslados` devuelve TODOS los traslados,
+   sin excepción. Este es el que evita que alguien real quede bloqueado.
+2. Persona 6 (Urbina únicamente) → `GET /traslados` devuelve solo traslados
+   con origen o destino = Urbina. Si hay un traslado Caracas → Lechería en
+   los datos de prueba, NO debe aparecer.
+3. Persona 7 (Caracas + Urbina) → ve traslados que tocan CCS o URB en
+   cualquier combinación (incluye un traslado URB → LEC, porque URB es
+   origen; y uno CCS → NVBLA, porque CCS es origen), pero NO uno LEC → NVBLA
+   puro.
+4. Persona 8 (almacenista sin asignar) → ve TODOS los traslados, Y el log
+   del server muestra el `logger.warn` de "sin almacenes asignados".
+5. Persona 9 (oficina) → ve todos, sin ningún warning en el log.
+6. Con `ADMIN_EMAILS` seteada al email de la persona 6 (Urbina) → esa persona
+   ve TODOS los traslados a pesar de tener un almacén asignado — el bypass
+   de admin gana.
+7. `GET /traslados/:id` sobre un traslado fuera del alcance de la persona 6
+   → 403 con `{ error: "almacen_no_autorizado" }`. Sobre uno dentro de su
+   alcance → 200 normal.
+8. `PATCH /traslados/:id` (cambiar `notas`, por ejemplo) sobre un traslado
+   fuera del alcance de la persona 6 → 403, y confirmar con una lectura
+   directa a la DB que `notas` NO cambió.
+9. `PATCH /dispatches/:id/acta` (confirmar recepción) sobre un despacho de
+   traslado cuyo almacén DESTINO no está en el alcance de quien confirma →
+   403. Sobre uno cuyo destino SÍ está en su alcance → funciona igual que
+   antes (incluye el caso ya cubierto en PROMPT 7: sellar `confirmadaAt` una
+   sola vez).
+10. Confirmar que `PATCH /dispatches/:id/acta` sobre un despacho con
+    `tipo = 'venta'` sigue funcionando exactamente igual que hoy, sin
+    importar el rol/almacenes de quien confirma (trampa 8).
+11. Confirmar que `POST /dispatches` y los demás endpoints de
+    `dispatches.ts` no cambiaron: correr los tests existentes de
+    `e2e/tests/dispatches-traslados.test.ts` y que sigan pasando tal cual.
+
+`pnpm run typecheck` limpio y api-server reiniciado sin errores (esta tarea
+no toca schema, así que no debería haber ninguna migración pendiente nueva).
+```
