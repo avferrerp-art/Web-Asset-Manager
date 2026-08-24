@@ -12,7 +12,8 @@ import {
   Boxes,
   LogOut,
   Settings,
-  ArrowRightLeft
+  ArrowRightLeft,
+  Route
 } from "lucide-react";
 import { useUser, useClerk } from "@clerk/react";
 import {
@@ -80,6 +81,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
     { href: "/despachos", label: "Despachos", icon: Package },
     { href: "/ventas", label: "Ventas", icon: FileText },
     { href: "/traslados", label: "Traslados", icon: ArrowRightLeft },
+    { href: "/viajes", label: "Viajes", icon: Route },
     { href: "/vehiculos", label: "Vehículos", icon: Truck },
     { href: "/personal", label: "Personal", icon: Users },
     { href: "/rutas", label: "Rutas", icon: MapPin },

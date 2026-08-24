@@ -121,6 +121,11 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
 
   const onSubmit = (values: z.infer<typeof editSchema>) => {
     const payload: Record<string, unknown> = { ...values };
+    if (dispatch?.viajeId) {
+      delete payload.vehiculoId;
+      delete payload.choferId;
+      delete payload.ayudanteId;
+    }
     if (!payload.ayudanteId || payload.ayudanteId === 0) delete payload.ayudanteId;
     if (!payload.routeId || payload.routeId === 0) delete payload.routeId;
     if (payload.distanciaManual === undefined) delete payload.distanciaManual;
@@ -182,60 +187,67 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
               </FormItem>
             )} />
 
-            <FormField control={form.control} name="vehiculoId" render={({ field }) => (
-              <FormItem>
-                <FormLabel>Vehículo</FormLabel>
-                <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()}>
-                  <FormControl>
-                    <SelectTrigger><SelectValue placeholder="Seleccionar vehículo" /></SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {vehicles?.map(v => (
-                      <SelectItem key={v.id} value={v.id.toString()}>
-                        {v.modelo} — {v.capacidadPeso}kg{v.tipo === "tercero" ? " [Tercero]" : ""}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )} />
-
-            <div className="grid grid-cols-2 gap-3">
-              <FormField control={form.control} name="choferId" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Chofer</FormLabel>
-                  <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()}>
-                    <FormControl>
-                      <SelectTrigger><SelectValue placeholder="Chofer" /></SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      {personnel?.filter(p => p.rol === "chofer").map(p => (
-                        <SelectItem key={p.id} value={p.id.toString()}>{p.nombre}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-              <FormField control={form.control} name="ayudanteId" render={({ field }) => (
-                <FormItem>
-                  <FormLabel>Ayudante</FormLabel>
-                  <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString() ?? "0"}>
-                    <FormControl>
-                      <SelectTrigger><SelectValue placeholder="Ayudante" /></SelectTrigger>
-                    </FormControl>
-                    <SelectContent>
-                      <SelectItem value="0">Ninguno</SelectItem>
-                      {personnel?.filter(p => p.rol === "ayudante").map(p => (
-                        <SelectItem key={p.id} value={p.id.toString()}>{p.nombre}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                  <FormMessage />
-                </FormItem>
-              )} />
-            </div>
+            {dispatch.viajeId ? (
+              <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
+                Vehículo, chofer y ayudante se administran desde el viaje #{dispatch.viajeId}.
+              </div>
+            ) : (
+              <>
+                <FormField control={form.control} name="vehiculoId" render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Vehículo</FormLabel>
+                    <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()}>
+                      <FormControl>
+                        <SelectTrigger><SelectValue placeholder="Seleccionar vehículo" /></SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {vehicles?.map(v => (
+                          <SelectItem key={v.id} value={v.id.toString()}>
+                            {v.modelo} — {v.capacidadPeso}kg{v.tipo === "tercero" ? " [Tercero]" : ""}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+                <div className="grid grid-cols-2 gap-3">
+                  <FormField control={form.control} name="choferId" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Chofer</FormLabel>
+                      <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString()}>
+                        <FormControl>
+                          <SelectTrigger><SelectValue placeholder="Chofer" /></SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {personnel?.filter(p => p.rol === "chofer").map(p => (
+                            <SelectItem key={p.id} value={p.id.toString()}>{p.nombre}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                  <FormField control={form.control} name="ayudanteId" render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Ayudante</FormLabel>
+                      <Select onValueChange={(v) => field.onChange(parseInt(v))} value={field.value?.toString() ?? "0"}>
+                        <FormControl>
+                          <SelectTrigger><SelectValue placeholder="Ayudante" /></SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="0">Ninguno</SelectItem>
+                          {personnel?.filter(p => p.rol === "ayudante").map(p => (
+                            <SelectItem key={p.id} value={p.id.toString()}>{p.nombre}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )} />
+                </div>
+              </>
+            )}
 
             <div className="grid grid-cols-2 gap-3">
               <FormField control={form.control} name="fechaEstimadaSalida" render={({ field }) => (
@@ -345,6 +357,7 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
         <div className="space-y-1 pt-2">
           <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium mb-3">Información general</p>
           <DetailRow label="Estado" value={ESTADO_BADGE[dispatch.estado] ?? <Badge>{dispatch.estado}</Badge>} />
+          {dispatch.viajeId && <DetailRow label="Viaje" value={<Badge variant="outline">Viaje #{dispatch.viajeId}</Badge>} />}
           <DetailRow label="Cliente" value={dispatch.clienteNombre} />
           <DetailRow label="Destino" value={dispatch.destino} />
           <DetailRow label="Ruta" value={dispatch.ruta} />

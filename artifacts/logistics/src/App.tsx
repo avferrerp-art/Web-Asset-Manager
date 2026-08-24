@@ -19,6 +19,7 @@ import Rutas from "@/pages/rutas";
 import Carga from "@/pages/carga";
 import Articulos from "@/pages/articulos";
 import Configuracion from "@/pages/configuracion";
+import Viajes from "@/pages/viajes";
 
 const queryClient = new QueryClient();
 
@@ -175,6 +176,12 @@ function Router() {
       </Route>
       <Route path="/traslados">
         <ProtectedPage component={Traslados} />
+      </Route>
+      <Route path="/viajes/:id">
+        <ProtectedPage component={Viajes} />
+      </Route>
+      <Route path="/viajes">
+        <ProtectedPage component={Viajes} />
       </Route>
       <Route path="/vehiculos">
         <ProtectedPage component={Vehiculos} />

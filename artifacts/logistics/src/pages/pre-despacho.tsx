@@ -32,6 +32,7 @@ import { CargoWizard } from "@/components/cargo-wizard";
 import { OdooSyncCard, OdooBadge } from "@/components/odoo-sync-card";
 import { PendingTrasladosCard } from "@/components/pending-traslados-card";
 import { toDatetimeLocal } from "@/lib/datetime-local";
+import { ViajeWizard, type ViajeSelectedOrder } from "@/components/viaje-wizard";
 
 const dispatchSchema = z.object({
   vehiculoId: z.coerce.number().min(1, "Requerido"),
@@ -64,6 +65,9 @@ export default function PreDespacho() {
   const [cargoWizardTrasladoId, setCargoWizardTrasladoId] = useState<number | undefined>();
   const [cargoWizardTraslado, setCargoWizardTraslado] = useState<TrasladoSummary | null>(null);
   const [search, setSearch] = useState("");
+  const [tripMode, setTripMode] = useState(false);
+  const [tripWizardOpen, setTripWizardOpen] = useState(false);
+  const [tripOrdersByKey, setTripOrdersByKey] = useState<Record<string, ViajeSelectedOrder>>({});
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -333,6 +337,27 @@ export default function PreDespacho() {
       .map((dispatch) => dispatch.trasladoId as number),
   );
   const selectedSourceDestination = selectedSale?.destino ?? selectedTraslado?.almacenDestino?.nombre ?? null;
+  const tripOrders = Object.values(tripOrdersByKey);
+  const tripSelectedKeys = new Set(Object.keys(tripOrdersByKey));
+  const tripPesoKnown = tripOrders.reduce((total, order) => total + (order.pesoKg ?? 0), 0);
+  const tripVolumenKnown = tripOrders.reduce((total, order) => total + (order.volumenM3 ?? 0), 0);
+  const tripPesoUnknown = tripOrders.some((order) => order.pesoKg === null);
+  const tripVolumenUnknown = tripOrders.some((order) => order.volumenM3 === null);
+
+  function toggleTripOrder(order: ViajeSelectedOrder) {
+    setTripOrdersByKey((current) => {
+      const next = { ...current };
+      if (next[order.key]) delete next[order.key];
+      else next[order.key] = order;
+      return next;
+    });
+  }
+
+  function exitTripMode() {
+    setTripMode(false);
+    setTripWizardOpen(false);
+    setTripOrdersByKey({});
+  }
 
   return (
     <div className="space-y-6">
@@ -343,13 +368,24 @@ export default function PreDespacho() {
             Asigna vehículo, chofer y ruta a los pedidos pendientes para convertirlos en despachos.
           </p>
         </div>
-        <Button
-          data-testid="button-nuevo-despacho-predespacho"
-          onClick={() => setWizardOpen(true)}
-          className="gap-2 shrink-0"
-        >
-          <Plus className="w-4 h-4" /> Nuevo Despacho
-        </Button>
+        <div className="flex gap-2 shrink-0">
+          <Button
+            data-testid="button-armar-viaje"
+            variant={tripMode ? "secondary" : "outline"}
+            onClick={() => tripMode ? exitTripMode() : setTripMode(true)}
+            className="gap-2"
+          >
+            <RouteIcon className="w-4 h-4" /> {tripMode ? "Cancelar viaje" : "Armar viaje"}
+          </Button>
+          <Button
+            data-testid="button-nuevo-despacho-predespacho"
+            onClick={() => setWizardOpen(true)}
+            className="gap-2"
+            disabled={tripMode}
+          >
+            <Plus className="w-4 h-4" /> Nuevo Despacho
+          </Button>
+        </div>
       </div>
       <NuevoDespachoWizard open={wizardOpen} onClose={() => setWizardOpen(false)} />
       <CargoWizard
@@ -372,8 +408,48 @@ export default function PreDespacho() {
         }}
         onTrasladoVehicleAssigned={(traslado, vehicleId) => handleSelectTraslado(traslado, vehicleId)}
       />
+      <ViajeWizard
+        open={tripWizardOpen}
+        orders={tripOrders}
+        vehicles={vehicles ?? []}
+        personnel={personnel ?? []}
+        onOpenChange={setTripWizardOpen}
+        onRemove={(key) => setTripOrdersByKey((current) => {
+          const next = { ...current };
+          delete next[key];
+          return next;
+        })}
+        onCreated={(viajeId, warning) => {
+          exitTripMode();
+          toast({
+            title: warning ? "Viaje creado con una advertencia" : "Viaje compartido creado",
+            description: warning ?? "Los despachos fueron agrupados correctamente.",
+            variant: warning ? "destructive" : "default",
+          });
+          navigate(`/viajes/${viajeId}`);
+        }}
+        onPartialFailureClose={exitTripMode}
+      />
 
       <OdooSyncCard />
+
+      {tripMode && (
+        <Card className="border-primary/40 bg-primary/5" data-testid="trip-selection-bar">
+          <CardContent className="flex flex-wrap items-center gap-x-5 gap-y-3 py-3">
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold">Armando viaje compartido</p>
+              <p className="text-sm text-muted-foreground">
+                {tripOrders.length} {tripOrders.length === 1 ? "orden seleccionada" : "órdenes seleccionadas"} ·
+                {" "}Peso: {tripPesoKnown} kg{tripPesoUnknown ? " conocidos · datos incompletos" : ""} ·
+                {" "}Volumen: {tripVolumenKnown} m³{tripVolumenUnknown ? " conocidos · datos incompletos" : ""}
+              </p>
+            </div>
+            <Button onClick={() => setTripWizardOpen(true)} disabled={tripOrders.length === 0} data-testid="button-configurar-viaje">
+              <RouteIcon className="mr-2 h-4 w-4" /> Configurar viaje
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       <Card>
         <CardHeader>
@@ -405,7 +481,7 @@ export default function PreDespacho() {
                 <TableHead>Destino</TableHead>
                 <TableHead>Peso</TableHead>
                 <TableHead>Volumen</TableHead>
-                <TableHead className="w-[220px]"></TableHead>
+                <TableHead className="w-[220px]">{tripMode ? "Incluir" : ""}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -436,25 +512,44 @@ export default function PreDespacho() {
                   <TableCell>{sinDatoCarga(sale.pesoTotal) ? <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span> : formatCarga(sale.pesoTotal, "kg")}</TableCell>
                   <TableCell>{sinDatoCarga(sale.volumenTotal) ? <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span> : formatCarga(sale.volumenTotal, "m³")}</TableCell>
                   <TableCell>
-                    <div className="flex gap-2">
-                      <Button
-                        data-testid={`button-cargo-plan-${sale.id}`}
-                        size="sm"
-                        variant="outline"
-                        className="gap-1"
-                        onClick={() => { setCargoWizardSaleId(sale.id); setCargoWizardSale(sale); setCargoWizardOpen(true); }}
-                      >
-                        <PackageSearch className="w-3.5 h-3.5" /> Planificar
-                      </Button>
-                      <Button
-                        data-testid={`button-process-sale-${sale.id}`}
-                        size="sm"
-                        className="gap-1 font-semibold shadow-sm"
-                        onClick={() => handleSelectSale(sale)}
-                      >
-                        <Truck className="w-3.5 h-3.5" /> Crear Despacho
-                      </Button>
-                    </div>
+                    {tripMode ? (
+                      <div className="flex justify-end">
+                        <Checkbox
+                          checked={tripSelectedKeys.has(`venta:${sale.id}`)}
+                          onCheckedChange={() => toggleTripOrder({
+                            key: `venta:${sale.id}`,
+                            tipo: "venta",
+                            id: sale.id,
+                            titulo: `Venta #${sale.id} · ${sale.cliente}`,
+                            subtitulo: sale.destino,
+                            pesoKg: sinDatoCarga(sale.pesoTotal) ? null : sale.pesoTotal ?? null,
+                            volumenM3: sinDatoCarga(sale.volumenTotal) ? null : sale.volumenTotal ?? null,
+                          })}
+                          aria-label={`Incluir venta ${sale.id} en viaje`}
+                          data-testid={`checkbox-viaje-venta-${sale.id}`}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button
+                          data-testid={`button-cargo-plan-${sale.id}`}
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => { setCargoWizardSaleId(sale.id); setCargoWizardSale(sale); setCargoWizardOpen(true); }}
+                        >
+                          <PackageSearch className="w-3.5 h-3.5" /> Planificar
+                        </Button>
+                        <Button
+                          data-testid={`button-process-sale-${sale.id}`}
+                          size="sm"
+                          className="gap-1 font-semibold shadow-sm"
+                          onClick={() => handleSelectSale(sale)}
+                        >
+                          <Truck className="w-3.5 h-3.5" /> Crear Despacho
+                        </Button>
+                      </div>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
@@ -475,6 +570,9 @@ export default function PreDespacho() {
           setCargoWizardOpen(true);
         }}
         onCreateDispatch={handleSelectTraslado}
+        tripMode={tripMode}
+        selectedTripKeys={tripSelectedKeys}
+        onToggleTripOrder={toggleTripOrder}
       />
 
       <Dialog

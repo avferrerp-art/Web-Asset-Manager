@@ -13,6 +13,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { formatTrasladoMedida } from "@/lib/traslado-medidas";
 import { matchesSearch } from "@/lib/search";
 import { TrasladoStatusBadge } from "@/lib/traslado-status";
+import type { ViajeSelectedOrder } from "@/components/viaje-wizard";
 
 interface PendingTrasladosCardProps {
   activeDispatchTrasladoIds: Set<number>;
@@ -20,6 +21,9 @@ interface PendingTrasladosCardProps {
   dispatchesError: Error | null;
   onPlan: (traslado: TrasladoSummary) => void;
   onCreateDispatch: (traslado: TrasladoSummary) => void;
+  tripMode?: boolean;
+  selectedTripKeys?: Set<string>;
+  onToggleTripOrder?: (order: ViajeSelectedOrder) => void;
 }
 
 const PENDING_PARAMS = { estadoLogistico: "por_planificar" };
@@ -30,6 +34,9 @@ export function PendingTrasladosCard({
   dispatchesError,
   onPlan,
   onCreateDispatch,
+  tripMode = false,
+  selectedTripKeys = new Set(),
+  onToggleTripOrder,
 }: PendingTrasladosCardProps) {
   const [search, setSearch] = useState("");
   const {
@@ -97,7 +104,7 @@ export function PendingTrasladosCard({
               <TableHead>Estado</TableHead>
               <TableHead>Peso</TableHead>
               <TableHead>Volumen</TableHead>
-              <TableHead className="w-[220px]" />
+                <TableHead className="w-[220px]">{tripMode ? "Incluir" : ""}</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -173,27 +180,48 @@ export function PendingTrasladosCard({
                   </span>
                 </TableCell>
                 <TableCell>
-                  <div className="flex gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="gap-1"
-                      onClick={() => onPlan(traslado)}
-                      data-testid={`button-plan-traslado-${traslado.id}`}
-                    >
-                      <PackageSearch className="h-3.5 w-3.5" />
-                      Planificar
-                    </Button>
-                    <Button
-                      size="sm"
-                      className="gap-1 font-semibold shadow-sm"
-                      onClick={() => onCreateDispatch(traslado)}
-                      data-testid={`button-create-traslado-dispatch-${traslado.id}`}
-                    >
-                      <Truck className="h-3.5 w-3.5" />
-                      Crear Despacho
-                    </Button>
-                  </div>
+                    {tripMode ? (
+                      <div className="flex justify-end">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-primary"
+                          checked={selectedTripKeys.has(`traslado:${traslado.id}`)}
+                          onChange={() => onToggleTripOrder?.({
+                            key: `traslado:${traslado.id}`,
+                            tipo: "traslado",
+                            id: traslado.id,
+                            titulo: traslado.referencia || `Traslado #${traslado.id}`,
+                            subtitulo: `${traslado.almacenOrigen?.nombre ?? "Origen"} → ${traslado.almacenDestino?.nombre ?? "Destino"}`,
+                            pesoKg: traslado.pesoEfectivoKg,
+                            volumenM3: traslado.volumenCalculadoM3,
+                          })}
+                          aria-label={`Incluir traslado ${traslado.referencia || traslado.id} en viaje`}
+                          data-testid={`checkbox-viaje-traslado-${traslado.id}`}
+                        />
+                      </div>
+                    ) : (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="gap-1"
+                          onClick={() => onPlan(traslado)}
+                          data-testid={`button-plan-traslado-${traslado.id}`}
+                        >
+                          <PackageSearch className="h-3.5 w-3.5" />
+                          Planificar
+                        </Button>
+                        <Button
+                          size="sm"
+                          className="gap-1 font-semibold shadow-sm"
+                          onClick={() => onCreateDispatch(traslado)}
+                          data-testid={`button-create-traslado-dispatch-${traslado.id}`}
+                        >
+                          <Truck className="h-3.5 w-3.5" />
+                          Crear Despacho
+                        </Button>
+                      </div>
+                    )}
                 </TableCell>
               </TableRow>
             ))}
