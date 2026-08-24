@@ -1,0 +1,103 @@
+════════════════════════════════════════════════════════════
+PROMPT 14 (v2) — Pre-Despacho: acortar la tabla de Ventas para que Traslados
+quede visible sin scrollear tanto
+════════════════════════════════════════════════════════════
+
+**Este prompt reemplaza la versión anterior de PROMPT 14** (la de "poner
+Ventas y Traslados lado a lado"). Si ya la aplicaste, revertí ese cambio de
+layout de 2 columnas antes de aplicar este — acá el resultado es distinto:
+las dos tarjetas siguen **una debajo de la otra**, como estaban siempre.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm, TypeScript 5.9. Pantalla afectada:
+`artifacts/logistics/src/pages/pre-despacho.tsx` (React + Vite + shadcn/ui)
+y `artifacts/logistics/src/components/pending-traslados-card.tsx`.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+La tarjeta "Órdenes de Venta por Planificar" y la tarjeta "Traslados por
+Planificar" están apiladas una debajo de la otra, sin límite de alto. Con
+muchas ventas pendientes hay que scrollear muchísimo para llegar a
+Traslados. La solución pedida: mantener el apilado vertical de siempre,
+pero darle a la tabla de Ventas un alto máximo con scroll propio, para que
+la tarjeta de Traslados quede visible bastante más arriba en la página.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. Ninguna de las dos tablas está hoy envuelta en un contenedor con
+   `overflow-x-auto`. Al acotar el alto con `overflow-y-auto`, si alguna
+   columna se corta en pantallas angostas hace falta scroll horizontal
+   también — usá `overflow-auto` (cubre los dos ejes) en vez de solo
+   `overflow-y-auto`.
+2. No toques la lógica de `tripMode` / selección / checkboxes en ninguno de
+   los dos archivos — esto es puramente de layout (CSS/estructura JSX), cero
+   cambios de comportamiento.
+3. El header de cada tabla (`<TableHeader>`) debe quedar fijo arriba
+   mientras se scrollea la lista de esa tarjeta (`sticky top-0`), para no
+   perder de vista las columnas al bajar dentro de la lista. Usá el mismo
+   color de fondo de la tarjeta (`bg-card`) y `z-10` para que no se
+   transparente el contenido que pasa por debajo.
+4. No agregues ningún grid ni layout de columnas — las dos tarjetas siguen
+   apiladas verticalmente, en el mismo orden de siempre (Ventas arriba,
+   Traslados abajo), sin ningún `<div>` contenedor nuevo alrededor de
+   ambas.
+5. No toques `CardHeader` de ninguna de las dos tarjetas (buscador, título)
+   — solo el contenedor de la tabla dentro de `CardContent`.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+1. En `artifacts/logistics/src/pages/pre-despacho.tsx`, dentro del
+   `<CardContent className="p-0">` de la tarjeta "Órdenes de Venta por
+   Planificar", envolvé el `<Table>...</Table>` en:
+   ```tsx
+   <div className="max-h-[420px] overflow-auto">
+     <Table> ... </Table>
+   </div>
+   ```
+   Dentro de ese `<Table>`, agregale `className="sticky top-0 bg-card
+   z-10"` al `<TableHeader>` (o al elemento que use `components/ui/table.tsx`
+   para aplicar className al header — revisalo si hace falta).
+
+2. En `artifacts/logistics/src/components/pending-traslados-card.tsx`,
+   aplicá el mismo cambio a su propio `<CardContent
+   className="p-0"><Table>...</Table></CardContent>`: mismo `max-h-[420px]
+   overflow-auto` y mismo `sticky top-0 bg-card z-10` en su
+   `TableHeader`. (Esta tarjeta hoy tiene pocas filas, pero conviene
+   dejarla acotada igual por si más adelante tiene más — ver PROMPT 15.)
+
+3. No cambies nada más en ninguno de los dos archivos.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No pongas las tarjetas lado a lado ni en grid — quedan apiladas, Ventas
+  arriba y Traslados abajo, igual que siempre.
+- No agregues paginación ni ningún control nuevo.
+- No toques `viaje-wizard.tsx`, `viajes.tsx`, `odoo-sync-card.tsx`, ni
+  ninguna otra pantalla.
+- Si 420px deja muy pocas filas visibles en tu pantalla de prueba, podés
+  ajustarlo un poco (ej. 480px), pero el objetivo es que la tarjeta de
+  Traslados quede visible sin scrollear más de una pantalla completa.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. Las dos tarjetas siguen apiladas verticalmente, Ventas primero.
+2. La tabla de Ventas ya no crece sin límite — tiene su propio scroll
+   interno, y after unas pocas filas aparece la tarjeta de Traslados sin
+   necesidad de scrollear toda la página.
+3. Al scrollear dentro de la lista de Ventas, el encabezado de esa tabla se
+   queda fijo arriba.
+4. Activá "Armar viaje" y confirmá que los checkboxes de ambas tablas siguen
+   funcionando igual que antes.
