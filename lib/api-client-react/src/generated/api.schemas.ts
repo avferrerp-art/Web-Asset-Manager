@@ -68,7 +68,7 @@ export interface VehicleUpdate {
 export interface Personnel {
   id: number;
   nombre: string;
-  /** chofer | ayudante */
+  /** Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported. */
   rol: string;
   /** Daily per-diem rate */
   tarifaViaticos: number;
@@ -81,6 +81,38 @@ export interface Personnel {
   email?: string | null;
   createdAt: string;
 }
+
+export interface Almacen {
+  id: number;
+  /** Código corto para la interfaz */
+  codigo: string;
+  /** Prefijo exacto del primer segmento de location_id en Odoo */
+  odooPrefix: string;
+  nombre: string;
+  /** Caracas | Lecheria */
+  plaza: string;
+  /** @nullable */
+  direccion?: string | null;
+  /** @nullable */
+  latitud?: number | null;
+  /** @nullable */
+  longitud?: number | null;
+  activo: boolean;
+  createdAt: string;
+}
+
+export type PersonnelWithAlmacenes = Personnel & {
+  almacenes: Almacen[];
+};
+
+export interface PersonnelAlmacenesUpdate {
+  almacenIds: number[];
+}
+
+export type PersonnelWarehouseReportItem = PersonnelWithAlmacenes & {
+  /** True only when an almacenista has no warehouse assignments */
+  sinAsignar: boolean;
+};
 
 export interface PersonnelInput {
   nombre: string;
@@ -262,25 +294,6 @@ export interface ProductStats {
   total: number;
   conPesoOdoo: number;
   sinPesoOdoo: number;
-}
-
-export interface Almacen {
-  id: number;
-  /** Código corto para la interfaz */
-  codigo: string;
-  /** Prefijo exacto del primer segmento de location_id en Odoo */
-  odooPrefix: string;
-  nombre: string;
-  /** Caracas | Lecheria */
-  plaza: string;
-  /** @nullable */
-  direccion?: string | null;
-  /** @nullable */
-  latitud?: number | null;
-  /** @nullable */
-  longitud?: number | null;
-  activo: boolean;
-  createdAt: string;
 }
 
 export interface TrasladoAlmacen {

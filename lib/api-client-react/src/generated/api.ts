@@ -50,8 +50,11 @@ import type {
   OdooSyncResult,
   OdooTestResult,
   Personnel,
+  PersonnelAlmacenesUpdate,
   PersonnelInput,
   PersonnelUpdate,
+  PersonnelWarehouseReportItem,
+  PersonnelWithAlmacenes,
   Product,
   ProductStats,
   ProductSyncResult,
@@ -720,9 +723,9 @@ export const getListPersonnelUrl = () => {
 /**
  * @summary List all personnel
  */
-export const listPersonnel = async ( options?: RequestInit): Promise<Personnel[]> => {
+export const listPersonnel = async ( options?: RequestInit): Promise<PersonnelWithAlmacenes[]> => {
 
-  return customFetch<Personnel[]>(getListPersonnelUrl(),
+  return customFetch<PersonnelWithAlmacenes[]>(getListPersonnelUrl(),
   {
     ...options,
     method: 'GET'
@@ -797,9 +800,9 @@ export const getCreatePersonnelUrl = () => {
 /**
  * @summary Create a personnel record
  */
-export const createPersonnel = async (personnelInput: PersonnelInput, options?: RequestInit): Promise<Personnel> => {
+export const createPersonnel = async (personnelInput: PersonnelInput, options?: RequestInit): Promise<PersonnelWithAlmacenes> => {
 
-  return customFetch<Personnel>(getCreatePersonnelUrl(),
+  return customFetch<PersonnelWithAlmacenes>(getCreatePersonnelUrl(),
   {
     ...options,
     method: 'POST',
@@ -867,9 +870,9 @@ export const getGetPersonnelUrl = (id: number,) => {
 /**
  * @summary Get personnel by ID
  */
-export const getPersonnel = async (id: number, options?: RequestInit): Promise<Personnel> => {
+export const getPersonnel = async (id: number, options?: RequestInit): Promise<PersonnelWithAlmacenes> => {
 
-  return customFetch<Personnel>(getGetPersonnelUrl(id),
+  return customFetch<PersonnelWithAlmacenes>(getGetPersonnelUrl(id),
   {
     ...options,
     method: 'GET'
@@ -945,9 +948,9 @@ export const getUpdatePersonnelUrl = (id: number,) => {
  * @summary Update personnel
  */
 export const updatePersonnel = async (id: number,
-    personnelUpdate: PersonnelUpdate, options?: RequestInit): Promise<Personnel> => {
+    personnelUpdate: PersonnelUpdate, options?: RequestInit): Promise<PersonnelWithAlmacenes> => {
 
-  return customFetch<Personnel>(getUpdatePersonnelUrl(id),
+  return customFetch<PersonnelWithAlmacenes>(getUpdatePersonnelUrl(id),
   {
     ...options,
     method: 'PATCH',
@@ -1072,6 +1075,154 @@ export const useDeletePersonnel = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeletePersonnelMutationOptions(options));
+    }
+
+export const getGetPersonnelWarehouseReportUrl = () => {
+
+
+
+
+  return `/api/personnel/reporte-almacenes`
+}
+
+/**
+ * @summary Review non-operational personnel and their warehouse assignments
+ */
+export const getPersonnelWarehouseReport = async ( options?: RequestInit): Promise<PersonnelWarehouseReportItem[]> => {
+
+  return customFetch<PersonnelWarehouseReportItem[]>(getGetPersonnelWarehouseReportUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetPersonnelWarehouseReportQueryKey = () => {
+    return [
+    `/api/personnel/reporte-almacenes`
+    ] as const;
+    }
+
+
+export const getGetPersonnelWarehouseReportQueryOptions = <TData = Awaited<ReturnType<typeof getPersonnelWarehouseReport>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPersonnelWarehouseReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetPersonnelWarehouseReportQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getPersonnelWarehouseReport>>> = ({ signal }) => getPersonnelWarehouseReport({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getPersonnelWarehouseReport>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetPersonnelWarehouseReportQueryResult = NonNullable<Awaited<ReturnType<typeof getPersonnelWarehouseReport>>>
+export type GetPersonnelWarehouseReportQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Review non-operational personnel and their warehouse assignments
+ */
+
+export function useGetPersonnelWarehouseReport<TData = Awaited<ReturnType<typeof getPersonnelWarehouseReport>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getPersonnelWarehouseReport>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetPersonnelWarehouseReportQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getReplacePersonnelAlmacenesUrl = (id: number,) => {
+
+
+
+
+  return `/api/personnel/${id}/almacenes`
+}
+
+/**
+ * @summary Replace the complete warehouse assignment set for a person
+ */
+export const replacePersonnelAlmacenes = async (id: number,
+    personnelAlmacenesUpdate: PersonnelAlmacenesUpdate, options?: RequestInit): Promise<PersonnelWithAlmacenes> => {
+
+  return customFetch<PersonnelWithAlmacenes>(getReplacePersonnelAlmacenesUrl(id),
+  {
+    ...options,
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(personnelAlmacenesUpdate)
+  }
+);}
+
+
+
+
+export const getReplacePersonnelAlmacenesMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replacePersonnelAlmacenes>>, TError,{id: number;data: BodyType<PersonnelAlmacenesUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof replacePersonnelAlmacenes>>, TError,{id: number;data: BodyType<PersonnelAlmacenesUpdate>}, TContext> => {
+
+const mutationKey = ['replacePersonnelAlmacenes'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof replacePersonnelAlmacenes>>, {id: number;data: BodyType<PersonnelAlmacenesUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  replacePersonnelAlmacenes(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ReplacePersonnelAlmacenesMutationResult = NonNullable<Awaited<ReturnType<typeof replacePersonnelAlmacenes>>>
+    export type ReplacePersonnelAlmacenesMutationBody = BodyType<PersonnelAlmacenesUpdate>
+    export type ReplacePersonnelAlmacenesMutationError = ErrorType<void>
+
+    /**
+ * @summary Replace the complete warehouse assignment set for a person
+ */
+export const useReplacePersonnelAlmacenes = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof replacePersonnelAlmacenes>>, TError,{id: number;data: BodyType<PersonnelAlmacenesUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof replacePersonnelAlmacenes>>,
+        TError,
+        {id: number;data: BodyType<PersonnelAlmacenesUpdate>},
+        TContext
+      > => {
+      return useMutation(getReplacePersonnelAlmacenesMutationOptions(options));
     }
 
 export const getListSalesUrl = (params?: ListSalesParams,) => {

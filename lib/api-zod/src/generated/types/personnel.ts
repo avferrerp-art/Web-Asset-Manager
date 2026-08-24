@@ -9,7 +9,7 @@
 export interface Personnel {
   id: number;
   nombre: string;
-  /** chofer | ayudante */
+  /** Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported. */
   rol: string;
   /** Daily per-diem rate */
   tarifaViaticos: number;

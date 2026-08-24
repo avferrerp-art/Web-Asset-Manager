@@ -1,5 +1,6 @@
 export * from "./vehicles";
 export * from "./personnel";
+export * from "./personnel_almacenes";
 export * from "./sales";
 export * from "./dispatches";
 export * from "./route_points";

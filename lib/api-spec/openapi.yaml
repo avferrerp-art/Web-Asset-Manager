@@ -203,7 +203,7 @@ paths:
               schema:
                 type: array
                 items:
-                  $ref: "#/components/schemas/Personnel"
+                  $ref: "#/components/schemas/PersonnelWithAlmacenes"
     post:
       operationId: createPersonnel
       tags: [personnel]
@@ -220,7 +220,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Personnel"
+                $ref: "#/components/schemas/PersonnelWithAlmacenes"
 
   /personnel/{id}:
     get:
@@ -239,7 +239,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Personnel"
+                $ref: "#/components/schemas/PersonnelWithAlmacenes"
         "404":
           description: Not found
     patch:
@@ -264,7 +264,7 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/Personnel"
+                $ref: "#/components/schemas/PersonnelWithAlmacenes"
         "404":
           description: Not found
     delete:
@@ -282,6 +282,50 @@ paths:
           description: Deleted
         "404":
           description: Not found
+
+  /personnel/reporte-almacenes:
+    get:
+      operationId: getPersonnelWarehouseReport
+      tags: [personnel]
+      summary: Review non-operational personnel and their warehouse assignments
+      responses:
+        "200":
+          description: Personnel outside driver and assistant roles, with incomplete warehouse assignments first
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/PersonnelWarehouseReportItem"
+
+  /personnel/{id}/almacenes:
+    put:
+      operationId: replacePersonnelAlmacenes
+      tags: [personnel]
+      summary: Replace the complete warehouse assignment set for a person
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PersonnelAlmacenesUpdate"
+      responses:
+        "200":
+          description: Updated personnel record with its warehouse assignments
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PersonnelWithAlmacenes"
+        "400":
+          description: Invalid input or unknown warehouse ID
+        "404":
+          description: Personnel not found
 
   # --- SALES ---
   /sales:
@@ -1868,7 +1912,7 @@ components:
           type: string
         rol:
           type: string
-          description: "chofer | ayudante"
+          description: "Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported."
         tarifaViaticos:
           type: number
           description: Daily per-diem rate
@@ -1879,6 +1923,37 @@ components:
           description: Email used to link a Clerk account to this driver
         createdAt:
           type: string
+
+    PersonnelWithAlmacenes:
+      allOf:
+        - $ref: "#/components/schemas/Personnel"
+        - type: object
+          required: [almacenes]
+          properties:
+            almacenes:
+              type: array
+              items:
+                $ref: "#/components/schemas/Almacen"
+
+    PersonnelAlmacenesUpdate:
+      type: object
+      required: [almacenIds]
+      properties:
+        almacenIds:
+          type: array
+          uniqueItems: true
+          items:
+            type: integer
+
+    PersonnelWarehouseReportItem:
+      allOf:
+        - $ref: "#/components/schemas/PersonnelWithAlmacenes"
+        - type: object
+          required: [sinAsignar]
+          properties:
+            sinAsignar:
+              type: boolean
+              description: True only when an almacenista has no warehouse assignments
 
     PersonnelInput:
       type: object

@@ -5,6 +5,8 @@ import { z } from "zod/v4";
 export const personnelTable = pgTable("personnel", {
   id: serial("id").primaryKey(),
   nombre: text("nombre").notNull(),
+  // Recognized operational values are chofer, ayudante, almacenista and oficina.
+  // This remains free text until authorization rules are explicitly introduced.
   rol: text("rol").notNull(),
   tarifaViaticos: real("tarifa_viaticos").notNull(),
   telefono: text("telefono"),

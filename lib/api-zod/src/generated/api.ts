@@ -169,12 +169,25 @@ export const DeleteVehicleResponse = zod.void()
 export const ListPersonnelResponseItem = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
-  "rol": zod.string().describe('chofer | ayudante'),
+  "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
-})
+}).and(zod.object({
+  "almacenes": zod.array(zod.object({
+  "id": zod.number(),
+  "codigo": zod.string().describe('Código corto para la interfaz'),
+  "odooPrefix": zod.string().describe('Prefijo exacto del primer segmento de location_id en Odoo'),
+  "nombre": zod.string(),
+  "plaza": zod.string().describe('Caracas | Lecheria'),
+  "direccion": zod.string().nullish(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish(),
+  "activo": zod.boolean(),
+  "createdAt": zod.string()
+}))
+}))
 export const ListPersonnelResponse = zod.array(ListPersonnelResponseItem)
 
 
@@ -192,12 +205,25 @@ export const CreatePersonnelBody = zod.object({
 export const CreatePersonnelResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
-  "rol": zod.string().describe('chofer | ayudante'),
+  "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
-})
+}).and(zod.object({
+  "almacenes": zod.array(zod.object({
+  "id": zod.number(),
+  "codigo": zod.string().describe('Código corto para la interfaz'),
+  "odooPrefix": zod.string().describe('Prefijo exacto del primer segmento de location_id en Odoo'),
+  "nombre": zod.string(),
+  "plaza": zod.string().describe('Caracas | Lecheria'),
+  "direccion": zod.string().nullish(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish(),
+  "activo": zod.boolean(),
+  "createdAt": zod.string()
+}))
+}))
 
 
 /**
@@ -210,12 +236,25 @@ export const GetPersonnelParams = zod.object({
 export const GetPersonnelResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
-  "rol": zod.string().describe('chofer | ayudante'),
+  "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
-})
+}).and(zod.object({
+  "almacenes": zod.array(zod.object({
+  "id": zod.number(),
+  "codigo": zod.string().describe('Código corto para la interfaz'),
+  "odooPrefix": zod.string().describe('Prefijo exacto del primer segmento de location_id en Odoo'),
+  "nombre": zod.string(),
+  "plaza": zod.string().describe('Caracas | Lecheria'),
+  "direccion": zod.string().nullish(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish(),
+  "activo": zod.boolean(),
+  "createdAt": zod.string()
+}))
+}))
 
 
 /**
@@ -236,12 +275,25 @@ export const UpdatePersonnelBody = zod.object({
 export const UpdatePersonnelResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
-  "rol": zod.string().describe('chofer | ayudante'),
+  "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
-})
+}).and(zod.object({
+  "almacenes": zod.array(zod.object({
+  "id": zod.number(),
+  "codigo": zod.string().describe('Código corto para la interfaz'),
+  "odooPrefix": zod.string().describe('Prefijo exacto del primer segmento de location_id en Odoo'),
+  "nombre": zod.string(),
+  "plaza": zod.string().describe('Caracas | Lecheria'),
+  "direccion": zod.string().nullish(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish(),
+  "activo": zod.boolean(),
+  "createdAt": zod.string()
+}))
+}))
 
 
 /**
@@ -252,6 +304,71 @@ export const DeletePersonnelParams = zod.object({
 })
 
 export const DeletePersonnelResponse = zod.void()
+
+
+/**
+ * @summary Review non-operational personnel and their warehouse assignments
+ */
+export const GetPersonnelWarehouseReportResponseItem = zod.object({
+  "id": zod.number(),
+  "nombre": zod.string(),
+  "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
+  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "telefono": zod.string().nullish(),
+  "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
+  "createdAt": zod.string()
+}).and(zod.object({
+  "almacenes": zod.array(zod.object({
+  "id": zod.number(),
+  "codigo": zod.string().describe('Código corto para la interfaz'),
+  "odooPrefix": zod.string().describe('Prefijo exacto del primer segmento de location_id en Odoo'),
+  "nombre": zod.string(),
+  "plaza": zod.string().describe('Caracas | Lecheria'),
+  "direccion": zod.string().nullish(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish(),
+  "activo": zod.boolean(),
+  "createdAt": zod.string()
+}))
+})).and(zod.object({
+  "sinAsignar": zod.boolean().describe('True only when an almacenista has no warehouse assignments')
+}))
+export const GetPersonnelWarehouseReportResponse = zod.array(GetPersonnelWarehouseReportResponseItem)
+
+
+/**
+ * @summary Replace the complete warehouse assignment set for a person
+ */
+export const ReplacePersonnelAlmacenesParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const ReplacePersonnelAlmacenesBody = zod.object({
+  "almacenIds": zod.array(zod.number())
+})
+
+export const ReplacePersonnelAlmacenesResponse = zod.object({
+  "id": zod.number(),
+  "nombre": zod.string(),
+  "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
+  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "telefono": zod.string().nullish(),
+  "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
+  "createdAt": zod.string()
+}).and(zod.object({
+  "almacenes": zod.array(zod.object({
+  "id": zod.number(),
+  "codigo": zod.string().describe('Código corto para la interfaz'),
+  "odooPrefix": zod.string().describe('Prefijo exacto del primer segmento de location_id en Odoo'),
+  "nombre": zod.string(),
+  "plaza": zod.string().describe('Caracas | Lecheria'),
+  "direccion": zod.string().nullish(),
+  "latitud": zod.number().nullish(),
+  "longitud": zod.number().nullish(),
+  "activo": zod.boolean(),
+  "createdAt": zod.string()
+}))
+}))
 
 
 /**
@@ -1491,7 +1608,7 @@ export const EstimateDispatchCostsPreviewResponse = zod.object({
 export const GetDriverMeResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
-  "rol": zod.string().describe('chofer | ayudante'),
+  "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
   "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
