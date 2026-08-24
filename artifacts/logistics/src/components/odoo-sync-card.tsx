@@ -9,13 +9,15 @@ import {
   getListOdooAlertsQueryKey,
   useResolveOdooAlert,
   useSyncOdooDeliveries,
+  useBackfillOdooInternalTransfers,
+  getListTrasladosQueryKey,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plug, RefreshCw, CheckCircle2, XCircle, AlertCircle, Truck } from "lucide-react";
+import { Loader2, Plug, RefreshCw, CheckCircle2, XCircle, AlertCircle, Truck, History } from "lucide-react";
 
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString("es-VE", {
@@ -54,6 +56,7 @@ export function OdooSyncCard() {
   const testMutation = useTestOdooConnection();
   const syncMutation = useSyncOdooNow();
   const syncDeliveriesMutation = useSyncOdooDeliveries();
+  const backfillTransfersMutation = useBackfillOdooInternalTransfers();
 
   const handleSyncDeliveries = () => {
     syncDeliveriesMutation.mutate(undefined, {
@@ -90,7 +93,42 @@ export function OdooSyncCard() {
   };
 
   const refresh = () => {
+    queryClient.removeQueries({ queryKey: getGetOdooStatusQueryKey() });
     queryClient.invalidateQueries({ queryKey: getGetOdooStatusQueryKey() });
+  };
+
+  const handleBackfillTransfers = () => {
+    backfillTransfersMutation.mutate(undefined, {
+      onSuccess: (data) => {
+        refresh();
+        queryClient.removeQueries({ queryKey: getListTrasladosQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListTrasladosQueryKey() });
+        if (data.ok) {
+          const parts: string[] = [];
+          if (data.transfersCreated > 0) {
+            parts.push(`${data.transfersCreated} creado${data.transfersCreated !== 1 ? "s" : ""}`);
+          }
+          if (data.transfersUpdated > 0) {
+            parts.push(`${data.transfersUpdated} actualizado${data.transfersUpdated !== 1 ? "s" : ""}`);
+          }
+          toast({
+            title:
+              parts.length > 0
+                ? `Traslados históricos: ${parts.join(", ")}`
+                : "Traslados históricos importados — sin cambios",
+          });
+        }
+      },
+      onError: (err: unknown) => {
+        refresh();
+        const anyErr = err as { response?: { data?: { error?: string } }; message?: string };
+        toast({
+          title: "Error al importar traslados históricos",
+          description: anyErr?.response?.data?.error ?? anyErr?.message ?? "Error desconocido",
+          variant: "destructive",
+        });
+      },
+    });
   };
 
   const handleTest = () => {
@@ -292,6 +330,38 @@ export function OdooSyncCard() {
                 <span>{status.lastDeliveriesError}</span>
               </div>
             )}
+          </div>
+        )}
+
+        {configured && (
+          <div
+            className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 justify-between rounded-md border px-3 py-2"
+            data-testid="section-odoo-historical-transfers"
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+              <History className="w-4 h-4 shrink-0 text-muted-foreground" />
+              <div className="min-w-0">
+                <p className="font-semibold text-xs">Traslados históricos</p>
+                <p className="text-xs text-muted-foreground">
+                  Importa movimientos internos anteriores a la sincronización incremental.
+                </p>
+              </div>
+            </div>
+            <Button
+              data-testid="button-odoo-backfill-transfers"
+              variant="outline"
+              size="sm"
+              onClick={handleBackfillTransfers}
+              disabled={backfillTransfersMutation.isPending}
+              className="gap-1.5 shrink-0"
+            >
+              {backfillTransfersMutation.isPending ? (
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+              ) : (
+                <History className="w-3.5 h-3.5" />
+              )}
+              Importar traslados históricos
+            </Button>
           </div>
         )}
 

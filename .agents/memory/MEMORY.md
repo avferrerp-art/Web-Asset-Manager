@@ -19,5 +19,6 @@
 - [Retiring migration-owned columns](retiring-migration-columns.md) — when a later migration drops columns, earlier repeatable migrations must stop recreating them.
 - [Shared-DB transfer tests](shared-db-transfer-tests.md) — transfer sync tests that delete missing Odoo mirrors must run serially with other transfer fixtures.
 - [Focused Vitest command](focused-vitest-command.md) — invoke Vitest via exec for one E2E file; the package-script form can unexpectedly run the full suite.
+- [Focused frontend typecheck](focused-frontend-typecheck.md) — rebuild shared declarations before artifact-only typechecks, or stale dist types report missing generated exports.
 - [Viaje membership concurrency](viaje-membership-concurrency.md) — trip-first locks, atomic state sync, and unique stop order are mandatory for every membership write.
 - [Personnel warehouse migration test](personnel-warehouse-migration-test.md) — its public-table PK rewrite fails when real personnel already have multiple warehouse assignments; isolate it.
