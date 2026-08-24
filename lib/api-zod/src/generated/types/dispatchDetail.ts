@@ -18,6 +18,10 @@ export interface DispatchDetail {
   ventaId: number | null;
   /** @nullable */
   trasladoId: number | null;
+  /** @nullable */
+  viajeId?: number | null;
+  /** @nullable */
+  orden?: number | null;
   vehiculoId: number;
   choferId: number;
   /** @nullable */
@@ -64,5 +68,5 @@ export interface DispatchDetail {
   /** Normalized cargo lines from the linked sale or internal transfer */
   cargoItems: DispatchCargoItem[];
   routePoints: RoutePoint[];
-  costs?: TravelCost;
+  costs?: TravelCost | null;
 }

@@ -4,6 +4,11 @@ import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePo
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
 import { syncLinkedDispatchEntity } from "../services/dispatchEstadoSync";
 import { getTraslado, getTrasladoSummary } from "../services/trasladoQueries";
+import { exceedsDispatchCapacity } from "../services/dispatchCapacity";
+import {
+  reassignDispatchViaje,
+  ViajeInputError,
+} from "../services/viajeQueries";
 import {
   ListDispatchesQueryParams,
   CreateDispatchBody,
@@ -112,15 +117,7 @@ async function resolveDistancia(dispatchData: {
   return dispatchData.distanciaKm ?? null;
 }
 
-export function exceedsDispatchCapacity(
-  capacidad: { capacidadPeso: number; capacidadVolumen: number },
-  carga: { pesoKg: number | null; volumenM3: number | null },
-) {
-  return (
-    (carga.pesoKg !== null && capacidad.capacidadPeso < carga.pesoKg) ||
-    (carga.volumenM3 !== null && capacidad.capacidadVolumen < carga.volumenM3)
-  );
-}
+export { exceedsDispatchCapacity } from "../services/dispatchCapacity";
 
 export async function buildDispatchRow(d: typeof dispatchesTable.$inferSelect) {
   const [sale, traslado, vehicle, driver] = await Promise.all([
@@ -314,9 +311,18 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     return;
   }
 
-  let updateData: typeof parsed.data = parsed.data;
-  if ("routeId" in parsed.data || "distanciaKm" in parsed.data || "distanciaManual" in parsed.data) {
-    const [existing] = await db.select().from(dispatchesTable).where(eq(dispatchesTable.id, params.data.id));
+  let updateData: Record<string, unknown> = parsed.data;
+  let existing: typeof dispatchesTable.$inferSelect | null = null;
+  if (
+    "routeId" in parsed.data ||
+    "distanciaKm" in parsed.data ||
+    "distanciaManual" in parsed.data ||
+    "viajeId" in parsed.data ||
+    "vehiculoId" in parsed.data ||
+    "choferId" in parsed.data ||
+    "ayudanteId" in parsed.data
+  ) {
+    [existing] = await db.select().from(dispatchesTable).where(eq(dispatchesTable.id, params.data.id));
     if (!existing) {
       res.status(404).json({ error: "Dispatch not found" });
       return;
@@ -328,8 +334,47 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     });
     updateData = { ...parsed.data, distanciaKm: resolvedDistanciaKm ?? undefined };
   }
-
-  const [dispatch] = await db.update(dispatchesTable).set(updateData).where(eq(dispatchesTable.id, params.data.id)).returning();
+  const targetViajeId = parsed.data.viajeId;
+  const hasViajePatch =
+    "viajeId" in parsed.data &&
+    targetViajeId !== undefined;
+  const changesViajeAssignments =
+    "vehiculoId" in parsed.data ||
+    "choferId" in parsed.data ||
+    "ayudanteId" in parsed.data;
+  const willBelongToViaje = hasViajePatch
+    ? targetViajeId !== null
+    : existing?.viajeId !== null && existing?.viajeId !== undefined;
+  if (changesViajeAssignments && willBelongToViaje) {
+    res.status(400).json({
+      error: "dispatch_assignments_owned_by_viaje",
+      message:
+        "El vehículo, chofer y ayudante de un despacho agrupado deben editarse desde el viaje.",
+    });
+    return;
+  }
+  let dispatch: typeof dispatchesTable.$inferSelect | null = null;
+  if (hasViajePatch) {
+    try {
+      dispatch = await reassignDispatchViaje(
+        params.data.id,
+        targetViajeId!,
+        updateData,
+      );
+    } catch (error) {
+      if (error instanceof ViajeInputError) {
+        res.status(error.status).json({ error: error.code, message: error.message });
+        return;
+      }
+      throw error;
+    }
+  } else {
+    [dispatch] = await db
+      .update(dispatchesTable)
+      .set(updateData)
+      .where(eq(dispatchesTable.id, params.data.id))
+      .returning();
+  }
   if (!dispatch) {
     res.status(404).json({ error: "Dispatch not found" });
     return;

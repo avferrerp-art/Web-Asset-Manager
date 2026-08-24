@@ -1,6 +1,7 @@
 import { dispatchesTable } from "@workspace/db";
 import { syncSaleEstadoFromDispatch } from "./saleEstadoSync";
 import { syncTrasladoEstadoFromDispatch } from "./trasladoEstadoSync";
+import { syncViajeEstadoFromDispatch } from "./viajeEstadoSync";
 
 /**
  * Mantiene sincronizada la entidad vinculada a un despacho sin mezclar las
@@ -16,5 +17,8 @@ export async function syncLinkedDispatchEntity(
     dispatch.trasladoId !== null
   ) {
     await syncTrasladoEstadoFromDispatch(dispatch.trasladoId);
+  }
+  if (dispatch.viajeId !== null) {
+    await syncViajeEstadoFromDispatch(dispatch.viajeId);
   }
 }

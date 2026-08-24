@@ -14,6 +14,10 @@ export interface Dispatch {
   ventaId: number | null;
   /** @nullable */
   trasladoId: number | null;
+  /** @nullable */
+  viajeId?: number | null;
+  /** @nullable */
+  orden?: number | null;
   vehiculoId: number;
   choferId: number;
   /** @nullable */

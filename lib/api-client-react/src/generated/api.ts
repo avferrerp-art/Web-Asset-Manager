@@ -46,6 +46,7 @@ import type {
   ListProductsParams,
   ListSalesParams,
   ListTrasladosParams,
+  ListViajesParams,
   OdooStatus,
   OdooSyncResult,
   OdooTestResult,
@@ -91,7 +92,11 @@ import type {
   Vehicle,
   VehicleInput,
   VehicleScheduleEntry,
-  VehicleUpdate
+  VehicleUpdate,
+  Viaje,
+  ViajeDetail,
+  ViajeInput,
+  ViajeUpdate
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -3680,6 +3685,308 @@ export const useDeleteDispatch = <TError = ErrorType<void>,
         TContext
       > => {
       return useMutation(getDeleteDispatchMutationOptions(options));
+    }
+
+export const getListViajesUrl = (params?: ListViajesParams,) => {
+  const normalizedParams = new URLSearchParams();
+
+  Object.entries(params || {}).forEach(([key, value]) => {
+
+    if (value !== undefined) {
+      normalizedParams.append(key, value === null ? 'null' : String(value))
+    }
+  });
+
+  const stringifiedParams = normalizedParams.toString();
+
+  return stringifiedParams.length > 0 ? `/api/viajes?${stringifiedParams}` : `/api/viajes`
+}
+
+/**
+ * @summary List shared trips
+ */
+export const listViajes = async (params?: ListViajesParams, options?: RequestInit): Promise<Viaje[]> => {
+
+  return customFetch<Viaje[]>(getListViajesUrl(params),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListViajesQueryKey = (params?: ListViajesParams,) => {
+    return [
+    `/api/viajes`, ...(params ? [params] : [])
+    ] as const;
+    }
+
+
+export const getListViajesQueryOptions = <TData = Awaited<ReturnType<typeof listViajes>>, TError = ErrorType<unknown>>(params?: ListViajesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listViajes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListViajesQueryKey(params);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listViajes>>> = ({ signal }) => listViajes(params, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listViajes>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListViajesQueryResult = NonNullable<Awaited<ReturnType<typeof listViajes>>>
+export type ListViajesQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List shared trips
+ */
+
+export function useListViajes<TData = Awaited<ReturnType<typeof listViajes>>, TError = ErrorType<unknown>>(
+ params?: ListViajesParams, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listViajes>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListViajesQueryOptions(params,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateViajeUrl = () => {
+
+
+
+
+  return `/api/viajes`
+}
+
+/**
+ * @summary Create a shared trip and assign its dispatches
+ */
+export const createViaje = async (viajeInput: ViajeInput, options?: RequestInit): Promise<ViajeDetail> => {
+
+  return customFetch<ViajeDetail>(getCreateViajeUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(viajeInput)
+  }
+);}
+
+
+
+
+export const getCreateViajeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createViaje>>, TError,{data: BodyType<ViajeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createViaje>>, TError,{data: BodyType<ViajeInput>}, TContext> => {
+
+const mutationKey = ['createViaje'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createViaje>>, {data: BodyType<ViajeInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createViaje(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateViajeMutationResult = NonNullable<Awaited<ReturnType<typeof createViaje>>>
+    export type CreateViajeMutationBody = BodyType<ViajeInput>
+    export type CreateViajeMutationError = ErrorType<void>
+
+    /**
+ * @summary Create a shared trip and assign its dispatches
+ */
+export const useCreateViaje = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createViaje>>, TError,{data: BodyType<ViajeInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createViaje>>,
+        TError,
+        {data: BodyType<ViajeInput>},
+        TContext
+      > => {
+      return useMutation(getCreateViajeMutationOptions(options));
+    }
+
+export const getGetViajeUrl = (id: number,) => {
+
+
+
+
+  return `/api/viajes/${id}`
+}
+
+/**
+ * @summary Get a shared trip with its ordered stops
+ */
+export const getViaje = async (id: number, options?: RequestInit): Promise<ViajeDetail> => {
+
+  return customFetch<ViajeDetail>(getGetViajeUrl(id),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetViajeQueryKey = (id: number,) => {
+    return [
+    `/api/viajes/${id}`
+    ] as const;
+    }
+
+
+export const getGetViajeQueryOptions = <TData = Awaited<ReturnType<typeof getViaje>>, TError = ErrorType<void>>(id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getViaje>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetViajeQueryKey(id);
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getViaje>>> = ({ signal }) => getViaje(id, { signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, enabled: id !== null && id !== undefined, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getViaje>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetViajeQueryResult = NonNullable<Awaited<ReturnType<typeof getViaje>>>
+export type GetViajeQueryError = ErrorType<void>
+
+
+/**
+ * @summary Get a shared trip with its ordered stops
+ */
+
+export function useGetViaje<TData = Awaited<ReturnType<typeof getViaje>>, TError = ErrorType<void>>(
+ id: number, options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getViaje>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetViajeQueryOptions(id,options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getUpdateViajeUrl = (id: number,) => {
+
+
+
+
+  return `/api/viajes/${id}`
+}
+
+/**
+ * @summary Update a shared trip and propagate its operational assignments
+ */
+export const updateViaje = async (id: number,
+    viajeUpdate: ViajeUpdate, options?: RequestInit): Promise<ViajeDetail> => {
+
+  return customFetch<ViajeDetail>(getUpdateViajeUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(viajeUpdate)
+  }
+);}
+
+
+
+
+export const getUpdateViajeMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateViaje>>, TError,{id: number;data: BodyType<ViajeUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateViaje>>, TError,{id: number;data: BodyType<ViajeUpdate>}, TContext> => {
+
+const mutationKey = ['updateViaje'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateViaje>>, {id: number;data: BodyType<ViajeUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateViaje(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateViajeMutationResult = NonNullable<Awaited<ReturnType<typeof updateViaje>>>
+    export type UpdateViajeMutationBody = BodyType<ViajeUpdate>
+    export type UpdateViajeMutationError = ErrorType<void>
+
+    /**
+ * @summary Update a shared trip and propagate its operational assignments
+ */
+export const useUpdateViaje = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateViaje>>, TError,{id: number;data: BodyType<ViajeUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateViaje>>,
+        TError,
+        {id: number;data: BodyType<ViajeUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateViajeMutationOptions(options));
     }
 
 export const getGetDispatchActaUrl = (id: number,) => {

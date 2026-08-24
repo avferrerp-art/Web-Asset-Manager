@@ -18,6 +18,8 @@ tags:
     description: Sales orders management
   - name: dispatches
     description: Dispatch and pre-dispatch management
+  - name: viajes
+    description: Shared trips grouping sale and transfer dispatches
   - name: tolls
     description: Toll routes management (legacy)
   - name: routes
@@ -1041,6 +1043,101 @@ paths:
       responses:
         "204":
           description: Deleted
+        "404":
+          description: Not found
+
+  # --- VIAJES ---
+  /viajes:
+    get:
+      operationId: listViajes
+      tags: [viajes]
+      summary: List shared trips
+      parameters:
+        - name: estado
+          in: query
+          required: false
+          schema:
+            type: string
+            enum: [planificado, en_curso, completado, cancelado]
+        - name: fecha
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "200":
+          description: List of trips
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Viaje"
+    post:
+      operationId: createViaje
+      tags: [viajes]
+      summary: Create a shared trip and assign its dispatches
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViajeInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViajeDetail"
+        "400":
+          description: Invalid reference, membership, or vehicle capacity
+
+  /viajes/{id}:
+    get:
+      operationId: getViaje
+      tags: [viajes]
+      summary: Get a shared trip with its ordered stops
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Trip detail
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViajeDetail"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateViaje
+      tags: [viajes]
+      summary: Update a shared trip and propagate its operational assignments
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ViajeUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ViajeDetail"
+        "400":
+          description: Invalid reference, capacity, or attempted state write
         "404":
           description: Not found
 
@@ -2750,6 +2847,10 @@ components:
           type: ["integer", "null"]
         trasladoId:
           type: ["integer", "null"]
+        viajeId:
+          type: ["integer", "null"]
+        orden:
+          type: ["integer", "null"]
         vehiculoId:
           type: integer
         choferId:
@@ -2803,6 +2904,10 @@ components:
         ventaId:
           type: ["integer", "null"]
         trasladoId:
+          type: ["integer", "null"]
+        viajeId:
+          type: ["integer", "null"]
+        orden:
           type: ["integer", "null"]
         vehiculoId:
           type: integer
@@ -2863,7 +2968,9 @@ components:
           items:
             $ref: "#/components/schemas/RoutePoint"
         costs:
-          $ref: "#/components/schemas/TravelCost"
+          oneOf:
+            - $ref: "#/components/schemas/TravelCost"
+            - type: "null"
 
     DispatchInput:
       oneOf:
@@ -2968,6 +3075,95 @@ components:
           type: integer
         totalPeajes:
           type: number
+        viajeId:
+          type: ["integer", "null"]
+
+    # --- VIAJES ---
+    Viaje:
+      type: object
+      required: [id, vehiculoId, choferId, ayudanteId, fecha, estado, distanciaTotalKm, totalPeajesEstimado, notas, createdAt, vehiculoModelo, choferNombre, ayudanteNombre, cantidadDespachos]
+      properties:
+        id:
+          type: integer
+        vehiculoId:
+          type: integer
+        choferId:
+          type: integer
+        ayudanteId:
+          type: ["integer", "null"]
+        fecha:
+          type: string
+          format: date
+        estado:
+          type: string
+          enum: [planificado, en_curso, completado, cancelado]
+        distanciaTotalKm:
+          type: ["number", "null"]
+        totalPeajesEstimado:
+          type: ["number", "null"]
+        notas:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        vehiculoModelo:
+          type: ["string", "null"]
+        choferNombre:
+          type: ["string", "null"]
+        ayudanteNombre:
+          type: ["string", "null"]
+        cantidadDespachos:
+          type: integer
+
+    ViajeDetail:
+      allOf:
+        - $ref: "#/components/schemas/Viaje"
+        - type: object
+          required: [despachos]
+          properties:
+            despachos:
+              type: array
+              items:
+                $ref: "#/components/schemas/Dispatch"
+
+    ViajeInput:
+      type: object
+      required: [vehiculoId, choferId, fecha, despachoIds]
+      properties:
+        vehiculoId:
+          type: integer
+        choferId:
+          type: integer
+        ayudanteId:
+          type: ["integer", "null"]
+        fecha:
+          type: string
+          format: date
+        despachoIds:
+          type: array
+          minItems: 1
+          items:
+            type: integer
+        notas:
+          type: ["string", "null"]
+
+    ViajeUpdate:
+      type: object
+      properties:
+        vehiculoId:
+          type: integer
+        choferId:
+          type: integer
+        ayudanteId:
+          type: ["integer", "null"]
+        fecha:
+          type: string
+          format: date
+        notas:
+          type: ["string", "null"]
+        distanciaTotalKm:
+          type: ["number", "null"]
+        totalPeajesEstimado:
+          type: ["number", "null"]
 
     DispatchCargoItem:
       type: object

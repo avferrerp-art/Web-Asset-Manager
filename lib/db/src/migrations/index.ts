@@ -21,6 +21,8 @@ import * as productMeasurements from "./0009_product_measurements";
 import * as dispatchesPolimorficos from "./0010_dispatches_polimorficos";
 import * as actasLlegada from "./0011_actas_llegada";
 import * as personnelAlmacenes from "./0012_personnel_almacenes";
+import * as viajes from "./0013_viajes";
+import * as viajesOrdenUnique from "./0014_viajes_orden_unique";
 
 export interface Migration {
   name: string;
@@ -41,4 +43,6 @@ export const migrations: Migration[] = [
   dispatchesPolimorficos,
   actasLlegada,
   personnelAlmacenes,
+  viajes,
+  viajesOrdenUnique,
 ];

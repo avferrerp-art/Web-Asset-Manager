@@ -693,6 +693,10 @@ export interface Dispatch {
   ventaId: number | null;
   /** @nullable */
   trasladoId: number | null;
+  /** @nullable */
+  viajeId?: number | null;
+  /** @nullable */
+  orden?: number | null;
   vehiculoId: number;
   choferId: number;
   /** @nullable */
@@ -775,6 +779,10 @@ export interface DispatchDetail {
   ventaId: number | null;
   /** @nullable */
   trasladoId: number | null;
+  /** @nullable */
+  viajeId?: number | null;
+  /** @nullable */
+  orden?: number | null;
   vehiculoId: number;
   choferId: number;
   /** @nullable */
@@ -821,7 +829,7 @@ export interface DispatchDetail {
   /** Normalized cargo lines from the linked sale or internal transfer */
   cargoItems: DispatchCargoItem[];
   routePoints: RoutePoint[];
-  costs?: TravelCost;
+  costs?: TravelCost | null;
 }
 
 export interface RoutePointInput {
@@ -893,6 +901,72 @@ export interface DispatchUpdate {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  /** @nullable */
+  viajeId?: number | null;
+}
+
+export type ViajeEstado = typeof ViajeEstado[keyof typeof ViajeEstado];
+
+
+export const ViajeEstado = {
+  planificado: 'planificado',
+  en_curso: 'en_curso',
+  completado: 'completado',
+  cancelado: 'cancelado',
+} as const;
+
+export interface Viaje {
+  id: number;
+  vehiculoId: number;
+  choferId: number;
+  /** @nullable */
+  ayudanteId: number | null;
+  fecha: string;
+  estado: ViajeEstado;
+  /** @nullable */
+  distanciaTotalKm: number | null;
+  /** @nullable */
+  totalPeajesEstimado: number | null;
+  /** @nullable */
+  notas: string | null;
+  createdAt: string;
+  /** @nullable */
+  vehiculoModelo: string | null;
+  /** @nullable */
+  choferNombre: string | null;
+  /** @nullable */
+  ayudanteNombre: string | null;
+  cantidadDespachos: number;
+}
+
+export type ViajeDetail = Viaje & {
+  despachos: Dispatch[];
+};
+
+export interface ViajeInput {
+  vehiculoId: number;
+  choferId: number;
+  /** @nullable */
+  ayudanteId?: number | null;
+  fecha: string;
+  /** @minItems 1 */
+  despachoIds: number[];
+  /** @nullable */
+  notas?: string | null;
+}
+
+export interface ViajeUpdate {
+  vehiculoId?: number;
+  choferId?: number;
+  /** @nullable */
+  ayudanteId?: number | null;
+  fecha?: string;
+  /** @nullable */
+  notas?: string | null;
+  /** @nullable */
+  distanciaTotalKm?: number | null;
+  /** @nullable */
+  totalPeajesEstimado?: number | null;
 }
 
 export interface RoutePointCompleteInput {
@@ -1150,6 +1224,21 @@ sinPesoOdoo?: boolean;
 export type ListDispatchesParams = {
 status?: string;
 };
+
+export type ListViajesParams = {
+estado?: ListViajesEstado;
+fecha?: string;
+};
+
+export type ListViajesEstado = typeof ListViajesEstado[keyof typeof ListViajesEstado];
+
+
+export const ListViajesEstado = {
+  planificado: 'planificado',
+  en_curso: 'en_curso',
+  completado: 'completado',
+  cancelado: 'cancelado',
+} as const;
 
 export type GetVehicleScheduleParams = {
 /**

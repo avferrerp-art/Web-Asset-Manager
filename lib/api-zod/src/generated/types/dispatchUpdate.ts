@@ -18,4 +18,6 @@ export interface DispatchUpdate {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  /** @nullable */
+  viajeId?: number | null;
 }

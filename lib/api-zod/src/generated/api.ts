@@ -1122,6 +1122,8 @@ export const ListDispatchesResponseItem = zod.object({
   "tipo": zod.enum(['venta', 'traslado']),
   "ventaId": zod.number().nullable(),
   "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
   "vehiculoId": zod.number(),
   "choferId": zod.number(),
   "ayudanteId": zod.number().nullish(),
@@ -1197,6 +1199,8 @@ export const CreateDispatchResponse = zod.object({
   "tipo": zod.enum(['venta', 'traslado']),
   "ventaId": zod.number().nullable(),
   "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
   "vehiculoId": zod.number(),
   "choferId": zod.number(),
   "ayudanteId": zod.number().nullish(),
@@ -1231,6 +1235,8 @@ export const GetDispatchResponse = zod.object({
   "tipo": zod.enum(['venta', 'traslado']),
   "ventaId": zod.number().nullable(),
   "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
   "vehiculoId": zod.number(),
   "choferId": zod.number(),
   "ayudanteId": zod.number().nullish(),
@@ -1275,7 +1281,7 @@ export const GetDispatchResponse = zod.object({
   "longitud": zod.number().nullish(),
   "completado": zod.boolean().describe('Whether this stop has been marked as done by the driver')
 })),
-  "costs": zod.object({
+  "costs": zod.union([zod.object({
   "id": zod.number(),
   "despachoId": zod.number(),
   "costoPeajes": zod.number(),
@@ -1283,7 +1289,7 @@ export const GetDispatchResponse = zod.object({
   "costoViaticos": zod.number(),
   "total": zod.number(),
   "costoCombustiblePorLitro": zod.number().nullish()
-}).optional()
+}),zod.null()]).optional()
 })
 
 
@@ -1305,7 +1311,8 @@ export const UpdateDispatchBody = zod.object({
   "distanciaKm": zod.number().optional(),
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().optional(),
-  "totalPeajes": zod.number().optional()
+  "totalPeajes": zod.number().optional(),
+  "viajeId": zod.number().nullish()
 })
 
 export const UpdateDispatchResponse = zod.object({
@@ -1313,6 +1320,8 @@ export const UpdateDispatchResponse = zod.object({
   "tipo": zod.enum(['venta', 'traslado']),
   "ventaId": zod.number().nullable(),
   "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
   "vehiculoId": zod.number(),
   "choferId": zod.number(),
   "ayudanteId": zod.number().nullish(),
@@ -1343,6 +1352,210 @@ export const DeleteDispatchParams = zod.object({
 })
 
 export const DeleteDispatchResponse = zod.void()
+
+
+/**
+ * @summary List shared trips
+ */
+export const ListViajesQueryParams = zod.object({
+  "estado": zod.enum(['planificado', 'en_curso', 'completado', 'cancelado']).optional(),
+  "fecha": zod.coerce.string().optional()
+})
+
+export const ListViajesResponseItem = zod.object({
+  "id": zod.number(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullable(),
+  "fecha": zod.coerce.date(),
+  "estado": zod.enum(['planificado', 'en_curso', 'completado', 'cancelado']),
+  "distanciaTotalKm": zod.number().nullable(),
+  "totalPeajesEstimado": zod.number().nullable(),
+  "notas": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullable(),
+  "choferNombre": zod.string().nullable(),
+  "ayudanteNombre": zod.string().nullable(),
+  "cantidadDespachos": zod.number()
+})
+export const ListViajesResponse = zod.array(ListViajesResponseItem)
+
+
+/**
+ * @summary Create a shared trip and assign its dispatches
+ */
+
+
+
+export const CreateViajeBody = zod.object({
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullish(),
+  "fecha": zod.coerce.date(),
+  "despachoIds": zod.array(zod.number()).min(1),
+  "notas": zod.string().nullish()
+})
+
+export const CreateViajeResponse = zod.object({
+  "id": zod.number(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullable(),
+  "fecha": zod.coerce.date(),
+  "estado": zod.enum(['planificado', 'en_curso', 'completado', 'cancelado']),
+  "distanciaTotalKm": zod.number().nullable(),
+  "totalPeajesEstimado": zod.number().nullable(),
+  "notas": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullable(),
+  "choferNombre": zod.string().nullable(),
+  "ayudanteNombre": zod.string().nullable(),
+  "cantidadDespachos": zod.number()
+}).and(zod.object({
+  "despachos": zod.array(zod.object({
+  "id": zod.number(),
+  "tipo": zod.enum(['venta', 'traslado']),
+  "ventaId": zod.number().nullable(),
+  "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullish(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().nullish(),
+  "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
+  "distanciaKm": zod.number().nullish(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullish(),
+  "choferNombre": zod.string().nullish(),
+  "ayudanteNombre": zod.string().nullish(),
+  "clienteNombre": zod.string().nullish(),
+  "referencia": zod.string().nullish(),
+  "origen": zod.string().nullish(),
+  "destino": zod.string().nullish()
+}))
+}))
+
+
+/**
+ * @summary Get a shared trip with its ordered stops
+ */
+export const GetViajeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const GetViajeResponse = zod.object({
+  "id": zod.number(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullable(),
+  "fecha": zod.coerce.date(),
+  "estado": zod.enum(['planificado', 'en_curso', 'completado', 'cancelado']),
+  "distanciaTotalKm": zod.number().nullable(),
+  "totalPeajesEstimado": zod.number().nullable(),
+  "notas": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullable(),
+  "choferNombre": zod.string().nullable(),
+  "ayudanteNombre": zod.string().nullable(),
+  "cantidadDespachos": zod.number()
+}).and(zod.object({
+  "despachos": zod.array(zod.object({
+  "id": zod.number(),
+  "tipo": zod.enum(['venta', 'traslado']),
+  "ventaId": zod.number().nullable(),
+  "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullish(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().nullish(),
+  "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
+  "distanciaKm": zod.number().nullish(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullish(),
+  "choferNombre": zod.string().nullish(),
+  "ayudanteNombre": zod.string().nullish(),
+  "clienteNombre": zod.string().nullish(),
+  "referencia": zod.string().nullish(),
+  "origen": zod.string().nullish(),
+  "destino": zod.string().nullish()
+}))
+}))
+
+
+/**
+ * @summary Update a shared trip and propagate its operational assignments
+ */
+export const UpdateViajeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const UpdateViajeBody = zod.object({
+  "vehiculoId": zod.number().optional(),
+  "choferId": zod.number().optional(),
+  "ayudanteId": zod.number().nullish(),
+  "fecha": zod.coerce.date().optional(),
+  "notas": zod.string().nullish(),
+  "distanciaTotalKm": zod.number().nullish(),
+  "totalPeajesEstimado": zod.number().nullish()
+})
+
+export const UpdateViajeResponse = zod.object({
+  "id": zod.number(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullable(),
+  "fecha": zod.coerce.date(),
+  "estado": zod.enum(['planificado', 'en_curso', 'completado', 'cancelado']),
+  "distanciaTotalKm": zod.number().nullable(),
+  "totalPeajesEstimado": zod.number().nullable(),
+  "notas": zod.string().nullable(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullable(),
+  "choferNombre": zod.string().nullable(),
+  "ayudanteNombre": zod.string().nullable(),
+  "cantidadDespachos": zod.number()
+}).and(zod.object({
+  "despachos": zod.array(zod.object({
+  "id": zod.number(),
+  "tipo": zod.enum(['venta', 'traslado']),
+  "ventaId": zod.number().nullable(),
+  "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullish(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().nullish(),
+  "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
+  "distanciaKm": zod.number().nullish(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullish(),
+  "choferNombre": zod.string().nullish(),
+  "ayudanteNombre": zod.string().nullish(),
+  "clienteNombre": zod.string().nullish(),
+  "referencia": zod.string().nullish(),
+  "origen": zod.string().nullish(),
+  "destino": zod.string().nullish()
+}))
+}))
 
 
 /**
@@ -1430,6 +1643,8 @@ export const ApproveDispatchResponse = zod.object({
   "tipo": zod.enum(['venta', 'traslado']),
   "ventaId": zod.number().nullable(),
   "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
   "vehiculoId": zod.number(),
   "choferId": zod.number(),
   "ayudanteId": zod.number().nullish(),
@@ -1624,6 +1839,8 @@ export const ListDriverDispatchesResponseItem = zod.object({
   "tipo": zod.enum(['venta', 'traslado']),
   "ventaId": zod.number().nullable(),
   "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
   "vehiculoId": zod.number(),
   "choferId": zod.number(),
   "ayudanteId": zod.number().nullish(),
@@ -1659,6 +1876,8 @@ export const GetDriverDispatchResponse = zod.object({
   "tipo": zod.enum(['venta', 'traslado']),
   "ventaId": zod.number().nullable(),
   "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
   "vehiculoId": zod.number(),
   "choferId": zod.number(),
   "ayudanteId": zod.number().nullish(),
@@ -1703,7 +1922,7 @@ export const GetDriverDispatchResponse = zod.object({
   "longitud": zod.number().nullish(),
   "completado": zod.boolean().describe('Whether this stop has been marked as done by the driver')
 })),
-  "costs": zod.object({
+  "costs": zod.union([zod.object({
   "id": zod.number(),
   "despachoId": zod.number(),
   "costoPeajes": zod.number(),
@@ -1711,7 +1930,7 @@ export const GetDriverDispatchResponse = zod.object({
   "costoViaticos": zod.number(),
   "total": zod.number(),
   "costoCombustiblePorLitro": zod.number().nullish()
-}).optional()
+}),zod.null()]).optional()
 })
 
 
@@ -1756,6 +1975,8 @@ export const UpdateDriverDispatchStatusResponse = zod.object({
   "tipo": zod.enum(['venta', 'traslado']),
   "ventaId": zod.number().nullable(),
   "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
   "vehiculoId": zod.number(),
   "choferId": zod.number(),
   "ayudanteId": zod.number().nullish(),
