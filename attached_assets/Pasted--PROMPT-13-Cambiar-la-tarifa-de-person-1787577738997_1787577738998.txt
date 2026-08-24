@@ -1,0 +1,117 @@
+════════════════════════════════════════════════════════════ PROMPT 13 — Cambiar la tarifa de personal de "por día" a "por km recorrido" ════════════════════════════════════════════════════════════
+
+════════════════════════════════════════ CONTEXTO DEL PROYECTO ════════════════════════════════════════
+
+LogiFleet es un sistema de gestión logística de flota (monorepo pnpm, Node 24, TypeScript 5.9, corre en Replit). El contrato de API vive en lib/api-spec/openapi.yaml y se genera código (Zod + hooks de React Query) con Orval hacia lib/api-zod y lib/api-client-react — esos directorios generated/ NUNCA se editan a mano, siempre se regeneran desde el contrato.
+
+════════════════════════════════════════ REQUISITO PREVIO ════════════════════════════════════════
+
+Este prompt asume que la Fase 4B (viajes compartidos) ya está mergeada — commits 3b46579 y 02ae2b6. Verifica con git log antes de empezar.
+
+════════════════════════════════════════ POR QUÉ ESTA TAREA ════════════════════════════════════════
+
+Hoy cada persona (personnel.tarifaViaticos) tiene una tarifa que se cobra por día: costoViaticos = díasDelDespacho × (tarifaChofer + tarifaAyudante). Esto vive en computeCostEstimate() (artifacts/api-server/src/routes/dispatches.ts) y se ve en pantalla como "$X/día" en la ficha de Personal, y como parte de la "Estimación de Costos" al crear un despacho individual en Pre-Despacho y en el asistente de nuevo despacho.
+
+El negocio real paga por kilómetro recorrido, no por día. Este prompt cambia la fórmula y, para que el campo no quede con un nombre que miente sobre lo que representa, lo renombra de tarifaViaticos a tarifaPorKm en todo el proyecto (schema, contrato, código, tests). Es un rename mecánico pero con superficie amplia — por eso el detalle exhaustivo de este prompt.
+
+Además, con los viajes compartidos (Fase 4B) un despacho puede pertenecer a un viaje con varias paradas que comparten un solo trayecto físico (viajes.distanciaTotalKm). Cobrar la tarifa por km por cada despacho de ese viaje multiplicaría el costo real por la cantidad de paradas — un chofer no recorre el mismo kilómetro tres veces solo porque el viaje tiene tres paradas. Por eso el viático por km para despachos que forman parte de un viaje se calcula una sola vez, a nivel del viaje (nuevo campo derivado costoViaticosEstimado en ViajeDetail), y no en cada despacho individual.
+
+════════════════════════════════════════ TRAMPAS ════════════════════════════════════════
+
+El rename tiene que ser una migración de base de datos real, no solo un cambio en lib/db/src/schema/personnel.ts. Sin la migración, el ALTER TABLE nunca corre y el server explota buscando una columna que no existe (el mismo tipo de incidente que ya vivimos con personnel_almacenes antes de reiniciar el servidor).
+No toques la migración 0000_baseline.ts. Ahí quedó registrado con qué nombre se creó la columna originalmente — es historia inmutable. El rename va en una migración NUEVA (siguiente número disponible).
+Después de cambiar openapi.yaml, corre la regeneración de código habitual (el mismo comando de codegen que se usó en los prompts anteriores de este proyecto) para actualizar lib/api-zod y lib/api-client-react. No edites nada dentro de esos generated/ a mano.
+El rename tiene superficie amplia. Antes de dar por terminada la tarea, corre grep -rn "tarifaViaticos\|tarifa_viaticos" . (excluyendo node_modules y cualquier generated/) y confirma que no quede ni un solo resultado fuera de lib/db/src/migrations/0000_baseline.ts (que no se toca, ver punto 2). Como referencia, al momento de escribir este prompt los archivos con referencias eran:
+lib/db/src/schema/personnel.ts
+lib/api-spec/openapi.yaml (3 apariciones: Personnel, PersonnelInput, PersonnelUpdate)
+artifacts/api-server/src/routes/dispatches.ts
+artifacts/logistics/src/pages/personal.tsx
+e2e/tests/actas-llegada.test.ts
+e2e/tests/almacen-access-api.test.ts
+e2e/tests/dispatches-traslados.test.ts
+e2e/tests/personnel-almacenes.test.ts
+e2e/tests/viajes.test.ts Puede que ya no sea la lista exacta si el repo cambió — por eso el grep, no confíes solo en esta lista.
+La fórmula cambia de dias × tarifa a distanciaKm × tarifa, no se suman ambas cosas. El campo dias puede seguir calculándose y devolviéndose en la respuesta de computeCostEstimate (no rompas su forma de retorno por las dudas de que algo más lo lea), pero deja de multiplicar el viático.
+pre-despacho.tsx y nuevo-despacho-wizard.tsx tienen cada uno una constante local dias usada únicamente para el texto "{dias} día(s)" bajo el número de Viáticos en el bloque "Estimación de Costos". Ese texto pasa a mostrar la distancia (usa costPreview?.distanciaKm, que la API ya devuelve), por ejemplo "{costPreview?.distanciaKm ?? 0} km". Una vez que cambies el texto, la constante local dias de cada archivo queda sin otro uso — bórrala en vez de dejar una variable muerta.
+costoViaticosEstimado en ViajeDetail es un campo derivado, de solo lectura — nunca se acepta como input en POST /viajes ni PATCH /viajes/:id (no lo agregues a ViajeInput ni a ViajeUpdate). Se calcula al armar la respuesta (en serializeViaje() de artifacts/api-server/src/routes/viajes.ts) a partir de distanciaTotalKm y las tarifas de chofer/ayudante ya cargadas ahí mismo. Sigue la convención "null = sin dato" del proyecto: si distanciaTotalKm es null (el operador todavía no lo cargó), el campo devuelve null — no 0. Cero implicaría "no se le paga nada al chofer", que es un dato distinto a "todavía no sabemos cuánto".
+No toques listViajes() ni el schema Viaje (la lista de /viajes). Este campo nuevo va solo en ViajeDetail — no hace falta duplicar el cálculo en la lista, y evita tocar el join de viajeQueries.ts que no lo necesita.
+Para despachos que no pertenecen a ningún viaje, nada cambia respecto a "de dónde sale la distancia" — se sigue usando distanciaKm del propio despacho, tal como ya funciona hoy en computeCostEstimate. Este prompt NO toca GET /dispatches/:id/estimate-costs ni PATCH /dispatches/:id/costs más allá del rename del campo — hoy esos dos endpoints no los llama ninguna pantalla del frontend (confirmado por grep), así que no hace falta resolver ahí el caso "despacho que pertenece a un viaje": ese cálculo vive únicamente en el nuevo costoViaticosEstimado del viaje.
+
+════════════════════════════════════════ TAREA ════════════════════════════════════════
+
+Migración nueva en lib/db/src/migrations/ (siguiente número disponible, sigue el patrón de las migraciones anteriores: SQL crudo, idempotente, registrada en migrations/index.ts):
+sql
+   DO $$
+   BEGIN
+     IF EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'personnel' AND column_name = 'tarifa_viaticos'
+     ) AND NOT EXISTS (
+       SELECT 1 FROM information_schema.columns
+       WHERE table_name = 'personnel' AND column_name = 'tarifa_por_km'
+     ) THEN
+       ALTER TABLE "personnel" RENAME COLUMN "tarifa_viaticos" TO "tarifa_por_km";
+     END IF;
+   END $$;
+lib/db/src/schema/personnel.ts: renombra el campo Drizzle tarifaViaticos → tarifaPorKm, columna "tarifa_viaticos" → "tarifa_por_km".
+lib/api-spec/openapi.yaml: renombra tarifaViaticos → tarifaPorKm en Personnel, PersonnelInput y PersonnelUpdate (propiedad y arrays required). Actualiza la descripción de "Daily per-diem rate" a algo como "Tarifa que se paga por kilómetro recorrido (chofer y ayudante, cuando aplica)". Agrega costoViaticosEstimado como propiedad nueva de ViajeDetail (no de Viaje), tipo ["number", "null"], con una descripción que aclare que es un valor derivado calculado una sola vez por viaje a partir de distanciaTotalKm y las tarifas de chofer/ayudante, y que es null mientras distanciaTotalKm no esté cargado.
+Regenera el código desde el contrato (comando de codegen habitual del proyecto) para refrescar lib/api-zod y lib/api-client-react.
+artifacts/api-server/src/routes/dispatches.ts (computeCostEstimate):
+driver?.tarifaViaticos → driver?.tarifaPorKm, assistant?.tarifaViaticos → assistant?.tarifaPorKm.
+Cambia const costoViaticos = dias * ((driver?.tarifaPorKm ?? 0) + assistantRate); a const costoViaticos = distanciaKm * ((driver?.tarifaPorKm ?? 0) + assistantRate);.
+Deja dias como está en el resto de la función (se sigue calculando y devolviendo en el objeto de retorno).
+artifacts/api-server/src/services/viajeQueries.ts / routes/viajes.ts: en serializeViaje() (routes/viajes.ts), que ya carga driver y assistant completos, agrega al objeto de retorno:
+ts
+   costoViaticosEstimado: record.viaje.distanciaTotalKm != null
+     ? record.viaje.distanciaTotalKm * ((driver?.tarifaPorKm ?? 0) + (assistant?.tarifaPorKm ?? 0))
+     : null,
+artifacts/logistics/src/pages/personal.tsx: campo del formulario tarifaViaticos → tarifaPorKm (incluye el schema Zod del form y los valores default/edición). Label "Tarifa de Viáticos ($/día)" → "Tarifa por Kilómetro ($/km)". La celda de la tabla que muestra ${person.tarifaViaticos}/día pasa a ${person.tarifaPorKm}/km.
+artifacts/logistics/src/pages/pre-despacho.tsx y artifacts/logistics/src/components/nuevo-despacho-wizard.tsx: en cada uno, borra la constante local dias (queda sin uso tras el punto siguiente) y cambia el texto {dias} día(s) bajo el monto de Viáticos por algo como {(costPreview?.distanciaKm ?? 0)} km.
+artifacts/logistics/src/components/viaje-detail-sheet.tsx: agrega una fila nueva en la sección "Datos compartidos" (junto a "Distancia" y "Peajes", mismo componente DetailRow que ya usa el archivo) mostrando costoViaticosEstimado: ${Number(viaje.costoViaticosEstimado).toFixed(2)} si no es null, o "—" si es null (mismo patrón que ya usan "Distancia"/"Peajes" en ese archivo para el caso sin dato).
+Tests e2e: renombra tarifaViaticos → tarifaPorKm en los cinco archivos de e2e/tests/ listados en la trampa 4 (son todos construcción de fixtures tipo tarifaViaticos: 0, un rename mecánico).
+Corre el grep de verificación de la trampa 4 antes de terminar.
+
+════════════════════════════════════════ NO HAGAS ════════════════════════════════════════
+
+No toques lib/db/src/migrations/0000_baseline.ts — el rename va en una migración nueva, no reescribas historia.
+No agregues costoViaticosEstimado a ViajeInput ni ViajeUpdate — es puramente derivado, nunca se manda como input.
+No toques listViajes() en viajeQueries.ts ni el schema Viaje (lista) — el campo nuevo es exclusivo de ViajeDetail.
+No toques GET /dispatches/:id/estimate-costs ni PATCH /dispatches/:id/costs más allá del rename mecánico de campo — no está en uso por ningún flujo de UI hoy, no le agregues lógica de viajes.
+No cambies la forma en que se calcula costoCombustible ni costoPeajes — este prompt es exclusivamente sobre el viático de personal.
+No cambies nada de dispatchesTable, travelCostsTable como tablas (solo cambia personnelTable), ni el flujo de creación/edición de despachos más allá de las dos líneas de fórmula en computeCostEstimate.
+No edites nada dentro de un directorio generated/ a mano — todo pasa por el contrato + regeneración.
+No cambies la Fase 4C/4D (partición de carga, app de chofer) — fuera de alcance de este prompt.
+
+════════════════════════════════════════ VERIFICACIÓN ════════════════════════════════════════
+
+grep -rn "tarifaViaticos\|tarifa_viaticos" . (excluyendo node_modules y generated/) no devuelve nada fuera de 0000_baseline.ts.
+En Personal, edita una persona y confirma que el formulario dice "Tarifa por Kilómetro (
+/
+𝑘
+𝑚
+)
+"
+𝑦
+𝑞
+𝑢
+𝑒
+𝑙
+𝑎
+𝑡
+𝑎
+𝑏
+𝑙
+𝑎
+𝑚
+𝑢
+𝑒
+𝑠
+𝑡
+𝑟
+𝑎
+"
+/km)"yquelatablamuestra"X/km".
+Crea un despacho individual en Pre-Despacho con un chofer con tarifa conocida y una distancia manual conocida (ej. tarifa $2/km, distancia 100 km) → el bloque "Estimación de Costos" debe mostrar Viáticos = $200 (sin importar cuántos días dure el viaje) y la leyenda debajo debe decir "100 km", no días.
+Arma un viaje compartido (Fase 4B) con 2+ órdenes, un chofer con tarifa conocida, y carga una distancia total en el segundo paso del asistente (o edítala después desde el detalle del viaje). Abre el detalle del viaje y confirma que aparece "Viáticos estimados" con el monto correcto (distancia total × tarifa del chofer, más la del ayudante si tiene) — una sola vez, no multiplicado por la cantidad de paradas.
+Crea un viaje sin cargar todavía la distancia total → el detalle debe mostrar "—" en Viáticos estimados, no "$0".
+Reinicia el servidor de api-server después de aplicar la migración (igual que se hizo para personnel_almacenes) y confirma con psql que la columna personnel.tarifa_por_km existe y tarifa_viaticos ya no.
