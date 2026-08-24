@@ -71,7 +71,7 @@ export function PendingTrasladosCard({
     : eligibleTraslados;
 
   return (
-    <Card data-testid="card-pending-traslados">
+    <Card className="min-w-0" data-testid="card-pending-traslados">
       <CardHeader>
         <div className="flex items-center justify-between gap-4 flex-wrap">
           <div>
@@ -96,8 +96,9 @@ export function PendingTrasladosCard({
         </div>
       </CardHeader>
       <CardContent className="p-0">
+        <div className="max-h-[560px] overflow-auto [&>div]:overflow-visible">
         <Table>
-          <TableHeader>
+          <TableHeader className="sticky top-0 z-10 bg-card">
             <TableRow>
               <TableHead>Referencia</TableHead>
               <TableHead>Origen → Destino</TableHead>
@@ -227,6 +228,7 @@ export function PendingTrasladosCard({
             ))}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   );

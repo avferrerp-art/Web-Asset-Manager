@@ -449,7 +449,8 @@ export default function PreDespacho() {
         </Card>
       )}
 
-      <Card>
+      <div className="grid min-w-0 grid-cols-1 items-start gap-6 xl:grid-cols-2">
+      <Card className="min-w-0">
         <CardHeader>
           <div className="flex items-center justify-between gap-4 flex-wrap">
             <div>
@@ -471,8 +472,9 @@ export default function PreDespacho() {
           </div>
         </CardHeader>
         <CardContent className="p-0">
+          <div className="max-h-[560px] overflow-auto [&>div]:overflow-visible">
           <Table>
-            <TableHeader>
+            <TableHeader className="sticky top-0 z-10 bg-card">
               <TableRow>
                 <TableHead>ID</TableHead>
                 <TableHead>Cliente</TableHead>
@@ -553,6 +555,7 @@ export default function PreDespacho() {
               ))}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -572,6 +575,7 @@ export default function PreDespacho() {
         selectedTripKeys={tripSelectedKeys}
         onToggleTripOrder={toggleTripOrder}
       />
+      </div>
 
       <Dialog
         open={!!selectedSale || !!selectedTraslado}
