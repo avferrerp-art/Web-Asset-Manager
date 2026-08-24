@@ -413,6 +413,7 @@ export default function PreDespacho() {
         orders={tripOrders}
         vehicles={vehicles ?? []}
         personnel={personnel ?? []}
+        existingDispatches={allDispatches ?? []}
         onOpenChange={setTripWizardOpen}
         onRemove={(key) => setTripOrdersByKey((current) => {
           const next = { ...current };

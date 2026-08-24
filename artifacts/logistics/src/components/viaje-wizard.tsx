@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  type Dispatch,
   type DispatchInput,
   type Personnel,
   type Vehicle,
@@ -40,6 +41,7 @@ interface ViajeWizardProps {
   orders: ViajeSelectedOrder[];
   vehicles: Vehicle[];
   personnel: Personnel[];
+  existingDispatches: Dispatch[];
   onOpenChange: (open: boolean) => void;
   onRemove: (key: string) => void;
   onCreated: (viajeId: number, warning?: string) => void;
@@ -61,11 +63,21 @@ function defaultTripDateTimes() {
   };
 }
 
+function formatDispatchDate(s: string) {
+  return new Date(s).toLocaleDateString("es-VE", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 export function ViajeWizard({
   open,
   orders,
   vehicles,
   personnel,
+  existingDispatches,
   onOpenChange,
   onRemove,
   onCreated,
@@ -101,6 +113,18 @@ export function ViajeWizard({
     vehicle
     && (carga.pesoKnown > vehicle.capacidadPeso || carga.volumenKnown > vehicle.capacidadVolumen),
   );
+  const BUSY_STATES = ["pre-despacho", "aprobado", "en-ruta"];
+  const vehicleConflict = (() => {
+    if (!vehiculoId || !fechaSalida || !fechaLlegada) return null;
+    const newStart = new Date(fechaSalida).getTime();
+    const newEnd = new Date(fechaLlegada).getTime();
+    return existingDispatches.find((dispatch) =>
+      dispatch.vehiculoId === Number(vehiculoId)
+      && BUSY_STATES.includes(dispatch.estado)
+      && newStart < new Date(dispatch.fechaEstimadaLlegada).getTime()
+      && newEnd > new Date(dispatch.fechaEstimadaSalida).getTime()
+    ) ?? null;
+  })();
   const isSubmitting = createDispatch.isPending || createViaje.isPending || updateViaje.isPending;
 
   useEffect(() => {
@@ -134,6 +158,13 @@ export function ViajeWizard({
     }
     if (!vehiculoId || !choferId || !fechaSalida || !fechaLlegada || !distanciaKm) {
       setFormError("Indica vehículo, chofer, salida, llegada y distancia.");
+      return;
+    }
+    if (vehicleConflict) {
+      const vehicleName = vehicleConflict.vehiculoModelo ?? vehicle?.modelo ?? "El vehículo seleccionado";
+      setFormError(
+        `${vehicleName} ya está comprometido en el despacho #${vehicleConflict.id} durante ese período. Cambia el vehículo o ajusta el horario.`,
+      );
       return;
     }
     if (new Date(fechaLlegada).getTime() <= new Date(fechaSalida).getTime()) {
@@ -305,6 +336,16 @@ export function ViajeWizard({
                         ))}
                       </SelectContent>
                     </Select>
+                    {vehicleConflict && (
+                      <Alert variant="destructive" className="mt-2" data-testid="alert-viaje-vehicle-conflict">
+                        <AlertCircle className="h-4 w-4" />
+                        <AlertDescription>
+                          {vehicleConflict.vehiculoModelo ?? vehicle?.modelo ?? "El vehículo seleccionado"} está ocupado por el despacho #{vehicleConflict.id} del{" "}
+                          {formatDispatchDate(vehicleConflict.fechaEstimadaSalida)} al{" "}
+                          {formatDispatchDate(vehicleConflict.fechaEstimadaLlegada)}. Cambia el vehículo o ajusta el horario.
+                        </AlertDescription>
+                      </Alert>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <Label>Chofer</Label>
@@ -378,7 +419,7 @@ export function ViajeWizard({
             {creationIssue ? "Cerrar" : "Cancelar"}
           </Button>
           {!creationIssue && (
-            <Button type="button" onClick={submit} disabled={isSubmitting || capacityExceeded || orders.length === 0} data-testid="button-confirmar-viaje">
+            <Button type="button" onClick={submit} disabled={isSubmitting || capacityExceeded || Boolean(vehicleConflict) || orders.length === 0} data-testid="button-confirmar-viaje">
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Crear viaje y {orders.length} {orders.length === 1 ? "despacho" : "despachos"}
             </Button>
