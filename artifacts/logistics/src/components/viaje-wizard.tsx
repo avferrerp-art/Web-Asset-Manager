@@ -315,16 +315,16 @@ export function ViajeWizard({
 
   return (
     <Dialog open={open} onOpenChange={(nextOpen) => (nextOpen ? undefined : close())}>
-      <DialogContent className="sm:max-w-4xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle className="flex items-center gap-2">
+      <DialogContent className="w-[calc(100%-2rem)] max-w-4xl max-h-[90vh] min-w-0 overflow-x-hidden overflow-y-auto">
+        <DialogHeader className="min-w-0 pr-6">
+          <DialogTitle className="flex min-w-0 items-center gap-2">
             <Route className="h-5 w-5 text-primary" />
-            Confirmar viaje compartido
+            <span className="min-w-0 truncate">Confirmar viaje compartido</span>
           </DialogTitle>
         </DialogHeader>
 
         {creationIssue ? (
-          <Alert variant="destructive" data-testid="alert-viaje-partial-failure">
+          <Alert variant="destructive" className="min-w-0 break-words" data-testid="alert-viaje-partial-failure">
             <AlertCircle className="h-4 w-4" />
             <AlertTitle>Hay despachos sueltos que requieren atención</AlertTitle>
             <AlertDescription className="space-y-2">
@@ -349,8 +349,8 @@ export function ViajeWizard({
           </Alert>
         ) : (
           <>
-            <div className="grid gap-6 md:grid-cols-[1.1fr_1fr]">
-              <section className="space-y-3">
+            <div className="grid min-w-0 gap-6 md:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)]">
+              <section className="min-w-0 space-y-3">
                 <div>
                   <h3 className="font-semibold">Órdenes seleccionadas</h3>
                   <p className="text-sm text-muted-foreground">Puedes retirar una orden antes de crear los despachos.</p>
@@ -358,26 +358,27 @@ export function ViajeWizard({
                 <div className="max-h-[330px] overflow-y-auto rounded-md border divide-y">
                   {orders.map((order) => (
                     <div key={order.key} className="space-y-3 p-3">
-                      <div className="flex items-start gap-3">
-                      <div className="min-w-0 flex-1">
-                        <p className="font-medium text-sm truncate">{order.titulo}</p>
-                        <p className="text-xs text-muted-foreground truncate">{order.subtitulo}</p>
-                        <p className="mt-1 text-xs text-muted-foreground">
-                          {order.pesoKg == null ? "Peso: sin dato" : `Peso: ${order.pesoKg} kg`}
-                          {" · "}
-                          {order.volumenM3 == null ? "Volumen: sin dato" : `Volumen: ${order.volumenM3} m³`}
-                        </p>
-                      </div>
-                      <Button
-                        type="button"
-                        size="icon"
-                        variant="ghost"
-                        onClick={() => onRemove(order.key)}
-                        disabled={isSubmitting}
-                        aria-label={`Retirar ${order.titulo}`}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
+                      <div className="flex min-w-0 items-start gap-3">
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium" title={order.titulo}>{order.titulo}</p>
+                          <p className="truncate text-xs text-muted-foreground" title={order.subtitulo}>{order.subtitulo}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {order.pesoKg == null ? "Peso: sin dato" : `Peso: ${order.pesoKg} kg`}
+                            {" · "}
+                            {order.volumenM3 == null ? "Volumen: sin dato" : `Volumen: ${order.volumenM3} m³`}
+                          </p>
+                        </div>
+                        <Button
+                          type="button"
+                          size="icon"
+                          variant="ghost"
+                          className="shrink-0"
+                          onClick={() => onRemove(order.key)}
+                          disabled={isSubmitting}
+                          aria-label={`Retirar ${order.titulo}`}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </Button>
                       </div>
                       <DispatchCargoEstimateEditor
                         pesoOdooKg={order.pesoKg}
@@ -396,9 +397,9 @@ export function ViajeWizard({
                 </div>
               </section>
 
-              <section className="space-y-4">
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="space-y-2 col-span-2">
+              <section className="min-w-0 space-y-4">
+                <div className="grid min-w-0 grid-cols-2 gap-3">
+                  <div className="col-span-2 min-w-0 space-y-2">
                     <Label>Vehículo</Label>
                     <Select value={vehiculoId} onValueChange={setVehiculoId} disabled={isSubmitting}>
                       <SelectTrigger data-testid="select-viaje-vehiculo"><SelectValue placeholder="Seleccionar vehículo" /></SelectTrigger>
@@ -411,7 +412,7 @@ export function ViajeWizard({
                       </SelectContent>
                     </Select>
                     {vehicleConflict && (
-                      <Alert variant="destructive" className="mt-2" data-testid="alert-viaje-vehicle-conflict">
+                      <Alert variant="destructive" className="mt-2 min-w-0 break-words" data-testid="alert-viaje-vehicle-conflict">
                         <AlertCircle className="h-4 w-4" />
                         <AlertDescription>
                           {vehicleConflict.vehiculoModelo ?? vehicle?.modelo ?? "El vehículo seleccionado"} está ocupado por el despacho #{vehicleConflict.id} del{" "}
@@ -421,7 +422,7 @@ export function ViajeWizard({
                       </Alert>
                     )}
                   </div>
-                  <div className="space-y-2">
+                  <div className="min-w-0 space-y-2">
                     <Label>Chofer</Label>
                     <Select value={choferId} onValueChange={setChoferId} disabled={isSubmitting}>
                       <SelectTrigger data-testid="select-viaje-chofer"><SelectValue placeholder="Seleccionar" /></SelectTrigger>
@@ -432,7 +433,7 @@ export function ViajeWizard({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
+                  <div className="min-w-0 space-y-2">
                     <Label>Ayudante <span className="font-normal text-muted-foreground">(opcional)</span></Label>
                     <Select value={ayudanteId} onValueChange={setAyudanteId} disabled={isSubmitting}>
                       <SelectTrigger><SelectValue /></SelectTrigger>
@@ -444,31 +445,31 @@ export function ViajeWizard({
                       </SelectContent>
                     </Select>
                   </div>
-                  <div className="space-y-2">
+                  <div className="min-w-0 space-y-2">
                     <Label>Salida</Label>
                     <Input type="datetime-local" value={fechaSalida} onChange={(event) => setFechaSalida(event.target.value)} disabled={isSubmitting} data-testid="input-viaje-salida" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="min-w-0 space-y-2">
                     <Label>Llegada</Label>
                     <Input type="datetime-local" value={fechaLlegada} onChange={(event) => setFechaLlegada(event.target.value)} disabled={isSubmitting} data-testid="input-viaje-llegada" />
                   </div>
-                  <div className="space-y-2">
+                  <div className="min-w-0 space-y-2">
                     <Label>Distancia (km)</Label>
                     <Input type="number" min="0.1" step="any" value={distanciaKm} onChange={(event) => setDistanciaKm(event.target.value)} disabled={isSubmitting} />
                   </div>
-                  <div className="space-y-2">
+                  <div className="min-w-0 space-y-2">
                     <Label>Peajes estimados <span className="font-normal text-muted-foreground">(opcional)</span></Label>
                     <Input type="number" min="0" step="any" value={peajes} onChange={(event) => setPeajes(event.target.value)} disabled={isSubmitting} />
                   </div>
                 </div>
-                <div className="space-y-2">
+                <div className="min-w-0 space-y-2">
                   <Label>Notas <span className="font-normal text-muted-foreground">(opcionales)</span></Label>
                   <Textarea value={notas} onChange={(event) => setNotas(event.target.value)} disabled={isSubmitting} placeholder="Indicaciones comunes del viaje" />
                 </div>
               </section>
             </div>
 
-            <div className={`rounded-md border p-3 text-sm ${capacityExceeded ? "border-destructive/60 bg-destructive/10" : "bg-muted/40"}`} data-testid="viaje-load-summary">
+            <div className={`min-w-0 rounded-md border p-3 text-sm ${capacityExceeded ? "border-destructive/60 bg-destructive/10" : "bg-muted/40"}`} data-testid="viaje-load-summary">
               <div className="flex items-center gap-2 font-medium">
                 <Truck className="h-4 w-4 text-primary" />
                 Carga combinada: {orders.length} {orders.length === 1 ? "orden" : "órdenes"}
@@ -484,16 +485,16 @@ export function ViajeWizard({
                 </p>
               )}
             </div>
-            {formError && <p className="text-sm text-destructive" data-testid="text-viaje-form-error">{formError}</p>}
+            {formError && <p className="break-words text-sm text-destructive" data-testid="text-viaje-form-error">{formError}</p>}
           </>
         )}
 
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="outline" onClick={close} disabled={isSubmitting}>
+        <div className="flex min-w-0 flex-col-reverse justify-end gap-2 pt-2 sm:flex-row">
+          <Button type="button" variant="outline" className="w-full sm:w-auto" onClick={close} disabled={isSubmitting}>
             {creationIssue ? "Cerrar" : "Cancelar"}
           </Button>
           {!creationIssue && (
-            <Button type="button" onClick={submit} disabled={isSubmitting || capacityExceeded || !estimatesValid || Boolean(vehicleConflict) || orders.length === 0} data-testid="button-confirmar-viaje">
+            <Button type="button" className="w-full sm:w-auto" onClick={submit} disabled={isSubmitting || capacityExceeded || !estimatesValid || Boolean(vehicleConflict) || orders.length === 0} data-testid="button-confirmar-viaje">
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Crear viaje y {orders.length} {orders.length === 1 ? "despacho" : "despachos"}
             </Button>
