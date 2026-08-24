@@ -18,5 +18,15 @@ export interface DispatchInputBase {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  pesoEstimadoKg?: number | null;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  volumenEstimadoM3?: number | null;
   routePoints?: RoutePointInput[];
 }

@@ -76,6 +76,8 @@ async function api(path: string, init: RequestInit = {}) {
 async function createSaleDispatch(options: {
   peso?: number | null;
   volumen?: number | null;
+  pesoEstimadoKg?: number | null;
+  volumenEstimadoM3?: number | null;
   estado?: string;
   vehicleId?: number;
 }) {
@@ -86,8 +88,8 @@ async function createSaleDispatch(options: {
       destino: "Destino QA",
       almacenOrigen: "Origen QA",
       odooRef: `VIAJE-SALE-${suffix}-${Math.random()}`,
-      pesoTotal: options.peso ?? 100,
-      volumenTotal: options.volumen ?? 1,
+      pesoTotal: "peso" in options ? options.peso : 100,
+      volumenTotal: "volumen" in options ? options.volumen : 1,
     })
     .returning();
   saleIds.push(sale!.id);
@@ -102,6 +104,8 @@ async function createSaleDispatch(options: {
       fechaEstimadaSalida: "2035-08-01T08:00:00.000Z",
       fechaEstimadaLlegada: "2035-08-01T18:00:00.000Z",
       estado: options.estado ?? "pre-despacho",
+      pesoEstimadoKg: options.pesoEstimadoKg ?? null,
+      volumenEstimadoM3: options.volumenEstimadoM3 ?? null,
     })
     .returning();
   dispatchIds.push(dispatch!.id);
@@ -495,6 +499,158 @@ describe.sequential("viajes compartidos", () => {
       .from(dispatchesTable)
       .where(eq(dispatchesTable.id, looseDispatch.id));
     expect(loose).toEqual({ viajeId: null, orden: null });
+  });
+
+  it("suma estimaciones por despacho, respeta Odoo y rechaza por volumen consolidado", async () => {
+    const estimated = await createSaleDispatch({
+      peso: null,
+      volumen: null,
+      pesoEstimadoKg: 100,
+      volumenEstimadoM3: 5,
+    });
+    const odooWins = await createSaleDispatch({
+      peso: 100,
+      volumen: 1,
+      pesoEstimadoKg: 10_000,
+      volumenEstimadoM3: 100,
+    });
+
+    const rejected = await postViaje({
+      vehiculoId: vehicleIds[1],
+      choferId: personnelIds[0],
+      fecha: "2035-08-11",
+      despachoIds: [estimated.id, odooWins.id],
+    });
+    expect(rejected.response.status).toBe(400);
+    expect(rejected.json.error).toBe("vehicle_capacity_exceeded");
+
+    const accepted = await postViaje({
+      vehiculoId: vehicleIds[0],
+      choferId: personnelIds[0],
+      fecha: "2035-08-11",
+      despachoIds: [estimated.id, odooWins.id],
+    });
+    expect(accepted.response.status).toBe(201);
+    expect(accepted.json).toMatchObject({
+      pesoTotalKg: 200,
+      volumenTotalM3: 6,
+      pesoIncompleto: false,
+      volumenIncompleto: false,
+    });
+
+    const detail = await api(`/dispatches/${estimated.id}`);
+    expect(await detail.json()).toMatchObject({
+      pesoTotal: 100,
+      volumenTotal: 5,
+      pesoOrigen: "estimado",
+      volumenOrigen: "estimado",
+      pesoEstimadoKg: 100,
+      volumenEstimadoM3: 5,
+    });
+  });
+
+  it("no guarda una estimación si la nueva carga rebasa el vehículo", async () => {
+    const dispatch = await createSaleDispatch({
+      peso: null,
+      volumen: null,
+      vehicleId: vehicleIds[1],
+    });
+    const response = await api(`/dispatches/${dispatch.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ volumenEstimadoM3: 6 }),
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("vehicle_capacity_exceeded");
+
+    const [stored] = await db
+      .select({ volumenEstimadoM3: dispatchesTable.volumenEstimadoM3 })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.id, dispatch.id));
+    expect(stored!.volumenEstimadoM3).toBeNull();
+  });
+
+  it("rechaza editar una estimación que rebasa la capacidad del viaje agrupado", async () => {
+    const first = await createSaleDispatch({
+      peso: null,
+      volumen: null,
+      pesoEstimadoKg: 100,
+      volumenEstimadoM3: 3,
+      vehicleId: vehicleIds[1],
+    });
+    const second = await createSaleDispatch({
+      peso: 100,
+      volumen: 1,
+      vehicleId: vehicleIds[1],
+    });
+    const trip = await postViaje({
+      vehiculoId: vehicleIds[1],
+      choferId: personnelIds[0],
+      fecha: "2035-08-11",
+      despachoIds: [first.id, second.id],
+    });
+    expect(trip.response.status).toBe(201);
+
+    const response = await api(`/dispatches/${first.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ volumenEstimadoM3: 5 }),
+    });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("vehicle_capacity_exceeded");
+
+    const [stored] = await db
+      .select({ volumenEstimadoM3: dispatchesTable.volumenEstimadoM3 })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.id, first.id));
+    expect(stored!.volumenEstimadoM3).toBe(3);
+  });
+
+  it("no permite que una unión simultánea omita la capacidad consolidada", async () => {
+    const starter = await createSaleDispatch({
+      peso: 100,
+      volumen: 4,
+      vehicleId: vehicleIds[1],
+    });
+    const joining = await createSaleDispatch({
+      peso: null,
+      volumen: null,
+      pesoEstimadoKg: 100,
+      volumenEstimadoM3: 1,
+      vehicleId: vehicleIds[1],
+    });
+    const trip = await postViaje({
+      vehiculoId: vehicleIds[1],
+      choferId: personnelIds[0],
+      fecha: "2035-08-11",
+      despachoIds: [starter.id],
+    });
+    expect(trip.response.status).toBe(201);
+
+    const [joinResponse, estimateResponse] = await Promise.all([
+      api(`/dispatches/${joining.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ viajeId: trip.json.id }),
+      }),
+      api(`/dispatches/${joining.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ volumenEstimadoM3: 2 }),
+      }),
+    ]);
+    expect([joinResponse.status, estimateResponse.status]).not.toEqual([200, 200]);
+    expect([joinResponse.status, estimateResponse.status].some((status) => status === 200)).toBe(true);
+
+    const [stored] = await db
+      .select({
+        viajeId: dispatchesTable.viajeId,
+        volumenEstimadoM3: dispatchesTable.volumenEstimadoM3,
+      })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.id, joining.id));
+    if (stored!.viajeId === trip.json.id) {
+      expect(stored!.volumenEstimadoM3).toBe(1);
+    } else {
+      expect(stored!.viajeId).toBeNull();
+      expect(stored!.volumenEstimadoM3).toBe(2);
+    }
   });
 
   it("mantiene los cuatro estados derivados y rechaza escribir estado a mano", async () => {

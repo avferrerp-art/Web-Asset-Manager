@@ -10,6 +10,14 @@ import type { Viaje } from './viaje';
 
 export type ViajeDetail = Viaje & ({
   despachos: Dispatch[];
+  /** Sum of effective dispatch weights in the trip */
+  pesoTotalKg: number;
+  /** Sum of effective dispatch volumes in the trip */
+  volumenTotalM3: number;
+  /** At least one dispatch has no Odoo weight or manual estimate */
+  pesoIncompleto: boolean;
+  /** At least one dispatch has no Odoo volume or manual estimate */
+  volumenIncompleto: boolean;
   /**
      * Derived per-diem cost calculated once per trip from total distance and the driver/assistant rates; null until total distance is loaded.
      * @nullable

@@ -193,7 +193,7 @@ export function PendingTrasladosCard({
                             id: traslado.id,
                             titulo: traslado.referencia || `Traslado #${traslado.id}`,
                             subtitulo: `${traslado.almacenOrigen?.nombre ?? "Origen"} → ${traslado.almacenDestino?.nombre ?? "Destino"}`,
-                            pesoKg: traslado.pesoEfectivoKg,
+                            pesoKg: traslado.pesoCalculadoKg,
                             volumenM3: traslado.volumenCalculadoM3,
                           })}
                           aria-label={`Incluir traslado ${traslado.referencia || traslado.id} en viaje`}

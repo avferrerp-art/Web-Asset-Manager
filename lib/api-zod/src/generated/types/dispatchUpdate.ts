@@ -18,6 +18,16 @@ export interface DispatchUpdate {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  pesoEstimadoKg?: number | null;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  volumenEstimadoM3?: number | null;
   /** @nullable */
   viajeId?: number | null;
 }

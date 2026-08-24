@@ -22,6 +22,8 @@ import {
 } from "../../lib/api-zod/src/generated/api";
 import { sql as dispatchesMigrationSql } from "../../lib/db/src/migrations/0010_dispatches_polimorficos";
 import { sql as actasMigrationSql } from "../../lib/db/src/migrations/0011_actas_llegada";
+import { sql as dispatchEstimatesMigrationSql } from "../../lib/db/src/migrations/0016_dispatch_cargo_estimates";
+import { sql as dispatchEstimatesBackfillSql } from "../../lib/db/src/migrations/0017_backfill_dispatch_cargo_estimates";
 import {
   buildDispatchDetail,
   buildDispatchRow,
@@ -302,6 +304,51 @@ describe("migración de despachos polimórficos", () => {
   });
 });
 
+describe("migración de estimaciones por despacho", () => {
+  it("copia una sola vez el peso histórico del traslado cuando Odoo no tiene peso", async () => {
+    const client = await pool.connect();
+    const schemaName = `dispatch_estimates_${process.pid}`;
+    try {
+      await client.query("BEGIN");
+      await client.query(`CREATE SCHEMA "${schemaName}"`);
+      await client.query(`SET LOCAL search_path TO "${schemaName}"`);
+      await client.query(`
+        CREATE TABLE traslados (
+          id integer PRIMARY KEY,
+          peso_calculado_kg real,
+          peso_estimado_kg real
+        );
+        CREATE TABLE dispatches (
+          id serial PRIMARY KEY,
+          tipo text NOT NULL,
+          traslado_id integer
+        );
+        INSERT INTO traslados VALUES
+          (1, NULL, 275),
+          (2, 425, 999);
+        INSERT INTO dispatches (tipo, traslado_id) VALUES
+          ('traslado', 1),
+          ('traslado', 2);
+      `);
+      await client.query(dispatchEstimatesMigrationSql);
+      await client.query(dispatchEstimatesBackfillSql);
+      await client.query(dispatchEstimatesBackfillSql);
+      const result = await client.query(`
+        SELECT traslado_id, peso_estimado_kg
+        FROM dispatches
+        ORDER BY traslado_id
+      `);
+      expect(result.rows).toEqual([
+        { traslado_id: 1, peso_estimado_kg: 275 },
+        { traslado_id: 2, peso_estimado_kg: null },
+      ]);
+    } finally {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+    }
+  });
+});
+
 
 describe("peso efectivo y edición local del traslado", () => {
   it("rechaza cero y negativos en el contrato, pero acepta null", () => {
@@ -373,6 +420,21 @@ describe("despachos de venta y traslado", () => {
       pesoTotal: null,
       volumenTotal: null,
       saleItems: [],
+    });
+
+    await db
+      .update(dispatchesTable)
+      .set({ pesoEstimadoKg: 275, volumenEstimadoM3: 3.5 })
+      .where(eq(dispatchesTable.id, transferDispatch.id));
+    const [estimatedTransfer] = await db
+      .select()
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.id, transferDispatch.id));
+    expect(await buildDispatchDetail(estimatedTransfer!)).toMatchObject({
+      pesoTotal: 275,
+      volumenTotal: 3.5,
+      pesoOrigen: "estimado",
+      volumenOrigen: "estimado",
     });
   });
 

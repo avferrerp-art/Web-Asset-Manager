@@ -6,6 +6,7 @@ import {
   type Vehicle,
   useCreateDispatch,
   useCreateViaje,
+  useDeleteDispatch,
   useUpdateViaje,
 } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -19,6 +20,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { refreshViajeOperationalData } from "@/lib/viaje-cache";
 import { toDatetimeLocal } from "@/lib/datetime-local";
+import {
+  cargoEstimateDraftValid,
+  DispatchCargoEstimateEditor,
+  effectiveCargoMeasure,
+  parsePositiveEstimate,
+  type DispatchCargoEstimateDraft,
+} from "@/components/dispatch-cargo-estimate-editor";
 
 export type ViajeSelectedOrder = {
   key: string;
@@ -85,6 +93,7 @@ export function ViajeWizard({
 }: ViajeWizardProps) {
   const queryClient = useQueryClient();
   const createDispatch = useCreateDispatch();
+  const deleteCreatedDispatch = useDeleteDispatch();
   const createViaje = useCreateViaje();
   const updateViaje = useUpdateViaje();
   const [vehiculoId, setVehiculoId] = useState("");
@@ -97,17 +106,28 @@ export function ViajeWizard({
   const [notas, setNotas] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
   const [creationIssue, setCreationIssue] = useState<CreationIssue | null>(null);
+  const [estimateDrafts, setEstimateDrafts] = useState<Record<string, DispatchCargoEstimateDraft>>({});
 
   const carga = useMemo(() => {
-    const pesoKnown = orders.reduce((total, order) => total + (order.pesoKg ?? 0), 0);
-    const volumenKnown = orders.reduce((total, order) => total + (order.volumenM3 ?? 0), 0);
+    const effective = orders.map((order) => {
+      const draft = estimateDrafts[order.key] ?? { peso: "", volumen: "" };
+      return {
+        pesoKg: effectiveCargoMeasure(order.pesoKg, draft.peso, order.tipo === "venta"),
+        volumenM3: effectiveCargoMeasure(order.volumenM3, draft.volumen, order.tipo === "venta"),
+      };
+    });
+    const pesoKnown = effective.reduce((total, order) => total + (order.pesoKg ?? 0), 0);
+    const volumenKnown = effective.reduce((total, order) => total + (order.volumenM3 ?? 0), 0);
     return {
       pesoKnown,
       volumenKnown,
-      pesoUnknown: orders.some((order) => order.pesoKg === null),
-      volumenUnknown: orders.some((order) => order.volumenM3 === null),
+      pesoUnknown: effective.some((order) => order.pesoKg === null),
+      volumenUnknown: effective.some((order) => order.volumenM3 === null),
     };
-  }, [orders]);
+  }, [orders, estimateDrafts]);
+  const estimatesValid = orders.every((order) =>
+    cargoEstimateDraftValid(estimateDrafts[order.key] ?? { peso: "", volumen: "" }),
+  );
   const vehicle = vehicles.find((item) => item.id === Number(vehiculoId));
   const capacityExceeded = Boolean(
     vehicle
@@ -136,7 +156,10 @@ export function ViajeWizard({
       if (!fechaSalida) setFechaSalida(defaults.departure);
       if (!fechaLlegada) setFechaLlegada(defaults.arrival);
     }
-  }, [open]);
+    setEstimateDrafts((current) => Object.fromEntries(
+      orders.map((order) => [order.key, current[order.key] ?? { peso: "", volumen: "" }]),
+    ));
+  }, [open, orders]);
 
   function close() {
     if (isSubmitting) return;
@@ -183,6 +206,10 @@ export function ViajeWizard({
       setFormError("La carga conocida supera la capacidad del vehículo seleccionado.");
       return;
     }
+    if (!estimatesValid) {
+      setFormError("Las estimaciones deben ser mayores que cero o quedar vacías.");
+      return;
+    }
 
     const common = {
       vehiculoId: Number(vehiculoId),
@@ -194,21 +221,49 @@ export function ViajeWizard({
       distanciaManual: true,
     };
     const createdDispatches: Array<{ id: number; orderTitle: string }> = [];
+    const cleanupCreatedDispatches = async () => {
+      const results = await Promise.allSettled(
+        createdDispatches.map(({ id }) => deleteCreatedDispatch.mutateAsync({ id })),
+      );
+      return results.every((result) => result.status === "fulfilled");
+    };
 
     for (const order of orders) {
       try {
+        const estimateDraft = estimateDrafts[order.key] ?? { peso: "", volumen: "" };
+        const pesoEstimadoKg = parsePositiveEstimate(estimateDraft.peso);
+        const volumenEstimadoM3 = parsePositiveEstimate(estimateDraft.volumen);
         const payload: DispatchInput = order.tipo === "venta"
-          ? { ...common, tipo: "venta", ventaId: order.id, ruta: order.subtitulo }
-          : { ...common, tipo: "traslado", trasladoId: order.id, ruta: order.subtitulo };
+          ? {
+              ...common,
+              tipo: "venta",
+              ventaId: order.id,
+              ruta: order.subtitulo,
+              ...(pesoEstimadoKg ? { pesoEstimadoKg } : {}),
+              ...(volumenEstimadoM3 ? { volumenEstimadoM3 } : {}),
+            }
+          : {
+              ...common,
+              tipo: "traslado",
+              trasladoId: order.id,
+              ruta: order.subtitulo,
+              ...(pesoEstimadoKg ? { pesoEstimadoKg } : {}),
+              ...(volumenEstimadoM3 ? { volumenEstimadoM3 } : {}),
+            };
         const dispatch = await createDispatch.mutateAsync({ data: payload });
         createdDispatches.push({ id: dispatch.id, orderTitle: order.titulo });
       } catch (error) {
         const dispatchIds = createdDispatches.map((dispatch) => dispatch.id);
+        const cleanedUp = await cleanupCreatedDispatches();
         refreshViajeOperationalData(queryClient, { dispatchIds });
         setCreationIssue({
-          createdDispatches,
+          createdDispatches: cleanedUp ? [] : createdDispatches,
           failedOrderTitle: order.titulo,
-          message: error instanceof Error ? error.message : "El servidor rechazó uno de los despachos.",
+          message: `${error instanceof Error ? error.message : "El servidor rechazó uno de los despachos."}${
+            cleanedUp
+              ? " Los despachos creados durante este intento fueron eliminados."
+              : " No se pudieron eliminar todos los despachos creados durante este intento."
+          }`,
         });
         return;
       }
@@ -245,10 +300,15 @@ export function ViajeWizard({
       refreshViajeOperationalData(queryClient, { viajeId: viaje.id, dispatchIds: createdDispatchIds });
       onCreated(viaje.id);
     } catch (error) {
+      const cleanedUp = await cleanupCreatedDispatches();
       refreshViajeOperationalData(queryClient, { dispatchIds: createdDispatchIds });
       setCreationIssue({
-        createdDispatches,
-        message: error instanceof Error ? error.message : "No se pudo agrupar los despachos creados.",
+        createdDispatches: cleanedUp ? [] : createdDispatches,
+        message: `${error instanceof Error ? error.message : "No se pudo agrupar los despachos creados."}${
+          cleanedUp
+            ? " Los despachos creados durante este intento fueron eliminados."
+            : " No se pudieron eliminar todos los despachos creados durante este intento."
+        }`,
       });
     }
   }
@@ -297,7 +357,8 @@ export function ViajeWizard({
                 </div>
                 <div className="max-h-[330px] overflow-y-auto rounded-md border divide-y">
                   {orders.map((order) => (
-                    <div key={order.key} className="flex items-center gap-3 p-3">
+                    <div key={order.key} className="space-y-3 p-3">
+                      <div className="flex items-start gap-3">
                       <div className="min-w-0 flex-1">
                         <p className="font-medium text-sm truncate">{order.titulo}</p>
                         <p className="text-xs text-muted-foreground truncate">{order.subtitulo}</p>
@@ -317,6 +378,19 @@ export function ViajeWizard({
                       >
                         <Trash2 className="h-4 w-4" />
                       </Button>
+                      </div>
+                      <DispatchCargoEstimateEditor
+                        pesoOdooKg={order.pesoKg}
+                        volumenOdooM3={order.volumenM3}
+                        draft={estimateDrafts[order.key] ?? { peso: "", volumen: "" }}
+                        onChange={(draft) => setEstimateDrafts((current) => ({
+                          ...current,
+                          [order.key]: draft,
+                        }))}
+                        disabled={isSubmitting}
+                        zeroMeansMissing={order.tipo === "venta"}
+                        compact
+                      />
                     </div>
                   ))}
                 </div>
@@ -419,7 +493,7 @@ export function ViajeWizard({
             {creationIssue ? "Cerrar" : "Cancelar"}
           </Button>
           {!creationIssue && (
-            <Button type="button" onClick={submit} disabled={isSubmitting || capacityExceeded || Boolean(vehicleConflict) || orders.length === 0} data-testid="button-confirmar-viaje">
+            <Button type="button" onClick={submit} disabled={isSubmitting || capacityExceeded || !estimatesValid || Boolean(vehicleConflict) || orders.length === 0} data-testid="button-confirmar-viaje">
               {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Crear viaje y {orders.length} {orders.length === 1 ? "despacho" : "despachos"}
             </Button>

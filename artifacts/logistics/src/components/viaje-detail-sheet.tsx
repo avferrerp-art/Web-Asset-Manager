@@ -79,9 +79,9 @@ function ViajeStop({
         <p className="mt-1 text-xs text-muted-foreground">
           {isLoading ? "Cargando carga…" : (
             <>
-              Peso: {weightMissing ? "sin dato" : `${detail?.pesoTotal} kg`}
+              Peso: {weightMissing ? "sin dato" : `${detail?.pesoTotal} kg (${detail?.pesoOrigen === "estimado" ? "estimado" : "Odoo"})`}
               {" · "}
-              Volumen: {volumeMissing ? "sin dato" : `${detail?.volumenTotal} m³`}
+              Volumen: {volumeMissing ? "sin dato" : `${detail?.volumenTotal} m³ (${detail?.volumenOrigen === "estimado" ? "estimado" : "Odoo"})`}
             </>
           )}
         </p>
@@ -295,6 +295,12 @@ function ViajeDetailSheetInner({
                 <DetailRow label="Chofer">{viaje.choferNombre ?? `Personal #${viaje.choferId}`}</DetailRow>
                 <DetailRow label="Ayudante">{viaje.ayudanteNombre ?? "—"}</DetailRow>
                 <DetailRow label="Distancia">{viaje.distanciaTotalKm != null ? `${viaje.distanciaTotalKm} km` : "—"}</DetailRow>
+                <DetailRow label="Peso consolidado">
+                  {viaje.pesoTotalKg} kg{viaje.pesoIncompleto ? " conocidos · datos incompletos" : ""}
+                </DetailRow>
+                <DetailRow label="Volumen consolidado">
+                  {viaje.volumenTotalM3} m³{viaje.volumenIncompleto ? " conocidos · datos incompletos" : ""}
+                </DetailRow>
                 <DetailRow label="Viáticos estimados">{viaje.costoViaticosEstimado != null ? `$${Number(viaje.costoViaticosEstimado).toFixed(2)}` : "—"}</DetailRow>
                 <DetailRow label="Peajes">{viaje.totalPeajesEstimado != null ? `$${Number(viaje.totalPeajesEstimado).toFixed(2)}` : "—"}</DetailRow>
                 <DetailRow label="Notas">{viaje.notas || "—"}</DetailRow>

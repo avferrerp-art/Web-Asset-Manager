@@ -2874,6 +2874,14 @@ components:
           type: ["integer", "null"]
         totalPeajes:
           type: ["number", "null"]
+        pesoEstimadoKg:
+          type: ["number", "null"]
+          exclusiveMinimum: 0
+          description: Manual dispatch estimate used only when Odoo has no weight
+        volumenEstimadoM3:
+          type: ["number", "null"]
+          exclusiveMinimum: 0
+          description: Manual dispatch estimate used only when Odoo has no volume
         createdAt:
           type: string
         # Joined fields
@@ -2931,6 +2939,14 @@ components:
           type: ["integer", "null"]
         totalPeajes:
           type: ["number", "null"]
+        pesoEstimadoKg:
+          type: ["number", "null"]
+          exclusiveMinimum: 0
+          description: Manual dispatch estimate used only when Odoo has no weight
+        volumenEstimadoM3:
+          type: ["number", "null"]
+          exclusiveMinimum: 0
+          description: Manual dispatch estimate used only when Odoo has no volume
         createdAt:
           type: string
         vehiculoModelo:
@@ -2949,10 +2965,24 @@ components:
           type: ["string", "null"]
         pesoTotal:
           type: ["number", "null"]
-          description: Total cargo weight in kg from the linked sale
+          description: Effective cargo weight in kg; Odoo takes priority over dispatch estimate
         volumenTotal:
           type: ["number", "null"]
-          description: Total cargo volume in m³ from the linked sale
+          description: Effective cargo volume in m³; Odoo takes priority over dispatch estimate
+        pesoOdooKg:
+          type: ["number", "null"]
+          description: Read-only weight from the linked Odoo entity
+        volumenOdooM3:
+          type: ["number", "null"]
+          description: Read-only volume from the linked Odoo entity
+        pesoOrigen:
+          type: ["string", "null"]
+          enum: [odoo, estimado, null]
+          description: Source of the effective dispatch weight
+        volumenOrigen:
+          type: ["string", "null"]
+          enum: [odoo, estimado, null]
+          description: Source of the effective dispatch volume
         saleItems:
           type: array
           description: Line items of the linked sale order
@@ -3001,6 +3031,12 @@ components:
           type: integer
         totalPeajes:
           type: number
+        pesoEstimadoKg:
+          type: ["number", "null"]
+          exclusiveMinimum: 0
+        volumenEstimadoM3:
+          type: ["number", "null"]
+          exclusiveMinimum: 0
         routePoints:
           type: array
           items:
@@ -3075,6 +3111,12 @@ components:
           type: integer
         totalPeajes:
           type: number
+        pesoEstimadoKg:
+          type: ["number", "null"]
+          exclusiveMinimum: 0
+        volumenEstimadoM3:
+          type: ["number", "null"]
+          exclusiveMinimum: 0
         viajeId:
           type: ["integer", "null"]
 
@@ -3118,12 +3160,24 @@ components:
       allOf:
         - $ref: "#/components/schemas/Viaje"
         - type: object
-          required: [despachos, costoViaticosEstimado]
+          required: [despachos, costoViaticosEstimado, pesoTotalKg, volumenTotalM3, pesoIncompleto, volumenIncompleto]
           properties:
             despachos:
               type: array
               items:
                 $ref: "#/components/schemas/Dispatch"
+            pesoTotalKg:
+              type: number
+              description: Sum of effective dispatch weights in the trip
+            volumenTotalM3:
+              type: number
+              description: Sum of effective dispatch volumes in the trip
+            pesoIncompleto:
+              type: boolean
+              description: At least one dispatch has no Odoo weight or manual estimate
+            volumenIncompleto:
+              type: boolean
+              description: At least one dispatch has no Odoo volume or manual estimate
             costoViaticosEstimado:
               type: ["number", "null"]
               readOnly: true

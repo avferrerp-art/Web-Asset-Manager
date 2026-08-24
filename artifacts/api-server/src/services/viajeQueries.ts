@@ -18,7 +18,7 @@ import {
   vehiclesTable,
   viajesTable,
 } from "@workspace/db";
-import { exceedsDispatchCapacity } from "./dispatchCapacity";
+import { effectiveDispatchMeasure, exceedsDispatchCapacity } from "./dispatchCapacity";
 import { deriveViajeEstado, viajeEstadoUpdateSql } from "./viajeEstadoSync";
 
 export class ViajeInputError extends Error {
@@ -60,7 +60,10 @@ async function loadDispatchCargoWith(
       .select({ pesoKg: salesTable.pesoTotal, volumenM3: salesTable.volumenTotal })
       .from(salesTable)
       .where(eq(salesTable.id, dispatch.ventaId));
-    return sale ?? { pesoKg: null, volumenM3: null };
+    return {
+      pesoKg: effectiveDispatchMeasure(sale?.pesoKg, dispatch.pesoEstimadoKg, true),
+      volumenM3: effectiveDispatchMeasure(sale?.volumenM3, dispatch.volumenEstimadoM3, true),
+    };
   }
   if (dispatch.tipo === "traslado" && dispatch.trasladoId !== null) {
     const [traslado] = await executor
@@ -72,8 +75,8 @@ async function loadDispatchCargoWith(
       .from(trasladosTable)
       .where(eq(trasladosTable.id, dispatch.trasladoId));
     return {
-      pesoKg: traslado?.pesoCalculadoKg ?? traslado?.pesoEstimadoKg ?? null,
-      volumenM3: traslado?.volumenM3 ?? null,
+      pesoKg: effectiveDispatchMeasure(traslado?.pesoCalculadoKg, dispatch.pesoEstimadoKg),
+      volumenM3: effectiveDispatchMeasure(traslado?.volumenM3, dispatch.volumenEstimadoM3),
     };
   }
   return { pesoKg: null, volumenM3: null };
@@ -118,13 +121,17 @@ async function validateCapacity(
   dispatches: Array<typeof dispatchesTable.$inferSelect>,
   executor: any = db,
 ) {
+  const carga = { pesoKg: 0, volumenM3: 0 };
   for (const dispatch of dispatches) {
-    const carga = await loadDispatchCargoWith(executor, dispatch);
-    if (!exceedsDispatchCapacity(vehicle, carga)) continue;
+    const dispatchCargo = await loadDispatchCargoWith(executor, dispatch);
+    carga.pesoKg += dispatchCargo.pesoKg ?? 0;
+    carga.volumenM3 += dispatchCargo.volumenM3 ?? 0;
+  }
+  if (exceedsDispatchCapacity(vehicle, carga)) {
     throw new ViajeInputError(
       400,
       "vehicle_capacity_exceeded",
-      `El vehículo ${vehicle.modelo} no alcanza para la carga del despacho ${dispatch.id}.`,
+      `El vehículo ${vehicle.modelo} no alcanza para la carga consolidada de los despachos seleccionados (${carga.pesoKg}kg / ${carga.volumenM3}m³).`,
     );
   }
 }
@@ -168,7 +175,19 @@ export async function getViajeRecord(id: number) {
     .from(dispatchesTable)
     .where(eq(dispatchesTable.viajeId, id))
     .orderBy(dispatchesTable.orden, dispatchesTable.id);
-  return { viaje, dispatches };
+  const cargas = await Promise.all(
+    dispatches.map((dispatch) => loadDispatchCargoWith(db, dispatch)),
+  );
+  return {
+    viaje,
+    dispatches,
+    carga: {
+      pesoTotalKg: cargas.reduce((total, carga) => total + (carga.pesoKg ?? 0), 0),
+      volumenTotalM3: cargas.reduce((total, carga) => total + (carga.volumenM3 ?? 0), 0),
+      pesoIncompleto: cargas.some((carga) => carga.pesoKg === null),
+      volumenIncompleto: cargas.some((carga) => carga.volumenM3 === null),
+    },
+  };
 }
 
 export async function createViaje(input: ViajeInput) {
@@ -257,9 +276,11 @@ export async function updateViaje(id: number, data: ViajeUpdate) {
   });
 }
 
-export async function reassignDispatchViaje(
+const PRESERVE_CURRENT_VIAJE = Symbol("preserve-current-viaje");
+
+async function mutateDispatchViaje(
   dispatchId: number,
-  targetViajeId: number | null,
+  requestedViajeId: number | null | typeof PRESERVE_CURRENT_VIAJE,
   updateData: Record<string, unknown>,
 ) {
   const [snapshot] = await db
@@ -267,6 +288,10 @@ export async function reassignDispatchViaje(
     .from(dispatchesTable)
     .where(eq(dispatchesTable.id, dispatchId));
   if (!snapshot) return null;
+  const targetViajeId =
+    requestedViajeId === PRESERVE_CURRENT_VIAJE
+      ? snapshot.viajeId
+      : requestedViajeId;
 
   return db.transaction(async (tx) => {
     const viajeIds = [...new Set(
@@ -321,14 +346,26 @@ export async function reassignDispatchViaje(
           "El vehículo del viaje no existe.",
         );
       }
-      const carga = await loadDispatchCargoWith(tx, dispatch);
-      if (exceedsDispatchCapacity(vehicle, carga)) {
-        throw new ViajeInputError(
-          400,
-          "vehicle_capacity_exceeded",
-          `El vehículo del viaje no alcanza para la carga del despacho ${dispatch.id}.`,
-        );
-      }
+      const targetMembers = await tx
+        .select()
+        .from(dispatchesTable)
+        .where(eq(dispatchesTable.viajeId, targetViaje.id))
+        .for("update");
+      const candidate = {
+        ...dispatch,
+        ...updateData,
+        vehiculoId: targetViaje.vehiculoId,
+        choferId: targetViaje.choferId,
+        ayudanteId: targetViaje.ayudanteId,
+      };
+      await validateCapacity(
+        vehicle,
+        [
+          ...targetMembers.filter((member) => member.id !== dispatch.id),
+          candidate,
+        ],
+        tx,
+      );
       const sameViaje = targetViaje.id === dispatch.viajeId;
       const order = sameViaje
         ? dispatch.orden
@@ -354,4 +391,19 @@ export async function reassignDispatchViaje(
     }
     return updated ?? null;
   });
+}
+
+export async function reassignDispatchViaje(
+  dispatchId: number,
+  targetViajeId: number | null,
+  updateData: Record<string, unknown>,
+) {
+  return mutateDispatchViaje(dispatchId, targetViajeId, updateData);
+}
+
+export async function updateDispatchPreservingViaje(
+  dispatchId: number,
+  updateData: Record<string, unknown>,
+) {
+  return mutateDispatchViaje(dispatchId, PRESERVE_CURRENT_VIAJE, updateData);
 }

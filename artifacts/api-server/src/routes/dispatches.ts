@@ -4,9 +4,10 @@ import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePo
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
 import { syncLinkedDispatchEntity } from "../services/dispatchEstadoSync";
 import { getTraslado, getTrasladoSummary } from "../services/trasladoQueries";
-import { exceedsDispatchCapacity } from "../services/dispatchCapacity";
+import { effectiveDispatchMeasure, exceedsDispatchCapacity } from "../services/dispatchCapacity";
 import {
   reassignDispatchViaje,
+  updateDispatchPreservingViaje,
   ViajeInputError,
 } from "../services/viajeQueries";
 import {
@@ -155,10 +156,18 @@ export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect
   ]);
   if (d.tipo === "traslado" && d.trasladoId !== null) {
     const traslado = await getTraslado(d.trasladoId);
+    const pesoOdooKg = traslado?.pesoCalculadoKg ?? null;
+    const volumenOdooM3 = traslado?.volumenCalculadoM3 ?? null;
     return {
       ...row,
-      pesoTotal: traslado?.pesoEfectivoKg ?? null,
-      volumenTotal: traslado?.volumenCalculadoM3 ?? null,
+      pesoOdooKg,
+      volumenOdooM3,
+      pesoTotal: effectiveDispatchMeasure(pesoOdooKg, d.pesoEstimadoKg),
+      volumenTotal: effectiveDispatchMeasure(volumenOdooM3, d.volumenEstimadoM3),
+      pesoOrigen: pesoOdooKg !== null ? "odoo" : d.pesoEstimadoKg !== null ? "estimado" : null,
+      volumenOrigen: volumenOdooM3 !== null ? "odoo" : d.volumenEstimadoM3 !== null ? "estimado" : null,
+      pesoEstimadoKg: d.pesoEstimadoKg,
+      volumenEstimadoM3: d.volumenEstimadoM3,
       saleItems: [],
       cargoItems: (traslado?.lineas ?? []).map((linea) => ({
         productId: linea.productoId,
@@ -179,10 +188,18 @@ export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect
           db.select().from(saleItemsTable).where(eq(saleItemsTable.ventaId, d.ventaId)),
         ]);
   const sale = saleResult[0] ?? null;
+  const pesoOdooKg = sale?.pesoTotal ?? null;
+  const volumenOdooM3 = sale?.volumenTotal ?? null;
   return {
     ...row,
-    pesoTotal: sale?.pesoTotal ?? null,
-    volumenTotal: sale?.volumenTotal ?? null,
+    pesoOdooKg,
+    volumenOdooM3,
+    pesoTotal: effectiveDispatchMeasure(pesoOdooKg, d.pesoEstimadoKg, true),
+    volumenTotal: effectiveDispatchMeasure(volumenOdooM3, d.volumenEstimadoM3, true),
+    pesoOrigen: pesoOdooKg != null && pesoOdooKg > 0 ? "odoo" : d.pesoEstimadoKg !== null ? "estimado" : null,
+    volumenOrigen: volumenOdooM3 != null && volumenOdooM3 > 0 ? "odoo" : d.volumenEstimadoM3 !== null ? "estimado" : null,
+    pesoEstimadoKg: d.pesoEstimadoKg,
+    volumenEstimadoM3: d.volumenEstimadoM3,
     saleItems: saleItemsResult,
     cargoItems: saleItemsResult.map((item) => ({
       productId: item.productId,
@@ -235,14 +252,16 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     return;
   }
   // null = sin dato en Odoo → no bloquea el despacho (no se puede comparar lo que no se conoce)
-  const pesoCarga =
-    dispatchData.tipo === "venta"
-      ? sale?.pesoTotal ?? null
-      : traslado?.pesoEfectivoKg ?? null;
-  const volumenCarga =
-    dispatchData.tipo === "venta"
-      ? sale?.volumenTotal ?? null
-      : traslado?.volumenCalculadoM3 ?? null;
+  const pesoCarga = effectiveDispatchMeasure(
+    dispatchData.tipo === "venta" ? sale?.pesoTotal : traslado?.pesoCalculadoKg,
+    dispatchData.pesoEstimadoKg,
+    dispatchData.tipo === "venta",
+  );
+  const volumenCarga = effectiveDispatchMeasure(
+    dispatchData.tipo === "venta" ? sale?.volumenTotal : traslado?.volumenCalculadoM3,
+    dispatchData.volumenEstimadoM3,
+    dispatchData.tipo === "venta",
+  );
   if (exceedsDispatchCapacity(vehicle, { pesoKg: pesoCarga, volumenM3: volumenCarga })) {
     const fuente = dispatchData.tipo === "venta" ? "esta venta" : "este traslado";
     res.status(400).json({
@@ -313,15 +332,17 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
 
   let updateData: Record<string, unknown> = parsed.data;
   let existing: typeof dispatchesTable.$inferSelect | null = null;
-  if (
+  const capacityFieldsChanged =
     "routeId" in parsed.data ||
     "distanciaKm" in parsed.data ||
     "distanciaManual" in parsed.data ||
     "viajeId" in parsed.data ||
     "vehiculoId" in parsed.data ||
     "choferId" in parsed.data ||
-    "ayudanteId" in parsed.data
-  ) {
+    "ayudanteId" in parsed.data ||
+    "pesoEstimadoKg" in parsed.data ||
+    "volumenEstimadoM3" in parsed.data;
+  if (capacityFieldsChanged) {
     [existing] = await db.select().from(dispatchesTable).where(eq(dispatchesTable.id, params.data.id));
     if (!existing) {
       res.status(404).json({ error: "Dispatch not found" });
@@ -338,6 +359,8 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
   const hasViajePatch =
     "viajeId" in parsed.data &&
     targetViajeId !== undefined;
+  const updatesCargo =
+    "pesoEstimadoKg" in parsed.data || "volumenEstimadoM3" in parsed.data;
   const changesViajeAssignments =
     "vehiculoId" in parsed.data ||
     "choferId" in parsed.data ||
@@ -353,14 +376,58 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     });
     return;
   }
+  if (
+    existing &&
+    !hasViajePatch &&
+    ("vehiculoId" in parsed.data ||
+      "pesoEstimadoKg" in parsed.data ||
+      "volumenEstimadoM3" in parsed.data)
+  ) {
+    const candidate = { ...existing, ...parsed.data };
+    const [vehicle] = await db
+      .select()
+      .from(vehiclesTable)
+      .where(eq(vehiclesTable.id, candidate.vehiculoId));
+    if (!vehicle) {
+      res.status(400).json({ error: "El vehículo indicado no existe" });
+      return;
+    }
+    const sale =
+      candidate.tipo === "venta" && candidate.ventaId !== null
+        ? await db.select().from(salesTable).where(eq(salesTable.id, candidate.ventaId)).then((rows) => rows[0] ?? null)
+        : null;
+    const traslado =
+      candidate.tipo === "traslado" && candidate.trasladoId !== null
+        ? await getTraslado(candidate.trasladoId)
+        : null;
+    const pesoCarga = effectiveDispatchMeasure(
+      candidate.tipo === "venta" ? sale?.pesoTotal : traslado?.pesoCalculadoKg,
+      candidate.pesoEstimadoKg,
+      candidate.tipo === "venta",
+    );
+    const volumenCarga = effectiveDispatchMeasure(
+      candidate.tipo === "venta" ? sale?.volumenTotal : traslado?.volumenCalculadoM3,
+      candidate.volumenEstimadoM3,
+      candidate.tipo === "venta",
+    );
+    if (exceedsDispatchCapacity(vehicle, { pesoKg: pesoCarga, volumenM3: volumenCarga })) {
+      res.status(400).json({
+        error: "vehicle_capacity_exceeded",
+        message: `El vehículo ${vehicle.modelo} no alcanza para la carga efectiva del despacho ${candidate.id} (${pesoCarga ?? "sin dato"}kg / ${volumenCarga ?? "sin dato"}m³).`,
+      });
+      return;
+    }
+  }
   let dispatch: typeof dispatchesTable.$inferSelect | null = null;
-  if (hasViajePatch) {
+  if (hasViajePatch || updatesCargo) {
     try {
-      dispatch = await reassignDispatchViaje(
-        params.data.id,
-        targetViajeId!,
-        updateData,
-      );
+      dispatch = hasViajePatch
+        ? await reassignDispatchViaje(
+            params.data.id,
+            targetViajeId!,
+            updateData,
+          )
+        : await updateDispatchPreservingViaje(params.data.id, updateData);
     } catch (error) {
       if (error instanceof ViajeInputError) {
         res.status(error.status).json({ error: error.code, message: error.message });

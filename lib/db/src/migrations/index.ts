@@ -24,6 +24,8 @@ import * as personnelAlmacenes from "./0012_personnel_almacenes";
 import * as viajes from "./0013_viajes";
 import * as viajesOrdenUnique from "./0014_viajes_orden_unique";
 import * as personnelTarifaPorKm from "./0015_personnel_tarifa_por_km";
+import * as dispatchCargoEstimates from "./0016_dispatch_cargo_estimates";
+import * as backfillDispatchCargoEstimates from "./0017_backfill_dispatch_cargo_estimates";
 
 export interface Migration {
   name: string;
@@ -47,4 +49,6 @@ export const migrations: Migration[] = [
   viajes,
   viajesOrdenUnique,
   personnelTarifaPorKm,
+  dispatchCargoEstimates,
+  backfillDispatchCargoEstimates,
 ];

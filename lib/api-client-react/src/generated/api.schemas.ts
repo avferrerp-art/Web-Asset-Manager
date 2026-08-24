@@ -714,6 +714,18 @@ export interface Dispatch {
   routeId?: number | null;
   /** @nullable */
   totalPeajes?: number | null;
+  /**
+     * Manual dispatch estimate used only when Odoo has no weight
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  pesoEstimadoKg?: number | null;
+  /**
+     * Manual dispatch estimate used only when Odoo has no volume
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  volumenEstimadoM3?: number | null;
   createdAt: string;
   /** @nullable */
   vehiculoModelo?: string | null;
@@ -737,6 +749,30 @@ export type DispatchDetailTipo = typeof DispatchDetailTipo[keyof typeof Dispatch
 export const DispatchDetailTipo = {
   venta: 'venta',
   traslado: 'traslado',
+} as const;
+
+/**
+ * Source of the effective dispatch weight
+ * @nullable
+ */
+export type DispatchDetailPesoOrigen = typeof DispatchDetailPesoOrigen[keyof typeof DispatchDetailPesoOrigen] | null;
+
+
+export const DispatchDetailPesoOrigen = {
+  odoo: 'odoo',
+  estimado: 'estimado',
+} as const;
+
+/**
+ * Source of the effective dispatch volume
+ * @nullable
+ */
+export type DispatchDetailVolumenOrigen = typeof DispatchDetailVolumenOrigen[keyof typeof DispatchDetailVolumenOrigen] | null;
+
+
+export const DispatchDetailVolumenOrigen = {
+  odoo: 'odoo',
+  estimado: 'estimado',
 } as const;
 
 export interface DispatchCargoItem {
@@ -799,6 +835,18 @@ export interface DispatchDetail {
   routeId?: number | null;
   /** @nullable */
   totalPeajes?: number | null;
+  /**
+     * Manual dispatch estimate used only when Odoo has no weight
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  pesoEstimadoKg?: number | null;
+  /**
+     * Manual dispatch estimate used only when Odoo has no volume
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  volumenEstimadoM3?: number | null;
   createdAt: string;
   /** @nullable */
   vehiculoModelo?: string | null;
@@ -815,15 +863,35 @@ export interface DispatchDetail {
   /** @nullable */
   destino?: string | null;
   /**
-     * Total cargo weight in kg from the linked sale
+     * Effective cargo weight in kg; Odoo takes priority over dispatch estimate
      * @nullable
      */
   pesoTotal: number | null;
   /**
-     * Total cargo volume in m³ from the linked sale
+     * Effective cargo volume in m³; Odoo takes priority over dispatch estimate
      * @nullable
      */
   volumenTotal: number | null;
+  /**
+     * Read-only weight from the linked Odoo entity
+     * @nullable
+     */
+  pesoOdooKg?: number | null;
+  /**
+     * Read-only volume from the linked Odoo entity
+     * @nullable
+     */
+  volumenOdooM3?: number | null;
+  /**
+     * Source of the effective dispatch weight
+     * @nullable
+     */
+  pesoOrigen?: DispatchDetailPesoOrigen;
+  /**
+     * Source of the effective dispatch volume
+     * @nullable
+     */
+  volumenOrigen?: DispatchDetailVolumenOrigen;
   /** Line items of the linked sale order */
   saleItems: SaleItem[];
   /** Normalized cargo lines from the linked sale or internal transfer */
@@ -850,6 +918,16 @@ export interface DispatchInputBase {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  pesoEstimadoKg?: number | null;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  volumenEstimadoM3?: number | null;
   routePoints?: RoutePointInput[];
 }
 
@@ -901,6 +979,16 @@ export interface DispatchUpdate {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  pesoEstimadoKg?: number | null;
+  /**
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  volumenEstimadoM3?: number | null;
   /** @nullable */
   viajeId?: number | null;
 }
@@ -941,6 +1029,14 @@ export interface Viaje {
 
 export type ViajeDetail = Viaje & ({
   despachos: Dispatch[];
+  /** Sum of effective dispatch weights in the trip */
+  pesoTotalKg: number;
+  /** Sum of effective dispatch volumes in the trip */
+  volumenTotalM3: number;
+  /** At least one dispatch has no Odoo weight or manual estimate */
+  pesoIncompleto: boolean;
+  /** At least one dispatch has no Odoo volume or manual estimate */
+  volumenIncompleto: boolean;
   /**
      * Derived per-diem cost calculated once per trip from total distance and the driver/assistant rates; null until total distance is loaded.
      * @nullable

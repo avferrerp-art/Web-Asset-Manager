@@ -6,7 +6,9 @@
  * OpenAPI spec version: 0.1.0
  */
 import type { DispatchCargoItem } from './dispatchCargoItem';
+import type { DispatchDetailPesoOrigen } from './dispatchDetailPesoOrigen';
 import type { DispatchDetailTipo } from './dispatchDetailTipo';
+import type { DispatchDetailVolumenOrigen } from './dispatchDetailVolumenOrigen';
 import type { RoutePoint } from './routePoint';
 import type { SaleItem } from './saleItem';
 import type { TravelCost } from './travelCost';
@@ -38,6 +40,18 @@ export interface DispatchDetail {
   routeId?: number | null;
   /** @nullable */
   totalPeajes?: number | null;
+  /**
+     * Manual dispatch estimate used only when Odoo has no weight
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  pesoEstimadoKg?: number | null;
+  /**
+     * Manual dispatch estimate used only when Odoo has no volume
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  volumenEstimadoM3?: number | null;
   createdAt: string;
   /** @nullable */
   vehiculoModelo?: string | null;
@@ -54,15 +68,35 @@ export interface DispatchDetail {
   /** @nullable */
   destino?: string | null;
   /**
-     * Total cargo weight in kg from the linked sale
+     * Effective cargo weight in kg; Odoo takes priority over dispatch estimate
      * @nullable
      */
   pesoTotal: number | null;
   /**
-     * Total cargo volume in m³ from the linked sale
+     * Effective cargo volume in m³; Odoo takes priority over dispatch estimate
      * @nullable
      */
   volumenTotal: number | null;
+  /**
+     * Read-only weight from the linked Odoo entity
+     * @nullable
+     */
+  pesoOdooKg?: number | null;
+  /**
+     * Read-only volume from the linked Odoo entity
+     * @nullable
+     */
+  volumenOdooM3?: number | null;
+  /**
+     * Source of the effective dispatch weight
+     * @nullable
+     */
+  pesoOrigen?: DispatchDetailPesoOrigen;
+  /**
+     * Source of the effective dispatch volume
+     * @nullable
+     */
+  volumenOrigen?: DispatchDetailVolumenOrigen;
   /** Line items of the linked sale order */
   saleItems: SaleItem[];
   /** Normalized cargo lines from the linked sale or internal transfer */

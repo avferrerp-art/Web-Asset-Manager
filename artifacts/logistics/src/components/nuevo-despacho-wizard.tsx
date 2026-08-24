@@ -32,6 +32,13 @@ import { almacenCiudad, ciudadCoincide } from "@/lib/almacenes";
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
 import { classifyFleet, suggestedVehicle } from "@/lib/fleet";
 import { toDatetimeLocal } from "@/lib/datetime-local";
+import {
+  cargoEstimateDraftValid,
+  DispatchCargoEstimateEditor,
+  effectiveCargoMeasure,
+  parsePositiveEstimate,
+  type DispatchCargoEstimateDraft,
+} from "@/components/dispatch-cargo-estimate-editor";
 
 function fmtDateShort(s: string) {
   return new Date(s).toLocaleDateString("es-VE", {
@@ -88,6 +95,10 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     fechaEstimadaLlegada: defaultTomorrow(),
   });
   const [marcarEnRuta, setMarcarEnRuta] = useState(false);
+  const [estimateDraft, setEstimateDraft] = useState<DispatchCargoEstimateDraft>({
+    peso: "",
+    volumen: "",
+  });
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -125,11 +136,16 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     ) ?? null;
   })();
 
-  // Clasificación de flota (fleet.ts = única fuente de verdad). Solo aplica
-  // cuando la venta tiene peso en Odoo; sin dato no se sugiere nada.
+  const pesoOdoo = sinDatoCarga(selectedSale?.pesoTotal) ? null : selectedSale?.pesoTotal ?? null;
+  const volumenOdoo = sinDatoCarga(selectedSale?.volumenTotal) ? null : selectedSale?.volumenTotal ?? null;
+  const pesoEfectivo = effectiveCargoMeasure(pesoOdoo, estimateDraft.peso, true);
+  const volumenEfectivo = effectiveCargoMeasure(volumenOdoo, estimateDraft.volumen, true);
+
+  // Clasificación de flota (fleet.ts = única fuente de verdad). Las
+  // estimaciones solo completan dimensiones ausentes en Odoo.
   const fleetClass =
-    selectedSale && !sinDatoCarga(selectedSale.pesoTotal)
-      ? classifyFleet(vehicles ?? [], selectedSale.pesoTotal ?? 0, selectedSale.volumenTotal ?? 0)
+    selectedSale && (pesoEfectivo !== null || volumenEfectivo !== null)
+      ? classifyFleet(vehicles ?? [], pesoEfectivo ?? 0, volumenEfectivo ?? 0)
       : null;
   const suggestedFit = fleetClass?.fit[0] ?? null;
   const ningunVehiculoCompatible =
@@ -198,6 +214,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
 
   function handleSelectSale(sale: any) {
     setSelectedSale(sale);
+    setEstimateDraft({ peso: "", volumen: "" });
     // Sin peso en Odoo no hay compatibilidad confiable: no preseleccionar
     // vehículo por capacidad (un 0 silencioso sugeriría el más chico).
     // Con datos, fleet.ts es la única fuente de verdad: el sugerido es el
@@ -246,7 +263,8 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
       assignment.distanciaKm > 0 &&
       assignment.fechaEstimadaSalida &&
       assignment.fechaEstimadaLlegada &&
-      !vehicleConflict
+      !vehicleConflict &&
+      cargoEstimateDraftValid(estimateDraft)
     );
   }
 
@@ -263,6 +281,12 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
       distanciaManual: assignment.distanciaManual,
       routeId: assignment.routeId,
       totalPeajes: costoPeajes,
+      ...(parsePositiveEstimate(estimateDraft.peso)
+        ? { pesoEstimadoKg: parsePositiveEstimate(estimateDraft.peso) as number }
+        : {}),
+      ...(parsePositiveEstimate(estimateDraft.volumen)
+        ? { volumenEstimadoM3: parsePositiveEstimate(estimateDraft.volumen) as number }
+        : {}),
       ...(assignment.ayudanteId > 0 ? { ayudanteId: assignment.ayudanteId } : {}),
     };
 
@@ -305,6 +329,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     setTimeout(() => {
       setStep(1);
       setSelectedSale(null);
+      setEstimateDraft({ peso: "", volumen: "" });
       setMarcarEnRuta(false);
       setAssignment({
         vehiculoId: 0,
@@ -490,6 +515,14 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
               </div>
             )}
 
+            <DispatchCargoEstimateEditor
+              pesoOdooKg={pesoOdoo}
+              volumenOdooM3={volumenOdoo}
+              draft={estimateDraft}
+              onChange={setEstimateDraft}
+              zeroMeansMissing
+            />
+
             {/* Route */}
             <div className="space-y-1.5">
               <Label className="flex items-center gap-1.5 text-sm">
@@ -592,7 +625,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                     <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                     <span>
                       Ningún vehículo de la flota soporta esta carga
-                      ({formatCarga(selectedSale?.pesoTotal, "kg")} · {formatCarga(selectedSale?.volumenTotal, "m³")}).
+                      ({pesoEfectivo ?? "sin dato"} kg · {volumenEfectivo ?? "sin dato"} m³).
                       Considera dividir el envío.
                     </span>
                   </div>
@@ -817,8 +850,14 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                 </div>
                 <div><span className="text-muted-foreground">Cliente:</span> {selectedSale?.cliente}</div>
                 <div><span className="text-muted-foreground">Destino:</span> {selectedSale?.destino}</div>
-                <div><span className="text-muted-foreground">Peso:</span> {formatCarga(selectedSale?.pesoTotal, "kg")}</div>
-                <div><span className="text-muted-foreground">Volumen:</span> {formatCarga(selectedSale?.volumenTotal, "m³")}</div>
+                <div>
+                  <span className="text-muted-foreground">Peso:</span>{" "}
+                  {pesoEfectivo == null ? "sin dato" : `${pesoEfectivo} kg (${pesoOdoo != null ? "Odoo" : "estimado"})`}
+                </div>
+                <div>
+                  <span className="text-muted-foreground">Volumen:</span>{" "}
+                  {volumenEfectivo == null ? "sin dato" : `${volumenEfectivo} m³ (${volumenOdoo != null ? "Odoo" : "estimado"})`}
+                </div>
               </div>
               <div className="bg-muted/60 rounded-lg p-3 space-y-1 text-sm">
                 <div className="font-semibold text-xs text-muted-foreground uppercase tracking-wide mb-2">

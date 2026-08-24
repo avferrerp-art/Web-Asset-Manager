@@ -33,6 +33,14 @@ import { OdooSyncCard, OdooBadge } from "@/components/odoo-sync-card";
 import { PendingTrasladosCard } from "@/components/pending-traslados-card";
 import { toDatetimeLocal } from "@/lib/datetime-local";
 import { ViajeWizard, type ViajeSelectedOrder } from "@/components/viaje-wizard";
+import {
+  cargoEstimateDraftValid,
+  DispatchCargoEstimateEditor,
+  effectiveCargoMeasure,
+  parsePositiveEstimate,
+  type DispatchCargoEstimateDraft,
+} from "@/components/dispatch-cargo-estimate-editor";
+import type { DispatchCargoEstimates } from "@/components/cargo-wizard";
 
 const dispatchSchema = z.object({
   vehiculoId: z.coerce.number().min(1, "Requerido"),
@@ -68,6 +76,10 @@ export default function PreDespacho() {
   const [tripMode, setTripMode] = useState(false);
   const [tripWizardOpen, setTripWizardOpen] = useState(false);
   const [tripOrdersByKey, setTripOrdersByKey] = useState<Record<string, ViajeSelectedOrder>>({});
+  const [estimateDraft, setEstimateDraft] = useState<DispatchCargoEstimateDraft>({
+    peso: "",
+    volumen: "",
+  });
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -135,14 +147,30 @@ export default function PreDespacho() {
   const selectedChofer = personnel?.find(p => p.id === Number(watchedChoferId));
   const selectedAyudante = personnel?.find(p => p.id === Number(watchedAyudanteId));
   const selectedRoute = routes?.find(r => r.id === Number(watchedRouteId));
+  const selectedPesoOdoo = selectedSale
+    ? sinDatoCarga(selectedSale.pesoTotal) ? null : selectedSale.pesoTotal
+    : selectedTraslado?.pesoCalculadoKg ?? null;
+  const selectedVolumenOdoo = selectedSale
+    ? sinDatoCarga(selectedSale.volumenTotal) ? null : selectedSale.volumenTotal
+    : selectedTraslado?.volumenCalculadoM3 ?? null;
+  const selectedPesoEfectivo = effectiveCargoMeasure(
+    selectedPesoOdoo,
+    estimateDraft.peso,
+    Boolean(selectedSale),
+  );
+  const selectedVolumenEfectivo = effectiveCargoMeasure(
+    selectedVolumenOdoo,
+    estimateDraft.volumen,
+    Boolean(selectedSale),
+  );
   const selectedVehicleExceedsTraslado = Boolean(
-    selectedTraslado
+    (selectedTraslado || selectedSale)
     && selectedVehicle
     && (
-      (selectedTraslado.pesoEfectivoKg != null
-        && selectedTraslado.pesoEfectivoKg > selectedVehicle.capacidadPeso)
-      || (selectedTraslado.volumenCalculadoM3 != null
-        && selectedTraslado.volumenCalculadoM3 > selectedVehicle.capacidadVolumen)
+      (selectedPesoEfectivo != null
+        && selectedPesoEfectivo > selectedVehicle.capacidadPeso)
+      || (selectedVolumenEfectivo != null
+        && selectedVolumenEfectivo > selectedVehicle.capacidadVolumen)
     ),
   );
 
@@ -206,6 +234,14 @@ export default function PreDespacho() {
 
   const onSubmit = (values: z.infer<typeof dispatchSchema>) => {
     if (!selectedSale && !selectedTraslado) return;
+    if (!cargoEstimateDraftValid(estimateDraft)) {
+      toast({
+        title: "Revisa las estimaciones",
+        description: "Las estimaciones deben ser mayores que cero o quedar vacías.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (selectedVehicleExceedsTraslado) {
       toast({
         title: "Vehículo incompatible",
@@ -217,6 +253,10 @@ export default function PreDespacho() {
     const payload: Record<string, unknown> = selectedTraslado
       ? { ...values, tipo: "traslado", trasladoId: selectedTraslado.id }
       : { ...values, tipo: "venta", ventaId: selectedSale.id };
+    const pesoEstimadoKg = parsePositiveEstimate(estimateDraft.peso);
+    const volumenEstimadoM3 = parsePositiveEstimate(estimateDraft.volumen);
+    if (pesoEstimadoKg) payload.pesoEstimadoKg = pesoEstimadoKg;
+    if (volumenEstimadoM3) payload.volumenEstimadoM3 = volumenEstimadoM3;
     if (!payload.ayudanteId || payload.ayudanteId === 0) delete payload.ayudanteId;
     if (!payload.routeId || payload.routeId === 0) {
       delete payload.routeId;
@@ -234,6 +274,7 @@ export default function PreDespacho() {
         queryClient.invalidateQueries({ queryKey: getListTrasladosQueryKey() });
         setSelectedSale(null);
         setSelectedTraslado(null);
+        setEstimateDraft({ peso: "", volumen: "" });
         toast({ title: "¡Despacho creado y aprobado correctamente!" });
       },
       onError: (error) => {
@@ -246,9 +287,17 @@ export default function PreDespacho() {
     });
   };
 
-  const handleSelectSale = (sale: any, overrideVehicleId?: number) => {
+  const handleSelectSale = (
+    sale: any,
+    overrideVehicleId?: number,
+    estimates: DispatchCargoEstimates = {},
+  ) => {
     setSelectedTraslado(null);
     setSelectedSale(sale);
+    setEstimateDraft({
+      peso: estimates.pesoEstimadoKg?.toString() ?? "",
+      volumen: estimates.volumenEstimadoM3?.toString() ?? "",
+    });
     // Sin peso en Odoo no hay compatibilidad confiable: no preseleccionar
     // vehículo por capacidad (un 0 silencioso sugeriría el más chico).
     const bestVehicle = overrideVehicleId
@@ -278,11 +327,19 @@ export default function PreDespacho() {
     });
   };
 
-  const handleSelectTraslado = (traslado: TrasladoSummary, overrideVehicleId?: number) => {
+  const handleSelectTraslado = (
+    traslado: TrasladoSummary,
+    overrideVehicleId?: number,
+    estimates: DispatchCargoEstimates = {},
+  ) => {
     setSelectedSale(null);
     setSelectedTraslado(traslado);
-    const peso = traslado.pesoEfectivoKg ?? 0;
-    const volumen = traslado.volumenCalculadoM3 ?? 0;
+    setEstimateDraft({
+      peso: estimates.pesoEstimadoKg?.toString() ?? "",
+      volumen: estimates.volumenEstimadoM3?.toString() ?? "",
+    });
+    const peso = traslado.pesoCalculadoKg ?? estimates.pesoEstimadoKg ?? 0;
+    const volumen = traslado.volumenCalculadoM3 ?? estimates.volumenEstimadoM3 ?? 0;
     const bestVehicle = overrideVehicleId
       ? vehicles?.find((vehicle) => vehicle.id === overrideVehicleId)
       : vehicles?.find((vehicle) =>
@@ -399,11 +456,11 @@ export default function PreDespacho() {
         initialSale={cargoWizardSale}
         initialTrasladoId={cargoWizardTrasladoId}
         initialTraslado={cargoWizardTraslado ?? undefined}
-        onVehicleAssigned={(saleId, vehicleId) => {
+        onVehicleAssigned={(saleId, vehicleId, estimates) => {
           const sale = cargoWizardSale ?? sales?.find(s => s.id === saleId);
-          if (sale) handleSelectSale(sale, vehicleId);
+          if (sale) handleSelectSale(sale, vehicleId, estimates);
         }}
-        onTrasladoVehicleAssigned={(traslado, vehicleId) => handleSelectTraslado(traslado, vehicleId)}
+        onTrasladoVehicleAssigned={(traslado, vehicleId, estimates) => handleSelectTraslado(traslado, vehicleId, estimates)}
       />
       <ViajeWizard
         open={tripWizardOpen}
@@ -583,6 +640,7 @@ export default function PreDespacho() {
           if (!open) {
             setSelectedSale(null);
             setSelectedTraslado(null);
+            setEstimateDraft({ peso: "", volumen: "" });
           }
         }}
       >
@@ -616,6 +674,14 @@ export default function PreDespacho() {
               <div><span className="font-semibold">Volumen:</span> {selectedTraslado.volumenCalculadoM3 == null ? "sin dato en Odoo" : `${selectedTraslado.volumenCalculadoM3} m³`}</div>
             </div>
           )}
+
+          <DispatchCargoEstimateEditor
+            pesoOdooKg={selectedPesoOdoo}
+            volumenOdooM3={selectedVolumenOdoo}
+            draft={estimateDraft}
+            onChange={setEstimateDraft}
+            zeroMeansMissing={Boolean(selectedSale)}
+          />
 
           <Form {...form}>
             <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

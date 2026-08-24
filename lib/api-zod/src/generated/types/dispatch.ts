@@ -35,6 +35,18 @@ export interface Dispatch {
   routeId?: number | null;
   /** @nullable */
   totalPeajes?: number | null;
+  /**
+     * Manual dispatch estimate used only when Odoo has no weight
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  pesoEstimadoKg?: number | null;
+  /**
+     * Manual dispatch estimate used only when Odoo has no volume
+     * @exclusiveMinimum 0
+     * @nullable
+     */
+  volumenEstimadoM3?: number | null;
   createdAt: string;
   /** @nullable */
   vehiculoModelo?: string | null;

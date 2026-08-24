@@ -6,7 +6,6 @@ import {
   useListProducts, getListProductsQueryKey,
   useLinkSaleItemProduct, getListUnlinkedSaleItemsQueryKey,
   useGetTraslado, getGetTrasladoQueryKey,
-  useUpdateTraslado, getListTrasladosQueryKey,
 } from "@workspace/api-client-react";
 import type { Vehicle, Sale, TrasladoSummary } from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -32,8 +31,8 @@ interface Props {
   initialSale?: Sale;
   initialTrasladoId?: number;
   initialTraslado?: TrasladoSummary;
-  onVehicleAssigned?: (saleId: number, vehicleId: number) => void;
-  onTrasladoVehicleAssigned?: (traslado: TrasladoSummary, vehicleId: number) => void;
+  onVehicleAssigned?: (saleId: number, vehicleId: number, estimates: DispatchCargoEstimates) => void;
+  onTrasladoVehicleAssigned?: (traslado: TrasladoSummary, vehicleId: number, estimates: DispatchCargoEstimates) => void;
 }
 
 const STEPS = [
@@ -56,6 +55,18 @@ function utilLabel(pct: number) {
 
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
 import { classifyFleet } from "@/lib/fleet";
+import {
+  cargoEstimateDraftValid,
+  DispatchCargoEstimateEditor,
+  effectiveCargoMeasure,
+  parsePositiveEstimate,
+  type DispatchCargoEstimateDraft,
+} from "@/components/dispatch-cargo-estimate-editor";
+
+export interface DispatchCargoEstimates {
+  pesoEstimadoKg?: number;
+  volumenEstimadoM3?: number;
+}
 
 export function CargoWizard({
   open,
@@ -73,9 +84,10 @@ export function CargoWizard({
 
   const [step, setStep] = useState(trasladoMode ? 3 : initialSaleId ? 2 : 1);
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(initialSaleId ?? null);
-  const [editingPeso, setEditingPeso] = useState(false);
-  const [pesoInput, setPesoInput] = useState("");
-  const [pesoError, setPesoError] = useState<string | null>(null);
+  const [estimateDraft, setEstimateDraft] = useState<DispatchCargoEstimateDraft>({
+    peso: "",
+    volumen: "",
+  });
 
   const { data: salesData, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -94,7 +106,6 @@ export function CargoWizard({
     },
   });
   const selectedTraslado: TrasladoSummary | null = trasladoDetail ?? initialTraslado ?? null;
-  const updateTraslado = useUpdateTraslado();
 
   const { data: vehicles } = useListVehicles({
     query: { queryKey: getListVehiclesQueryKey() },
@@ -151,14 +162,16 @@ export function CargoWizard({
 
   const pendingSales = salesData?.filter(s => s.estado === "pendiente") ?? [];
 
-  // Ventas conservan sus reglas defensivas; traslados usan null estrictamente
-  // como ausencia y no reinterpretan el cero.
-  const totalPeso = trasladoMode
-    ? selectedTraslado?.pesoEfectivoKg ?? null
+  // Odoo siempre tiene precedencia. Ventas reinterpretan cero como ausencia;
+  // traslados reservan null para ausencia.
+  const pesoOdoo = trasladoMode
+    ? selectedTraslado?.pesoCalculadoKg ?? null
     : sinDatoCarga(selectedSale?.pesoTotal) ? null : selectedSale!.pesoTotal!;
-  const totalVol = trasladoMode
+  const volumenOdoo = trasladoMode
     ? selectedTraslado?.volumenCalculadoM3 ?? null
     : sinDatoCarga(selectedSale?.volumenTotal) ? null : selectedSale!.volumenTotal!;
+  const totalPeso = effectiveCargoMeasure(pesoOdoo, estimateDraft.peso, !trasladoMode);
+  const totalVol = effectiveCargoMeasure(volumenOdoo, estimateDraft.volumen, !trasladoMode);
   const sinPeso = totalPeso == null;
   const sinVolumen = totalVol == null;
 
@@ -189,55 +202,13 @@ export function CargoWizard({
   }));
 
   const sinDatos = sinPeso && sinVolumen;
-  const pesoEstimadoNumerico = Number(pesoInput.trim());
-  const pesoEstimadoValido = pesoInput.trim() !== ""
-    && Number.isFinite(pesoEstimadoNumerico)
-    && pesoEstimadoNumerico > 0;
-
-  function bustTrasladoCache() {
-    if (!initialTrasladoId) return;
-    queryClient.removeQueries({ queryKey: getGetTrasladoQueryKey(initialTrasladoId) });
-    queryClient.invalidateQueries({ queryKey: getGetTrasladoQueryKey(initialTrasladoId) });
-    queryClient.removeQueries({ queryKey: getListTrasladosQueryKey() });
-    queryClient.invalidateQueries({ queryKey: getListTrasladosQueryKey() });
-  }
-
-  function beginPesoEdit() {
-    setPesoInput(trasladoDetail?.pesoEstimadoKg?.toString() ?? "");
-    setPesoError(null);
-    setEditingPeso(true);
-  }
-
-  function savePesoEstimado(value: number | null) {
-    if (!initialTrasladoId) return;
-    updateTraslado.mutate(
-      { id: initialTrasladoId, data: { pesoEstimadoKg: value } },
-      {
-        onSuccess: () => {
-          bustTrasladoCache();
-          setEditingPeso(false);
-          setPesoError(null);
-          toast({ title: value === null ? "Estimación eliminada" : "Peso estimado guardado" });
-        },
-        onError: (error) => {
-          const message = error instanceof Error ? error.message : "No se pudo guardar la estimación.";
-          setPesoError(message);
-          toast({
-            title: "No se pudo guardar el peso estimado",
-            description: message,
-            variant: "destructive",
-          });
-        },
-      },
-    );
-  }
-
-  function submitPesoEstimado() {
-    if (!pesoEstimadoValido) {
-      setPesoError("Ingresa un peso mayor que cero.");
-      return;
-    }
-    savePesoEstimado(pesoEstimadoNumerico);
+  function currentEstimates(): DispatchCargoEstimates {
+    const pesoEstimadoKg = parsePositiveEstimate(estimateDraft.peso);
+    const volumenEstimadoM3 = parsePositiveEstimate(estimateDraft.volumen);
+    return {
+      ...(pesoEstimadoKg ? { pesoEstimadoKg } : {}),
+      ...(volumenEstimadoM3 ? { volumenEstimadoM3 } : {}),
+    };
   }
 
   return (
@@ -453,10 +424,18 @@ export function CargoWizard({
               </Table>
             </div>
 
-            {/* Totales de Odoo */}
+            <DispatchCargoEstimateEditor
+              pesoOdooKg={pesoOdoo}
+              volumenOdooM3={volumenOdoo}
+              draft={estimateDraft}
+              onChange={setEstimateDraft}
+              zeroMeansMissing
+            />
+
+            {/* Medidas efectivas para compatibilidad */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-muted/50 rounded-md px-4 py-2.5 border border-border/50">
-                <div className="text-xs text-muted-foreground">Peso total (Odoo)</div>
+                <div className="text-xs text-muted-foreground">Peso efectivo</div>
                 <div className="text-lg font-bold" data-testid="text-wizard-peso">
                   {totalPeso != null
                     ? <>{totalPeso} <span className="text-sm font-normal text-muted-foreground">kg</span></>
@@ -464,7 +443,7 @@ export function CargoWizard({
                 </div>
               </div>
               <div className="bg-muted/50 rounded-md px-4 py-2.5 border border-border/50">
-                <div className="text-xs text-muted-foreground">Volumen total (Odoo)</div>
+                <div className="text-xs text-muted-foreground">Volumen efectivo</div>
                 <div className="text-lg font-bold" data-testid="text-wizard-volumen">
                   {totalVol != null
                     ? <>{totalVol} <span className="text-sm font-normal text-muted-foreground">m³</span></>
@@ -481,7 +460,7 @@ export function CargoWizard({
               )}
               <div className="flex-1" />
               <Button
-                disabled={sinDatos}
+                disabled={sinDatos || !cargoEstimateDraftValid(estimateDraft)}
                 onClick={() => setStep(3)}
                 className="gap-1"
                 data-testid="button-wizard-flota"
@@ -492,8 +471,8 @@ export function CargoWizard({
             {sinDatos && (
               <div className="flex items-start gap-2 text-xs bg-red-500/10 border border-red-500/40 rounded-md px-3 py-2" data-testid="warning-wizard-sin-datos">
                 <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                Esta venta no tiene peso ni volumen en Odoo: no se puede recomendar un vehículo.
-                Corrige los datos del artículo en Odoo, o usa el Calculador de Carga para simular con valores manuales.
+                Esta venta no tiene peso ni volumen en Odoo. Agrega al menos una
+                estimación del despacho para poder comparar vehículos.
               </div>
             )}
           </div>
@@ -528,87 +507,13 @@ export function CargoWizard({
                     <p className="font-medium">{selectedTraslado.almacenDestino?.nombre ?? "sin dato"}</p>
                   </div>
                 </div>
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div className="rounded-md border bg-background px-3 py-2">
-                    <p className="text-xs text-muted-foreground">Peso efectivo</p>
-                    <div className="flex flex-wrap items-center gap-2 font-semibold">
-                      {totalPeso == null ? "sin dato en Odoo" : `${totalPeso} kg`}
-                      {selectedTraslado.origenPeso === "estimado" && (
-                        <Badge variant="secondary" className="text-[10px]">Estimado</Badge>
-                      )}
-                    </div>
-                    {selectedTraslado.pesoCalculadoKg == null && !editingPeso && (
-                      <Button
-                        type="button"
-                        variant="link"
-                        size="sm"
-                        className="h-auto min-h-0 p-0 text-xs"
-                        onClick={beginPesoEdit}
-                        data-testid="button-wizard-editar-peso-estimado"
-                      >
-                        {selectedTraslado.origenPeso === "estimado" ? "Editar estimación" : "Agregar estimación"}
-                      </Button>
-                    )}
-                    {selectedTraslado.pesoCalculadoKg == null && editingPeso && (
-                      <div className="mt-2 space-y-2">
-                        <div className="flex gap-2">
-                          <Input
-                            type="number"
-                            min="0.01"
-                            step="any"
-                            className="h-8"
-                            placeholder="Peso en kg"
-                            value={pesoInput}
-                            onChange={(event) => setPesoInput(event.target.value)}
-                            data-testid="input-wizard-peso-estimado"
-                          />
-                          <Button
-                            type="button"
-                            size="sm"
-                            className="h-8"
-                            onClick={submitPesoEstimado}
-                            disabled={updateTraslado.isPending || !pesoEstimadoValido}
-                            data-testid="button-wizard-guardar-peso-estimado"
-                          >
-                            {updateTraslado.isPending && <Loader2 className="h-3 w-3 animate-spin" />}
-                            Guardar
-                          </Button>
-                          <Button
-                            type="button"
-                            size="sm"
-                            variant="ghost"
-                            className="h-8"
-                            onClick={() => setEditingPeso(false)}
-                            disabled={updateTraslado.isPending}
-                          >
-                            Cancelar
-                          </Button>
-                        </div>
-                        {selectedTraslado.origenPeso === "estimado" && (
-                          <Button
-                            type="button"
-                            variant="link"
-                            size="sm"
-                            className="h-auto min-h-0 p-0 text-xs text-muted-foreground"
-                            onClick={() => savePesoEstimado(null)}
-                            disabled={updateTraslado.isPending}
-                          >
-                            Eliminar estimación
-                          </Button>
-                        )}
-                        {pesoError && (
-                          <p className="text-xs text-destructive" data-testid="error-wizard-peso-estimado">
-                            {pesoError}
-                          </p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                  <div className="rounded-md border bg-background px-3 py-2">
-                    <p className="text-xs text-muted-foreground">Volumen calculado</p>
-                    <p className="font-semibold">{totalVol == null ? "sin dato en Odoo" : `${totalVol} m³`}</p>
-                  </div>
-                </div>
+                <DispatchCargoEstimateEditor
+                  pesoOdooKg={pesoOdoo}
+                  volumenOdooM3={volumenOdoo}
+                  draft={estimateDraft}
+                  onChange={setEstimateDraft}
+                  compact
+                />
                 {trasladoError && (
                   <p className="text-xs text-destructive">
                     {trasladoError instanceof Error ? trasladoError.message : "No se pudo actualizar el traslado."}
@@ -667,9 +572,9 @@ export function CargoWizard({
                             className="h-7 text-xs gap-1 shrink-0"
                             onClick={() => {
                               if (trasladoMode && selectedTraslado && onTrasladoVehicleAssigned) {
-                                onTrasladoVehicleAssigned(selectedTraslado, vehicle.id);
+                                onTrasladoVehicleAssigned(selectedTraslado, vehicle.id, currentEstimates());
                               } else if (selectedSaleId && onVehicleAssigned) {
-                                onVehicleAssigned(selectedSaleId, vehicle.id);
+                                onVehicleAssigned(selectedSaleId, vehicle.id, currentEstimates());
                               }
                               handleClose();
                             }}
@@ -683,7 +588,7 @@ export function CargoWizard({
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">
-                            Peso: {sinPeso ? `sin dato${trasladoMode ? "" : " en Odoo"} — no considerado` : `${totalPeso!.toFixed(1)} / ${vehicle.capacidadPeso} kg${trasladoMode && selectedTraslado?.origenPeso === "estimado" ? " (estimado)" : ""}`}
+                            Peso: {sinPeso ? `sin dato${trasladoMode ? "" : " en Odoo"} — no considerado` : `${totalPeso!.toFixed(1)} / ${vehicle.capacidadPeso} kg${pesoOdoo == null ? " (estimado)" : " (Odoo)"}`}
                           </span>
                           {!sinPeso && <span className={`font-semibold ${utilLabel(weightPct)}`}>{weightPct.toFixed(0)}%</span>}
                         </div>
@@ -699,7 +604,7 @@ export function CargoWizard({
                       <div className="space-y-1">
                         <div className="flex justify-between text-xs">
                           <span className="text-muted-foreground">
-                            Volumen: {sinVolumen ? `sin dato${trasladoMode ? "" : " en Odoo"} — no considerado` : `${totalVol!.toFixed(4)} / ${vehicle.capacidadVolumen} m³`}
+                            Volumen: {sinVolumen ? `sin dato${trasladoMode ? "" : " en Odoo"} — no considerado` : `${totalVol!.toFixed(4)} / ${vehicle.capacidadVolumen} m³${volumenOdoo == null ? " (estimado)" : " (Odoo)"}`}
                           </span>
                           {!sinVolumen && <span className={`font-semibold ${utilLabel(volPct)}`}>{volPct.toFixed(0)}%</span>}
                         </div>

@@ -24,6 +24,12 @@ import { useToast } from "@/hooks/use-toast";
 import { Edit2, X, Save, Loader2, Search } from "lucide-react";
 import { matchesSearch } from "@/lib/search";
 import { toDatetimeLocal } from "@/lib/datetime-local";
+import {
+  cargoEstimateDraftValid,
+  DispatchCargoEstimateEditor,
+  parsePositiveEstimate,
+  type DispatchCargoEstimateDraft,
+} from "@/components/dispatch-cargo-estimate-editor";
 
 const ESTADO_BADGE: Record<string, React.ReactElement> = {
   "pre-despacho": <Badge variant="outline" className="text-yellow-500 border-yellow-500/50">Pre-Despacho</Badge>,
@@ -59,6 +65,10 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
   const { toast } = useToast();
   const queryClient = useQueryClient();
   const [isEditing, setIsEditing] = useState(false);
+  const [estimateDraft, setEstimateDraft] = useState<DispatchCargoEstimateDraft>({
+    peso: "",
+    volumen: "",
+  });
 
   const { data: dispatch, isLoading } = useGetDispatch(dispatchId, {
     query: { queryKey: getGetDispatchQueryKey(dispatchId) }
@@ -109,6 +119,10 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
       estado: dispatch.estado,
       routeId: dispatch.routeId ?? undefined,
     });
+    setEstimateDraft({
+      peso: dispatch.pesoEstimadoKg?.toString() ?? "",
+      volumen: dispatch.volumenEstimadoM3?.toString() ?? "",
+    });
     setIsEditing(true);
   };
 
@@ -120,7 +134,17 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
   }, [selectedRoute, isEditing, watchedDistanciaManual]);
 
   const onSubmit = (values: z.infer<typeof editSchema>) => {
+    if (!cargoEstimateDraftValid(estimateDraft)) {
+      toast({
+        title: "Revisa las estimaciones",
+        description: "Las estimaciones deben ser mayores que cero o quedar vacías.",
+        variant: "destructive",
+      });
+      return;
+    }
     const payload: Record<string, unknown> = { ...values };
+    payload.pesoEstimadoKg = parsePositiveEstimate(estimateDraft.peso);
+    payload.volumenEstimadoM3 = parsePositiveEstimate(estimateDraft.volumen);
     if (dispatch?.viajeId) {
       delete payload.vehiculoId;
       delete payload.choferId;
@@ -186,6 +210,15 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
                 <FormMessage />
               </FormItem>
             )} />
+
+            <DispatchCargoEstimateEditor
+              pesoOdooKg={dispatch.pesoOdooKg ?? null}
+              volumenOdooM3={dispatch.volumenOdooM3 ?? null}
+              draft={estimateDraft}
+              onChange={setEstimateDraft}
+              disabled={updateMutation.isPending}
+              zeroMeansMissing={dispatch.tipo === "venta"}
+            />
 
             {dispatch.viajeId ? (
               <div className="rounded-md border border-primary/30 bg-primary/5 p-3 text-sm">
@@ -361,6 +394,18 @@ function DispatchSheet({ dispatchId, onClose }: { dispatchId: number; onClose: (
           <DetailRow label="Cliente" value={dispatch.clienteNombre} />
           <DetailRow label="Destino" value={dispatch.destino} />
           <DetailRow label="Ruta" value={dispatch.ruta} />
+          <DetailRow
+            label="Peso de carga"
+            value={dispatch.pesoTotal == null
+              ? "sin dato"
+              : `${dispatch.pesoTotal} kg (${dispatch.pesoOrigen === "estimado" ? "estimado en despacho" : "Odoo"})`}
+          />
+          <DetailRow
+            label="Volumen de carga"
+            value={dispatch.volumenTotal == null
+              ? "sin dato"
+              : `${dispatch.volumenTotal} m³ (${dispatch.volumenOrigen === "estimado" ? "estimado en despacho" : "Odoo"})`}
+          />
           <DetailRow
             label="Distancia"
             value={dispatch.distanciaKm ? `${dispatch.distanciaKm} km${dispatch.distanciaManual ? " (manual)" : ""}` : null}

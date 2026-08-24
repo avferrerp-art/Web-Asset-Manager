@@ -1117,6 +1117,12 @@ export const ListDispatchesQueryParams = zod.object({
   "status": zod.coerce.string().optional()
 })
 
+export const listDispatchesResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const listDispatchesResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
+
 export const ListDispatchesResponseItem = zod.object({
   "id": zod.number(),
   "tipo": zod.enum(['venta', 'traslado']),
@@ -1135,6 +1141,8 @@ export const ListDispatchesResponseItem = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(listDispatchesResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(listDispatchesResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1150,7 +1158,16 @@ export const ListDispatchesResponse = zod.array(ListDispatchesResponseItem)
 /**
  * @summary Create a dispatch
  */
+export const createDispatchBodyOneOnePesoEstimadoKgExclusiveMin = 0;
+
+export const createDispatchBodyOneOneVolumenEstimadoM3ExclusiveMin = 0;
+
 export const createDispatchBodyOneTwoTipoDefault = `venta`;
+export const createDispatchBodyTwoOnePesoEstimadoKgExclusiveMin = 0;
+
+export const createDispatchBodyTwoOneVolumenEstimadoM3ExclusiveMin = 0;
+
+
 
 export const CreateDispatchBody = zod.union([zod.object({
   "vehiculoId": zod.number(),
@@ -1163,6 +1180,8 @@ export const CreateDispatchBody = zod.union([zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().optional(),
   "totalPeajes": zod.number().optional(),
+  "pesoEstimadoKg": zod.number().gt(createDispatchBodyOneOnePesoEstimadoKgExclusiveMin).nullish(),
+  "volumenEstimadoM3": zod.number().gt(createDispatchBodyOneOneVolumenEstimadoM3ExclusiveMin).nullish(),
   "routePoints": zod.array(zod.object({
   "ubicacion": zod.string(),
   "orden": zod.number(),
@@ -1183,6 +1202,8 @@ export const CreateDispatchBody = zod.union([zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().optional(),
   "totalPeajes": zod.number().optional(),
+  "pesoEstimadoKg": zod.number().gt(createDispatchBodyTwoOnePesoEstimadoKgExclusiveMin).nullish(),
+  "volumenEstimadoM3": zod.number().gt(createDispatchBodyTwoOneVolumenEstimadoM3ExclusiveMin).nullish(),
   "routePoints": zod.array(zod.object({
   "ubicacion": zod.string(),
   "orden": zod.number(),
@@ -1193,6 +1214,12 @@ export const CreateDispatchBody = zod.union([zod.object({
   "tipo": zod.enum(['traslado']),
   "trasladoId": zod.number()
 }))])
+
+export const createDispatchResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const createDispatchResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
 
 export const CreateDispatchResponse = zod.object({
   "id": zod.number(),
@@ -1212,6 +1239,8 @@ export const CreateDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(createDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(createDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1229,6 +1258,12 @@ export const CreateDispatchResponse = zod.object({
 export const GetDispatchParams = zod.object({
   "id": zod.coerce.number()
 })
+
+export const getDispatchResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const getDispatchResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
 
 export const GetDispatchResponse = zod.object({
   "id": zod.number(),
@@ -1248,6 +1283,8 @@ export const GetDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(getDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(getDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1256,8 +1293,12 @@ export const GetDispatchResponse = zod.object({
   "referencia": zod.string().nullish(),
   "origen": zod.string().nullish(),
   "destino": zod.string().nullish(),
-  "pesoTotal": zod.number().nullable().describe('Total cargo weight in kg from the linked sale'),
-  "volumenTotal": zod.number().nullable().describe('Total cargo volume in m³ from the linked sale'),
+  "pesoTotal": zod.number().nullable().describe('Effective cargo weight in kg; Odoo takes priority over dispatch estimate'),
+  "volumenTotal": zod.number().nullable().describe('Effective cargo volume in m³; Odoo takes priority over dispatch estimate'),
+  "pesoOdooKg": zod.number().nullish().describe('Read-only weight from the linked Odoo entity'),
+  "volumenOdooM3": zod.number().nullish().describe('Read-only volume from the linked Odoo entity'),
+  "pesoOrigen": zod.union([zod.literal('odoo'),zod.literal('estimado'),zod.literal(null)]).nullish().describe('Source of the effective dispatch weight'),
+  "volumenOrigen": zod.union([zod.literal('odoo'),zod.literal('estimado'),zod.literal(null)]).nullish().describe('Source of the effective dispatch volume'),
   "saleItems": zod.array(zod.object({
   "id": zod.number(),
   "ventaId": zod.number(),
@@ -1300,6 +1341,12 @@ export const UpdateDispatchParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const updateDispatchBodyPesoEstimadoKgExclusiveMin = 0;
+
+export const updateDispatchBodyVolumenEstimadoM3ExclusiveMin = 0;
+
+
+
 export const UpdateDispatchBody = zod.object({
   "vehiculoId": zod.number().optional(),
   "choferId": zod.number().optional(),
@@ -1312,8 +1359,16 @@ export const UpdateDispatchBody = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().optional(),
   "totalPeajes": zod.number().optional(),
+  "pesoEstimadoKg": zod.number().gt(updateDispatchBodyPesoEstimadoKgExclusiveMin).nullish(),
+  "volumenEstimadoM3": zod.number().gt(updateDispatchBodyVolumenEstimadoM3ExclusiveMin).nullish(),
   "viajeId": zod.number().nullish()
 })
+
+export const updateDispatchResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const updateDispatchResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
 
 export const UpdateDispatchResponse = zod.object({
   "id": zod.number(),
@@ -1333,6 +1388,8 @@ export const UpdateDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(updateDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(updateDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1396,6 +1453,12 @@ export const CreateViajeBody = zod.object({
   "notas": zod.string().nullish()
 })
 
+export const createViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin = 0;
+
+export const createViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin = 0;
+
+
+
 export const CreateViajeResponse = zod.object({
   "id": zod.number(),
   "vehiculoId": zod.number(),
@@ -1430,6 +1493,8 @@ export const CreateViajeResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(createViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(createViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1439,6 +1504,10 @@ export const CreateViajeResponse = zod.object({
   "origen": zod.string().nullish(),
   "destino": zod.string().nullish()
 })),
+  "pesoTotalKg": zod.number().describe('Sum of effective dispatch weights in the trip'),
+  "volumenTotalM3": zod.number().describe('Sum of effective dispatch volumes in the trip'),
+  "pesoIncompleto": zod.boolean().describe('At least one dispatch has no Odoo weight or manual estimate'),
+  "volumenIncompleto": zod.boolean().describe('At least one dispatch has no Odoo volume or manual estimate'),
   "costoViaticosEstimado": zod.number().nullable().describe('Derived per-diem cost calculated once per trip from total distance and the driver\/assistant rates; null until total distance is loaded.')
 }))
 
@@ -1449,6 +1518,12 @@ export const CreateViajeResponse = zod.object({
 export const GetViajeParams = zod.object({
   "id": zod.coerce.number()
 })
+
+export const getViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin = 0;
+
+export const getViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin = 0;
+
+
 
 export const GetViajeResponse = zod.object({
   "id": zod.number(),
@@ -1484,6 +1559,8 @@ export const GetViajeResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(getViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(getViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1493,6 +1570,10 @@ export const GetViajeResponse = zod.object({
   "origen": zod.string().nullish(),
   "destino": zod.string().nullish()
 })),
+  "pesoTotalKg": zod.number().describe('Sum of effective dispatch weights in the trip'),
+  "volumenTotalM3": zod.number().describe('Sum of effective dispatch volumes in the trip'),
+  "pesoIncompleto": zod.boolean().describe('At least one dispatch has no Odoo weight or manual estimate'),
+  "volumenIncompleto": zod.boolean().describe('At least one dispatch has no Odoo volume or manual estimate'),
   "costoViaticosEstimado": zod.number().nullable().describe('Derived per-diem cost calculated once per trip from total distance and the driver\/assistant rates; null until total distance is loaded.')
 }))
 
@@ -1513,6 +1594,12 @@ export const UpdateViajeBody = zod.object({
   "distanciaTotalKm": zod.number().nullish(),
   "totalPeajesEstimado": zod.number().nullish()
 })
+
+export const updateViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin = 0;
+
+export const updateViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin = 0;
+
+
 
 export const UpdateViajeResponse = zod.object({
   "id": zod.number(),
@@ -1548,6 +1635,8 @@ export const UpdateViajeResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(updateViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(updateViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1557,6 +1646,10 @@ export const UpdateViajeResponse = zod.object({
   "origen": zod.string().nullish(),
   "destino": zod.string().nullish()
 })),
+  "pesoTotalKg": zod.number().describe('Sum of effective dispatch weights in the trip'),
+  "volumenTotalM3": zod.number().describe('Sum of effective dispatch volumes in the trip'),
+  "pesoIncompleto": zod.boolean().describe('At least one dispatch has no Odoo weight or manual estimate'),
+  "volumenIncompleto": zod.boolean().describe('At least one dispatch has no Odoo volume or manual estimate'),
   "costoViaticosEstimado": zod.number().nullable().describe('Derived per-diem cost calculated once per trip from total distance and the driver\/assistant rates; null until total distance is loaded.')
 }))
 
@@ -1641,6 +1734,12 @@ export const ApproveDispatchParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const approveDispatchResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const approveDispatchResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
+
 export const ApproveDispatchResponse = zod.object({
   "id": zod.number(),
   "tipo": zod.enum(['venta', 'traslado']),
@@ -1659,6 +1758,8 @@ export const ApproveDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(approveDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(approveDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1837,6 +1938,12 @@ export const GetDriverMeResponse = zod.object({
 /**
  * @summary List dispatches assigned to the authenticated driver
  */
+export const listDriverDispatchesResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const listDriverDispatchesResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
+
 export const ListDriverDispatchesResponseItem = zod.object({
   "id": zod.number(),
   "tipo": zod.enum(['venta', 'traslado']),
@@ -1855,6 +1962,8 @@ export const ListDriverDispatchesResponseItem = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(listDriverDispatchesResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(listDriverDispatchesResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1874,6 +1983,12 @@ export const GetDriverDispatchParams = zod.object({
   "id": zod.coerce.number()
 })
 
+export const getDriverDispatchResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const getDriverDispatchResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
+
 export const GetDriverDispatchResponse = zod.object({
   "id": zod.number(),
   "tipo": zod.enum(['venta', 'traslado']),
@@ -1892,6 +2007,8 @@ export const GetDriverDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(getDriverDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(getDriverDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
@@ -1900,8 +2017,12 @@ export const GetDriverDispatchResponse = zod.object({
   "referencia": zod.string().nullish(),
   "origen": zod.string().nullish(),
   "destino": zod.string().nullish(),
-  "pesoTotal": zod.number().nullable().describe('Total cargo weight in kg from the linked sale'),
-  "volumenTotal": zod.number().nullable().describe('Total cargo volume in m³ from the linked sale'),
+  "pesoTotal": zod.number().nullable().describe('Effective cargo weight in kg; Odoo takes priority over dispatch estimate'),
+  "volumenTotal": zod.number().nullable().describe('Effective cargo volume in m³; Odoo takes priority over dispatch estimate'),
+  "pesoOdooKg": zod.number().nullish().describe('Read-only weight from the linked Odoo entity'),
+  "volumenOdooM3": zod.number().nullish().describe('Read-only volume from the linked Odoo entity'),
+  "pesoOrigen": zod.union([zod.literal('odoo'),zod.literal('estimado'),zod.literal(null)]).nullish().describe('Source of the effective dispatch weight'),
+  "volumenOrigen": zod.union([zod.literal('odoo'),zod.literal('estimado'),zod.literal(null)]).nullish().describe('Source of the effective dispatch volume'),
   "saleItems": zod.array(zod.object({
   "id": zod.number(),
   "ventaId": zod.number(),
@@ -1973,6 +2094,12 @@ export const UpdateDriverDispatchStatusBody = zod.object({
   "novedadesViaje": zod.string().nullish().describe('Driver-reported journey notes; valid only when estado is entregado')
 })
 
+export const updateDriverDispatchStatusResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const updateDriverDispatchStatusResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
+
 export const UpdateDriverDispatchStatusResponse = zod.object({
   "id": zod.number(),
   "tipo": zod.enum(['venta', 'traslado']),
@@ -1991,6 +2118,8 @@ export const UpdateDriverDispatchStatusResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "pesoEstimadoKg": zod.number().gt(updateDriverDispatchStatusResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(updateDriverDispatchStatusResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
   "vehiculoModelo": zod.string().nullish(),
   "choferNombre": zod.string().nullish(),
