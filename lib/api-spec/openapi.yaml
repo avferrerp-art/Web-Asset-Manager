@@ -2001,7 +2001,7 @@ components:
     # --- PERSONNEL ---
     Personnel:
       type: object
-      required: [id, nombre, rol, tarifaViaticos, createdAt]
+      required: [id, nombre, rol, tarifaPorKm, createdAt]
       properties:
         id:
           type: integer
@@ -2010,9 +2010,9 @@ components:
         rol:
           type: string
           description: "Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported."
-        tarifaViaticos:
+        tarifaPorKm:
           type: number
-          description: Daily per-diem rate
+          description: Rate paid per kilometer traveled for the driver or assistant
         telefono:
           type: ["string", "null"]
         email:
@@ -2054,13 +2054,13 @@ components:
 
     PersonnelInput:
       type: object
-      required: [nombre, rol, tarifaViaticos]
+      required: [nombre, rol, tarifaPorKm]
       properties:
         nombre:
           type: string
         rol:
           type: string
-        tarifaViaticos:
+        tarifaPorKm:
           type: number
         telefono:
           type: string
@@ -2074,7 +2074,7 @@ components:
           type: string
         rol:
           type: string
-        tarifaViaticos:
+        tarifaPorKm:
           type: number
         telefono:
           type: string
@@ -3118,12 +3118,16 @@ components:
       allOf:
         - $ref: "#/components/schemas/Viaje"
         - type: object
-          required: [despachos]
+          required: [despachos, costoViaticosEstimado]
           properties:
             despachos:
               type: array
               items:
                 $ref: "#/components/schemas/Dispatch"
+            costoViaticosEstimado:
+              type: ["number", "null"]
+              readOnly: true
+              description: Derived per-diem cost calculated once per trip from total distance and the driver/assistant rates; null until total distance is loaded.
 
     ViajeInput:
       type: object

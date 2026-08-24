@@ -295,6 +295,7 @@ function ViajeDetailSheetInner({
                 <DetailRow label="Chofer">{viaje.choferNombre ?? `Personal #${viaje.choferId}`}</DetailRow>
                 <DetailRow label="Ayudante">{viaje.ayudanteNombre ?? "—"}</DetailRow>
                 <DetailRow label="Distancia">{viaje.distanciaTotalKm != null ? `${viaje.distanciaTotalKm} km` : "—"}</DetailRow>
+                <DetailRow label="Viáticos estimados">{viaje.costoViaticosEstimado != null ? `$${Number(viaje.costoViaticosEstimado).toFixed(2)}` : "—"}</DetailRow>
                 <DetailRow label="Peajes">{viaje.totalPeajesEstimado != null ? `$${Number(viaje.totalPeajesEstimado).toFixed(2)}` : "—"}</DetailRow>
                 <DetailRow label="Notas">{viaje.notas || "—"}</DetailRow>
               </div>

@@ -8,6 +8,11 @@
 import type { Dispatch } from './dispatch';
 import type { Viaje } from './viaje';
 
-export type ViajeDetail = Viaje & {
+export type ViajeDetail = Viaje & ({
   despachos: Dispatch[];
-};
+  /**
+     * Derived per-diem cost calculated once per trip from total distance and the driver/assistant rates; null until total distance is loaded.
+     * @nullable
+     */
+  readonly costoViaticosEstimado: number | null;
+});

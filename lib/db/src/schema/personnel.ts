@@ -8,7 +8,7 @@ export const personnelTable = pgTable("personnel", {
   // Recognized operational values are chofer, ayudante, almacenista and oficina.
   // This remains free text until authorization rules are explicitly introduced.
   rol: text("rol").notNull(),
-  tarifaViaticos: real("tarifa_viaticos").notNull(),
+  tarifaPorKm: real("tarifa_por_km").notNull(),
   telefono: text("telefono"),
   email: text("email").unique(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

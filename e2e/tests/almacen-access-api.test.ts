@@ -131,37 +131,37 @@ beforeAll(async () => {
       {
         nombre: `Almacenista ${suffix}`,
         rol: "almacenista",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         email: `almacenista-${suffix}@test.invalid`,
       },
       {
         nombre: `Almacenista sin asignar ${suffix}`,
         rol: "almacenista",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         email: `sin-asignar-${suffix}@test.invalid`,
       },
       {
         nombre: `Oficina ${suffix}`,
         rol: "oficina",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         email: `oficina-${suffix}@test.invalid`,
       },
       {
         nombre: `Chofer ${suffix}`,
         rol: "chofer",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         email: `chofer-${suffix}@test.invalid`,
       },
       {
         nombre: `Ayudante ${suffix}`,
         rol: "ayudante",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         email: `ayudante-${suffix}@test.invalid`,
       },
       {
         nombre: `Admin almacenista ${suffix}`,
         rol: "almacenista",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         email: `ADMIN-${suffix}@test.invalid`,
       },
     ])

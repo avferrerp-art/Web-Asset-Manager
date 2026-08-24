@@ -23,6 +23,7 @@ import * as actasLlegada from "./0011_actas_llegada";
 import * as personnelAlmacenes from "./0012_personnel_almacenes";
 import * as viajes from "./0013_viajes";
 import * as viajesOrdenUnique from "./0014_viajes_orden_unique";
+import * as personnelTarifaPorKm from "./0015_personnel_tarifa_por_km";
 
 export interface Migration {
   name: string;
@@ -45,4 +46,5 @@ export const migrations: Migration[] = [
   personnelAlmacenes,
   viajes,
   viajesOrdenUnique,
+  personnelTarifaPorKm,
 ];

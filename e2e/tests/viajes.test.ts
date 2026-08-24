@@ -5,6 +5,7 @@ import {
   db,
   deliveriesTable,
   dispatchesTable,
+  fuelPricesTable,
   personnelTable,
   pool,
   runMigrations,
@@ -56,6 +57,7 @@ let dispatchIds: number[] = [];
 let saleIds: number[] = [];
 let trasladoIds: number[] = [];
 let deliveryIds: number[] = [];
+let insertedFuelPriceId: number | null = null;
 
 function auth(): Record<string, string> {
   return {
@@ -194,12 +196,23 @@ beforeAll(async () => {
   const personnel = await db
     .insert(personnelTable)
     .values([
-      { nombre: `Chofer A ${suffix}`, rol: "chofer", tarifaViaticos: 0 },
-      { nombre: `Chofer B ${suffix}`, rol: "chofer", tarifaViaticos: 0 },
-      { nombre: `Ayudante ${suffix}`, rol: "ayudante", tarifaViaticos: 0 },
+      { nombre: `Chofer A ${suffix}`, rol: "chofer", tarifaPorKm: 0 },
+      { nombre: `Chofer B ${suffix}`, rol: "chofer", tarifaPorKm: 0 },
+      { nombre: `Ayudante ${suffix}`, rol: "ayudante", tarifaPorKm: 0 },
     ])
     .returning({ id: personnelTable.id });
   personnelIds = personnel.map(({ id }) => id);
+  const [fuelPrice] = await db
+    .select({ id: fuelPricesTable.id })
+    .from(fuelPricesTable)
+    .where(eq(fuelPricesTable.tipoCombustible, "diesel"));
+  if (!fuelPrice) {
+    const [inserted] = await db
+      .insert(fuelPricesTable)
+      .values({ tipoCombustible: "diesel", precioPorLitro: 1 })
+      .returning({ id: fuelPricesTable.id });
+    insertedFuelPriceId = inserted!.id;
+  }
   const warehouses = await db
     .insert(almacenesTable)
     .values([
@@ -262,9 +275,68 @@ afterAll(async () => {
   await db.delete(personnelTable).where(inArray(personnelTable.id, personnelIds));
   await db.delete(vehiclesTable).where(inArray(vehiclesTable.id, vehicleIds));
   await db.delete(almacenesTable).where(inArray(almacenesTable.id, warehouseIds));
+  if (insertedFuelPriceId !== null) {
+    await db.delete(fuelPricesTable).where(eq(fuelPricesTable.id, insertedFuelPriceId));
+  }
 });
 
 describe.sequential("viajes compartidos", () => {
+  it("calcula viáticos individuales por kilómetros y conserva días por compatibilidad", async () => {
+    await db
+      .update(personnelTable)
+      .set({ tarifaPorKm: 2 })
+      .where(eq(personnelTable.id, personnelIds[0]!));
+    const response = await api("/dispatches/estimate-costs-preview", {
+      method: "POST",
+      body: JSON.stringify({
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[0],
+        fechaEstimadaSalida: "2035-08-01T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-08-03T08:00:00.000Z",
+        distanciaKm: 100,
+      }),
+    });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      costoViaticos: 200,
+      distanciaKm: 100,
+      dias: 2,
+    });
+  });
+
+  it("expone el viático derivado una sola vez en el detalle, y null sin distancia", async () => {
+    await db
+      .update(personnelTable)
+      .set({ tarifaPorKm: 2 })
+      .where(eq(personnelTable.id, personnelIds[0]!));
+    const member = await createSaleDispatch({});
+    const created = await postViaje({
+      vehiculoId: vehicleIds[0],
+      choferId: personnelIds[0],
+      fecha: "2035-08-09",
+      despachoIds: [member.id],
+    });
+    expect(created.response.status).toBe(201);
+    expect(created.json.costoViaticosEstimado).toBeNull();
+
+    const patch = await api(`/viajes/${created.json.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ distanciaTotalKm: 100 }),
+    });
+    expect(patch.status).toBe(200);
+    expect((await patch.json()).costoViaticosEstimado).toBe(200);
+
+    const detail = await api(`/viajes/${created.json.id}`);
+    expect(detail.status).toBe(200);
+    expect((await detail.json()).costoViaticosEstimado).toBe(200);
+
+    const list = await api("/viajes");
+    const listItem = (await list.json()).find(
+      (viaje: { id: number }) => viaje.id === created.json.id,
+    );
+    expect(listItem).not.toHaveProperty("costoViaticosEstimado");
+  });
+
   it("aplica la migración dos veces y conserva el FK SET NULL y el índice", async () => {
     const client = await pool.connect();
     const schemaName = `viajes_mig_${process.pid}`;

@@ -9,7 +9,7 @@
 export interface PersonnelInput {
   nombre: string;
   rol: string;
-  tarifaViaticos: number;
+  tarifaPorKm: number;
   telefono?: string;
   email?: string;
 }

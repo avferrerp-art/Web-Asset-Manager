@@ -108,7 +108,7 @@ beforeAll(async () => {
       .values({
         nombre: `Chofer acta ${suffix}`,
         rol: "chofer",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         email: `driver-acta-${suffix}@test.invalid`,
       })
       .returning({ id: personnelTable.id })
@@ -284,7 +284,7 @@ describe("Arrival integrity guards", () => {
         id: driverId,
         nombre: `Chofer acta ${suffix}`,
         rol: "chofer",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         telefono: null,
         email: `driver-acta-${suffix}@test.invalid`,
         createdAt: new Date(),
@@ -405,7 +405,7 @@ describe("Linked driver dispatch status transitions", () => {
         id: driverId,
         nombre: `Chofer acta ${suffix}`,
         rol: "chofer",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
         telefono: null,
         email: `driver-acta-${suffix}@test.invalid`,
         createdAt: new Date(),

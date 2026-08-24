@@ -59,7 +59,7 @@ async function computeCostEstimate(inputs: CostEstimateInputs) {
   let assistantRate = 0;
   if (inputs.ayudanteId) {
     const [assistant] = await db.select().from(personnelTable).where(eq(personnelTable.id, inputs.ayudanteId));
-    assistantRate = assistant?.tarifaViaticos ?? 0;
+    assistantRate = assistant?.tarifaPorKm ?? 0;
   }
 
   const distanciaKm = inputs.distanciaKm ?? 100;
@@ -86,7 +86,7 @@ async function computeCostEstimate(inputs: CostEstimateInputs) {
   const llegada = new Date(inputs.fechaEstimadaLlegada);
   const dias = Math.max(1, Math.ceil((llegada.getTime() - salida.getTime()) / (1000 * 60 * 60 * 24)));
 
-  const costoViaticos = dias * ((driver?.tarifaViaticos ?? 0) + assistantRate);
+  const costoViaticos = distanciaKm * ((driver?.tarifaPorKm ?? 0) + assistantRate);
 
   let costoPeajes = 0;
   let tramos: RouteTramo[] | undefined;

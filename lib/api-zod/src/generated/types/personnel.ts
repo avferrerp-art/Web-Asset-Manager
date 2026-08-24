@@ -11,8 +11,8 @@ export interface Personnel {
   nombre: string;
   /** Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported. */
   rol: string;
-  /** Daily per-diem rate */
-  tarifaViaticos: number;
+  /** Rate paid per kilometer traveled for the driver or assistant */
+  tarifaPorKm: number;
   /** @nullable */
   telefono?: string | null;
   /**

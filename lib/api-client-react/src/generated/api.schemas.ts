@@ -70,8 +70,8 @@ export interface Personnel {
   nombre: string;
   /** Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported. */
   rol: string;
-  /** Daily per-diem rate */
-  tarifaViaticos: number;
+  /** Rate paid per kilometer traveled for the driver or assistant */
+  tarifaPorKm: number;
   /** @nullable */
   telefono?: string | null;
   /**
@@ -117,7 +117,7 @@ export type PersonnelWarehouseReportItem = PersonnelWithAlmacenes & {
 export interface PersonnelInput {
   nombre: string;
   rol: string;
-  tarifaViaticos: number;
+  tarifaPorKm: number;
   telefono?: string;
   email?: string;
 }
@@ -125,7 +125,7 @@ export interface PersonnelInput {
 export interface PersonnelUpdate {
   nombre?: string;
   rol?: string;
-  tarifaViaticos?: number;
+  tarifaPorKm?: number;
   telefono?: string;
   email?: string;
 }
@@ -939,9 +939,14 @@ export interface Viaje {
   cantidadDespachos: number;
 }
 
-export type ViajeDetail = Viaje & {
+export type ViajeDetail = Viaje & ({
   despachos: Dispatch[];
-};
+  /**
+     * Derived per-diem cost calculated once per trip from total distance and the driver/assistant rates; null until total distance is loaded.
+     * @nullable
+     */
+  readonly costoViaticosEstimado: number | null;
+});
 
 export interface ViajeInput {
   vehiculoId: number;

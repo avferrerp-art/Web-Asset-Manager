@@ -23,7 +23,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 const personnelSchema = z.object({
   nombre: z.string().min(1, "Requerido"),
   rol: z.string().min(1, "Requerido"),
-  tarifaViaticos: z.coerce.number().min(0),
+  tarifaPorKm: z.coerce.number().min(0),
   telefono: z.string().optional(),
   email: z.string().email("Email inválido").optional().or(z.literal("")),
   almacenIds: z.array(z.number()),
@@ -62,7 +62,7 @@ export default function Personal() {
     defaultValues: {
       nombre: "",
       rol: "chofer",
-      tarifaViaticos: 0,
+      tarifaPorKm: 0,
       telefono: "",
       email: "",
       almacenIds: [],
@@ -133,7 +133,7 @@ export default function Personal() {
     form.reset({
       nombre: person.nombre,
       rol: person.rol,
-      tarifaViaticos: person.tarifaViaticos,
+      tarifaPorKm: person.tarifaPorKm,
       telefono: person.telefono || "",
       email: person.email || "",
       almacenIds: person.almacenes?.map((almacen: { id: number }) => almacen.id) ?? [],
@@ -251,9 +251,9 @@ export default function Personal() {
                     <FormMessage />
                   </FormItem>
                 )} />
-                <FormField control={form.control} name="tarifaViaticos" render={({ field }) => (
+                <FormField control={form.control} name="tarifaPorKm" render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Tarifa de Viáticos ($/día)</FormLabel>
+                    <FormLabel>Tarifa por Kilómetro ($/km)</FormLabel>
                     <FormControl><Input data-testid="input-tarifa" type="number" {...field} /></FormControl>
                     <FormMessage />
                   </FormItem>
@@ -289,7 +289,7 @@ export default function Personal() {
                 <TableHead>Rol</TableHead>
                 <TableHead>Teléfono</TableHead>
                 <TableHead>Email</TableHead>
-                <TableHead>Tarifa Diaria</TableHead>
+                <TableHead>Tarifa por Kilómetro</TableHead>
                 <TableHead>Almacenes</TableHead>
                 <TableHead className="w-[100px]"></TableHead>
               </TableRow>
@@ -307,7 +307,7 @@ export default function Personal() {
                   <TableCell className="capitalize">{person.rol}</TableCell>
                   <TableCell>{person.telefono || "S/N"}</TableCell>
                   <TableCell>{person.email || "—"}</TableCell>
-                  <TableCell>${person.tarifaViaticos}/día</TableCell>
+                  <TableCell>${person.tarifaPorKm}/km</TableCell>
                   <TableCell>{person.almacenes?.map((almacen) => almacen.nombre).join(", ") || "—"}</TableCell>
                   <TableCell>
                     <div className="flex justify-end gap-2">

@@ -48,6 +48,9 @@ async function serializeViaje(id: number) {
     choferNombre: driver?.nombre ?? null,
     ayudanteNombre: assistant?.nombre ?? null,
     cantidadDespachos: record.dispatches.length,
+    costoViaticosEstimado: record.viaje.distanciaTotalKm === null
+      ? null
+      : record.viaje.distanciaTotalKm * ((driver?.tarifaPorKm ?? 0) + (assistant?.tarifaPorKm ?? 0)),
     despachos,
   };
 }

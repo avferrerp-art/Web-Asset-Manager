@@ -140,18 +140,6 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
   const selectedAyudante = personnel?.find((p) => p.id === assignment.ayudanteId);
   const selectedRoute = routes?.find((r) => r.id === assignment.routeId);
 
-  const dias =
-    assignment.fechaEstimadaSalida && assignment.fechaEstimadaLlegada
-      ? Math.max(
-          1,
-          Math.ceil(
-            (new Date(assignment.fechaEstimadaLlegada).getTime() -
-              new Date(assignment.fechaEstimadaSalida).getTime()) /
-              (1000 * 60 * 60 * 24)
-          )
-        )
-      : 1;
-
   const estimateCosts = useEstimateDispatchCostsPreview();
   const [costPreview, setCostPreview] = useState<{
     costoCombustible: number;
@@ -159,6 +147,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
     costoPeajes: number;
     total: number;
     litrosEstimados: number;
+    distanciaKm: number;
     tramos?: { label: string; distanciaKm: number }[];
   } | null>(null);
 
@@ -876,7 +865,7 @@ export function NuevoDespachoWizard({ open, onClose }: Props) {
                 <div className="text-center p-2 bg-background rounded border border-border">
                   <div className="text-xs text-muted-foreground">Viáticos</div>
                   <div className="font-bold text-sm">${costoViaticos.toFixed(2)}</div>
-                  <div className="text-[10px] text-muted-foreground">{dias} día(s)</div>
+                    <div className="text-[10px] text-muted-foreground">{costPreview?.distanciaKm ?? 0} km</div>
                 </div>
                 <div className="text-center p-2 bg-background rounded border border-border">
                   <div className="text-xs text-muted-foreground">Peajes</div>

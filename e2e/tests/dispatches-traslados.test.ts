@@ -141,7 +141,7 @@ beforeAll(async () => {
       .values({
         nombre: `Chofer despacho ${suffix}`,
         rol: "chofer",
-        tarifaViaticos: 0,
+        tarifaPorKm: 0,
       })
       .returning({ id: personnelTable.id })
   ).map((row) => row.id);

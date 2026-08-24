@@ -170,7 +170,7 @@ export const ListPersonnelResponseItem = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
   "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
-  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "tarifaPorKm": zod.number().describe('Rate paid per kilometer traveled for the driver or assistant'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
@@ -197,7 +197,7 @@ export const ListPersonnelResponse = zod.array(ListPersonnelResponseItem)
 export const CreatePersonnelBody = zod.object({
   "nombre": zod.string(),
   "rol": zod.string(),
-  "tarifaViaticos": zod.number(),
+  "tarifaPorKm": zod.number(),
   "telefono": zod.string().optional(),
   "email": zod.string().optional()
 })
@@ -206,7 +206,7 @@ export const CreatePersonnelResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
   "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
-  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "tarifaPorKm": zod.number().describe('Rate paid per kilometer traveled for the driver or assistant'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
@@ -237,7 +237,7 @@ export const GetPersonnelResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
   "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
-  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "tarifaPorKm": zod.number().describe('Rate paid per kilometer traveled for the driver or assistant'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
@@ -267,7 +267,7 @@ export const UpdatePersonnelParams = zod.object({
 export const UpdatePersonnelBody = zod.object({
   "nombre": zod.string().optional(),
   "rol": zod.string().optional(),
-  "tarifaViaticos": zod.number().optional(),
+  "tarifaPorKm": zod.number().optional(),
   "telefono": zod.string().optional(),
   "email": zod.string().optional()
 })
@@ -276,7 +276,7 @@ export const UpdatePersonnelResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
   "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
-  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "tarifaPorKm": zod.number().describe('Rate paid per kilometer traveled for the driver or assistant'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
@@ -313,7 +313,7 @@ export const GetPersonnelWarehouseReportResponseItem = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
   "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
-  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "tarifaPorKm": zod.number().describe('Rate paid per kilometer traveled for the driver or assistant'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
@@ -351,7 +351,7 @@ export const ReplacePersonnelAlmacenesResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
   "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
-  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "tarifaPorKm": zod.number().describe('Rate paid per kilometer traveled for the driver or assistant'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()
@@ -1438,7 +1438,8 @@ export const CreateViajeResponse = zod.object({
   "referencia": zod.string().nullish(),
   "origen": zod.string().nullish(),
   "destino": zod.string().nullish()
-}))
+})),
+  "costoViaticosEstimado": zod.number().nullable().describe('Derived per-diem cost calculated once per trip from total distance and the driver\/assistant rates; null until total distance is loaded.')
 }))
 
 
@@ -1491,7 +1492,8 @@ export const GetViajeResponse = zod.object({
   "referencia": zod.string().nullish(),
   "origen": zod.string().nullish(),
   "destino": zod.string().nullish()
-}))
+})),
+  "costoViaticosEstimado": zod.number().nullable().describe('Derived per-diem cost calculated once per trip from total distance and the driver\/assistant rates; null until total distance is loaded.')
 }))
 
 
@@ -1554,7 +1556,8 @@ export const UpdateViajeResponse = zod.object({
   "referencia": zod.string().nullish(),
   "origen": zod.string().nullish(),
   "destino": zod.string().nullish()
-}))
+})),
+  "costoViaticosEstimado": zod.number().nullable().describe('Derived per-diem cost calculated once per trip from total distance and the driver\/assistant rates; null until total distance is loaded.')
 }))
 
 
@@ -1824,7 +1827,7 @@ export const GetDriverMeResponse = zod.object({
   "id": zod.number(),
   "nombre": zod.string(),
   "rol": zod.string().describe('Recognized values: chofer | ayudante | almacenista | oficina. Free text remains supported.'),
-  "tarifaViaticos": zod.number().describe('Daily per-diem rate'),
+  "tarifaPorKm": zod.number().describe('Rate paid per kilometer traveled for the driver or assistant'),
   "telefono": zod.string().nullish(),
   "email": zod.string().nullish().describe('Email used to link a Clerk account to this driver'),
   "createdAt": zod.string()

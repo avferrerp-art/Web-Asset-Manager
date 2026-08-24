@@ -54,7 +54,7 @@ async function createPerson(nombre: string, rol: string): Promise<number> {
     .values({
       nombre,
       rol,
-      tarifaViaticos: 0,
+      tarifaPorKm: 0,
       email: `${testEmailPrefix}-${rol}-${personnelIds.length}@example.test`,
     })
     .returning({ id: personnelTable.id });
