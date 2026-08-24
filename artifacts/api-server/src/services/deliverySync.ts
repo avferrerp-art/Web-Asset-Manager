@@ -49,9 +49,10 @@ export interface DeliverySyncResult {
 
 export interface DeliverySyncOptions {
   /**
-   * Reads every internal picking, but deliberately does not write their
-   * write_date into new local mirrors. This prevents a one-off historical
-   * backfill from advancing the normal incremental watermark.
+   * Reads every internal picking without a sale association, but deliberately
+   * does not write its write_date into new local mirrors. This prevents a
+   * one-off historical transfer backfill from changing the sale mirror count
+   * or advancing the normal incremental watermark.
    */
   historicalInternal?: boolean;
 }
@@ -111,9 +112,14 @@ async function fetchPickingIds(
   config: OdooConfig,
   uid: number,
   pickingCodes: string[] = PICKING_CODES,
+  excludeSaleLinked = false,
 ): Promise<number[]> {
+  const domain: unknown[] = [
+    ["picking_type_id.code", "in", pickingCodes],
+  ];
+  if (excludeSaleLinked) domain.push(["sale_id", "=", false]);
   return (await executeKw(config, uid, "stock.picking", "search", [
-    [["picking_type_id.code", "in", pickingCodes]],
+    domain,
   ])) as number[];
 }
 
@@ -126,14 +132,16 @@ async function fetchPickings(
   uid: number,
   sinceWriteDate: string | null,
   pickingCodes: string[] = PICKING_CODES,
+  excludeSaleLinked = false,
 ): Promise<OdooPicking[]> {
   const all: OdooPicking[] = [];
   let lastId = 0;
   for (;;) {
     const domain: unknown[] = [
       ["picking_type_id.code", "in", pickingCodes],
-      ["id", ">", lastId],
     ];
+    if (excludeSaleLinked) domain.push(["sale_id", "=", false]);
+    domain.push(["id", ">", lastId]);
     if (sinceWriteDate) domain.push(["write_date", ">=", sinceWriteDate]);
     const batch = (await executeKw(
       config,
@@ -432,6 +440,7 @@ export async function syncDeliveries(
     uid,
     options.historicalInternal ? null : watermark,
     pickingCodes,
+    !!options.historicalInternal,
   );
   logger.info(
     { fetched: pickings.length, watermark, pickingCodes, historical: !!options.historicalInternal },
@@ -439,7 +448,12 @@ export async function syncDeliveries(
   );
 
   // ── Reconcile deletions via id-only search (no data downloaded) ──────────
-  const remoteIdList = await fetchPickingIds(config, uid, pickingCodes);
+  const remoteIdList = await fetchPickingIds(
+    config,
+    uid,
+    pickingCodes,
+    !!options.historicalInternal,
+  );
   const remoteIds = new Set(remoteIdList);
   // A historical internal-transfer backfill must never delete unrelated sale
   // mirrors. Normal polling reconciles both supported picking types.
@@ -844,7 +858,7 @@ export async function syncDeliveries(
   return syncResult;
 }
 
-/** Import every internal Odoo picking without advancing the normal watermark. */
+/** Import every true internal transfer without advancing the normal watermark. */
 export async function backfillInternalTransfers(): Promise<DeliverySyncResult> {
   return syncDeliveries({ historicalInternal: true });
 }

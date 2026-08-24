@@ -10,6 +10,8 @@ The deliveries sync must stay incremental on the READ side, not just writes: ser
 
 Historical imports are a special case: an internal-transfer backfill must query and reconcile only internal mirrors, and newly backfilled rows must not advance the normal `odoo_write_date` watermark.
 
-**Why:** applying the normal all-picking deletion reconciliation during a transfer-only backfill could erase unrelated sale mirrors; stamping an old historical run with a newer source date could make the normal poll skip changes.
+Historical transfer reads must also require `sale_id = false`. Odoo can contain pickings whose operation code is `internal` but which are still sale-linked under the project's authoritative classification boundary.
 
-**How to apply:** keep historical mode scoped to its entity type for both remote-ID reconciliation and local deletion candidates. Leave the newly historical rows outside the normal watermark until ordinary polling sees a current Odoo change; verify a backfill followed by two normal polls preserves both the mirror and its dependent planning row.
+**Why:** applying the normal all-picking deletion reconciliation during a transfer-only backfill could erase unrelated sale mirrors; importing sale-linked internal pickings would change the existing sale-movement count; stamping an old historical run with a newer source date could make the normal poll skip changes.
+
+**How to apply:** keep historical mode scoped to `internal` plus `sale_id = false` for both data reads and remote-ID reconciliation, and restrict local deletion candidates to transfer mirrors. Leave newly historical rows outside the normal watermark until ordinary polling sees a current Odoo change; verify a backfill followed by two normal polls preserves both the mirror and its dependent planning row.

@@ -6,4 +6,4 @@ API routes are Clerk-protected, so curl gets 401. To exercise a service function
 
 **Why:** tsx is not installed; plain esbuild bundles fail on pino transports (ERR_AMBIGUOUS_MODULE_SYNTAX) and `packages: 'external'` fails on workspace dir imports. Only the build.mjs pattern works.
 
-**How to apply:** whenever you need to run/verify backend logic without going through authenticated HTTP.
+**How to apply:** whenever you need to run/verify backend logic without going through authenticated HTTP. If the entry is supplied through esbuild `stdin`, the Pino plugin creates multiple entry points: use `outdir` (not `outfile`) and run the generated `stdin.mjs`.

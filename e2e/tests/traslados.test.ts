@@ -41,7 +41,7 @@ import { getSaleDeliveryNames } from "../../artifacts/api-server/src/routes/sale
 const BASE = 92_100_000 + Math.floor(Math.random() * 1000) * 100;
 const ODOO_IDS = [BASE + 1, BASE + 2, BASE + 3];
 const SERVICE_BASE = BASE + 20;
-const SERVICE_PICKING_IDS = Array.from({ length: 8 }, (_, index) => SERVICE_BASE + index);
+const SERVICE_PICKING_IDS = Array.from({ length: 9 }, (_, index) => SERVICE_BASE + index);
 const SERVICE_MOVE_IDS = Array.from({ length: 8 }, (_, index) => SERVICE_BASE + 20 + index);
 const SERVICE_SALE_ODOO_IDS = [SERVICE_BASE + 40, SERVICE_BASE + 41];
 const SERVICE_PRODUCT_ODOO_IDS = [SERVICE_BASE + 50, SERVICE_BASE + 51];
@@ -78,6 +78,7 @@ let mockedPickings: MockPicking[] = [];
 let mockedMoves: MockMove[] = [];
 let mockedRemoteIds: number[] = [];
 let observedSearchReadDomains: unknown[][] = [];
+let observedSearchDomains: unknown[][] = [];
 
 function picking(
   id: number,
@@ -127,6 +128,7 @@ function configureOdoo(
   mockedMoves = moves;
   mockedRemoteIds = [...protectedRemoteIds, ...remoteTestIds];
   observedSearchReadDomains = [];
+  observedSearchDomains = [];
 }
 
 async function cleanupServiceRows(): Promise<void> {
@@ -178,19 +180,38 @@ beforeAll(async () => {
         const minimumId = conditions.find(
           ([field, operator]) => field === "id" && operator === ">",
         )?.[2] as number | undefined;
+        const excludesSaleLinked = conditions.some(
+          ([field, operator, value]) =>
+            field === "sale_id" && operator === "=" && value === false,
+        );
         return mockedPickings.filter((record) => {
           const code = record.picking_type_id[1].includes("entrega")
             ? "outgoing"
             : "internal";
           return (
             (!requestedCodes || requestedCodes.includes(code)) &&
+            (!excludesSaleLinked || record.sale_id === false) &&
             (!minimumWriteDate || record.write_date >= minimumWriteDate) &&
             (minimumId === undefined || record.id > minimumId)
           );
         });
       }
       if (model === "stock.picking" && method === "search") {
-        return mockedRemoteIds;
+        const domain =
+          ((args as unknown[][] | undefined)?.[0] as unknown[]) ?? [];
+        observedSearchDomains.push(domain);
+        const conditions = domain as Array<[string, string, unknown]>;
+        const excludesSaleLinked = conditions.some(
+          ([field, operator, value]) =>
+            field === "sale_id" && operator === "=" && value === false,
+        );
+        if (!excludesSaleLinked) return mockedRemoteIds;
+        const saleLinkedIds = new Set(
+          mockedPickings
+            .filter((record) => record.sale_id !== false)
+            .map((record) => record.id),
+        );
+        return mockedRemoteIds.filter((id) => !saleLinkedIds.has(id));
       }
       if (model === "stock.move" && method === "read") {
         const requestedIds =
@@ -725,10 +746,16 @@ describe("Sincronización de traslados internos Odoo", () => {
     const historicalTransfer = picking(SERVICE_PICKING_IDS[7]!, {
       write_date: "2199-01-01 00:00:00",
     });
+    const saleLinkedInternal = picking(SERVICE_PICKING_IDS[8]!, {
+      name: `TEST/INT-SALE/${SERVICE_PICKING_IDS[8]}`,
+      sale_id: [SERVICE_SALE_ODOO_IDS[0]!, "Venta vinculada"],
+      origin: `S${SERVICE_SALE_ODOO_IDS[0]}`,
+      write_date: "2199-01-01 00:00:00",
+    });
     configureOdoo(
-      [historicalTransfer],
+      [historicalTransfer, saleLinkedInternal],
       [],
-      [historicalTransfer.id],
+      [historicalTransfer.id, saleLinkedInternal.id],
     );
     const first = await backfillInternalTransfers();
     expect(first).toMatchObject({
@@ -737,7 +764,12 @@ describe("Sincronización de traslados internos Odoo", () => {
     });
     expect(observedSearchReadDomains[0]).toEqual([
       ["picking_type_id.code", "in", ["internal"]],
+      ["sale_id", "=", false],
       ["id", ">", 0],
+    ]);
+    expect(observedSearchDomains[0]).toEqual([
+      ["picking_type_id.code", "in", ["internal"]],
+      ["sale_id", "=", false],
     ]);
 
     const [historicalDelivery] = await db
@@ -745,6 +777,11 @@ describe("Sincronización de traslados internos Odoo", () => {
       .from(deliveriesTable)
       .where(eq(deliveriesTable.odooId, historicalTransfer.id));
     expect(historicalDelivery!.odooWriteDate).toBeNull();
+    const saleLinkedInternalMirror = await db
+      .select({ id: deliveriesTable.id })
+      .from(deliveriesTable)
+      .where(eq(deliveriesTable.odooId, saleLinkedInternal.id));
+    expect(saleLinkedInternalMirror).toHaveLength(0);
     const saleMirrorAfterBackfill = await db
       .select({ id: deliveriesTable.id })
       .from(deliveriesTable)
