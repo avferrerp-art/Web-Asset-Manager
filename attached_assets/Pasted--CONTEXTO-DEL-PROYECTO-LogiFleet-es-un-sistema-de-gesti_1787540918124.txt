@@ -1,0 +1,407 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas desde Odoo,
+planifica despachos (vehículo + chofer + ruta), calcula costos de peajes y
+combustible, y tiene una app móvil para choferes. Desde la Fase 1 también
+importa traslados internos entre almacenes propios.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones embebidas
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO desde el spec — NO editar
+  lib/api-client-react/ GENERADO desde el spec — NO editar
+  artifacts/api-server/ API Express 5 (routers en src/routes/, servicios en src/services/)
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui
+  artifacts/chofer/     App móvil Expo
+  e2e/                  Vitest (API) + Playwright (UI)
+
+Lee `replit.md` en la raíz y `.agents/memory/` antes de empezar.
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: cambios de API en lib/api-spec/openapi.yaml + codegen de
+     Orval (`pnpm --filter @workspace/api-spec run codegen`). Los `generated/`
+     NUNCA se editan a mano.
+  2. Schema = archivo + migración numerada e idempotente en
+     lib/db/src/migrations/, registrada en su index.ts. La última hoy es
+     `0012_personnel_almacenes` — esta tarea agrega `0013_viajes`.
+  3. Routers nuevos van DESPUÉS de requireAuth en src/routes/index.ts.
+  4. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  5. null = "sin dato". NUNCA 0 ni "".
+
+════════ REQUISITO PREVIO ════════
+
+- `dispatches` existe con su constraint de exclusividad
+  (`dispatches_fuente_exclusiva_check`, migración 0010): cada despacho es
+  exactamente una venta O exactamente un traslado. Esta tarea NO toca ese
+  constraint.
+- `artifacts/api-server/src/services/dispatchEstadoSync.ts` →
+  `syncLinkedDispatchEntity(dispatch)` es el punto único que mantiene
+  sincronizados `sales.estado` y `traslados.estadoLogistico` cada vez que un
+  despacho cambia. Lo llaman 5 sitios: POST/PATCH/DELETE/approve en
+  `dispatches.ts`, y `PATCH /driver/dispatches/:id/status` en `driver.ts`.
+  Esta tarea EXTIENDE esa función — no agrega llamadas nuevas en ningún
+  call site.
+- `exceedsDispatchCapacity(capacidad, carga)`, exportada desde
+  `artifacts/api-server/src/routes/dispatches.ts` (línea ~115), es la
+  función que ya valida peso/volumen contra la capacidad de un vehículo.
+
+Si algo de esto falta, detente y repórtalo.
+
+════════ POR QUÉ ESTA TAREA ════════
+
+Hoy un despacho es un vehículo + un chofer + una carga, siempre. Un camión
+que en la práctica hace tres entregas en un mismo viaje necesita hoy tres
+despachos sueltos, sin ninguna relación entre sí — no hay forma de decir
+"estas tres paradas son el mismo viaje" ni de estimar un costo de peaje
+compartido para las tres.
+
+Esta tarea agrega `viajes`: una entidad que AGRUPA despachos existentes.
+**No reemplaza nada.** Un despacho suelto (el caso normal de hoy, un
+cliente, un camión) sigue funcionando exactamente igual sin viaje —
+consolidar es opcional. Solo cuando alguien decide agrupar varios despachos
+bajo un viaje, ese viaje pasa a ser la unidad de vehículo/chofer/fecha
+compartida.
+
+**Decisión de diseño clave — el viaje es la fuente de verdad del
+vehículo/chofer/ayudante, no cada despacho por separado.** Cuando un
+despacho se une a un viaje (al crearlo con `POST /viajes`, o después con
+`PATCH /dispatches/:id`), su `vehiculoId`/`choferId`/`ayudanteId` se
+SOBRESCRIBEN con los del viaje. La alternativa —dejar que cada despacho
+mantenga su propio vehículo y validar que coincida con el del viaje— exige
+lógica de conflicto para cuando no coinciden. Sobrescribir evita esa clase
+de bug por construcción: nunca existe un estado donde un despacho "dice"
+tener un camión distinto al viaje que lo agrupa. El resto del sistema
+(dashboard, capacidad, la app del chofer) sigue leyendo
+`dispatch.vehiculoId`/`choferId` directamente, sin enterarse de que existe
+el concepto de viaje.
+
+**Alcance confirmado con Pedro antes de este prompt:**
+- Se pueden mezclar ventas y traslados en el mismo viaje.
+- El costeo (`distanciaTotalKm`/`totalPeajesEstimado`) es un campo manual,
+  aproximado, a nivel de viaje — NO reemplaza los `travel_costs`
+  individuales de cada despacho, conviven.
+- `viajes.estado` se DERIVA de sus despachos, igual que `sales.estado` y
+  `traslados.estadoLogistico` — nunca se escribe a mano.
+- Un despacho puede cambiar de viaje (o salirse) después de creado.
+- Los permisos de la Fase 3B (almacenista por almacén) NO aplican a viajes
+  en esta tarea. Un viaje que contiene un traslado fuera del alcance de un
+  almacenista sigue siendo visible igual — 3B-2 se limitó a `/traslados` a
+  propósito, y esta tarea no lo extiende.
+- Sin optimización de ruta ni geocodificación de tramos. `distanciaTotalKm`
+  y `totalPeajesEstimado` son números que alguien escribe a mano al
+  planificar (la UI para escribirlos es la Fase 4B, no esta tarea).
+
+Esta tarea es SOLO backend — sin UI. La UI de planificación (rehacer
+Pre-Despacho para armar viajes) es la Fase 4B, y se escribe después de
+revisar cómo quedó esto.
+
+════════ TRAMPAS ════════
+
+1. **El guard de sincronización en `PATCH /dispatches/:id` hoy solo mira
+   `estado`, no lo vas a poder reusar tal cual.** El código actual (línea
+   ~337) es:
+```ts
+   if ("estado" in parsed.data) {
+     await syncLinkedDispatchEntity(dispatch);
+   }
+```
+   Si agregas `viajeId` al body sin tocar esta condición, reasignar un
+   despacho a un viaje SIN tocar su `estado` en el mismo PATCH nunca
+   dispararía la sincronización del viaje nuevo — el viaje se quedaría con
+   el estado derivado viejo (o el default) hasta el próximo cambio de
+   estado de cualquiera de sus despachos, que puede tardar días. La
+   condición tiene que ampliarse a
+   `"estado" in parsed.data || "viajeId" in parsed.data`.
+
+2. **Cuando un despacho CAMBIA de viaje (no solo cuando se le asigna uno
+   por primera vez), hay que sincronizar DOS viajes, no uno.** El viaje
+   nuevo gana un despacho: eso lo cubre `syncLinkedDispatchEntity(dispatch)`
+   con el `dispatch` ya actualizado. Pero el viaje VIEJO acaba de perder un
+   despacho — si esa era su única parada `en-ruta`, ese viaje debería pasar
+   de `en_curso` a `completado` (o a `cancelado` si se queda sin despachos
+   activos), y nada lo va a recalcular solo. Hay que leer el `viajeId`
+   ANTES del `UPDATE` (se pisa si no lo guardas primero) y, si cambió,
+   sincronizar también el viaje anterior después del update.
+
+3. **`viajes.estado` nunca se acepta por body.** Es como `sales.estado`
+   derivado de despachos o `traslados.estadoLogistico` con la regla de
+   Odoo: un campo que un endpoint de escritura jamás toca directamente. Si
+   `PATCH /viajes/:id` recibe `estado` en el body, es un error del cliente
+   (400), no un valor que se aplique silenciosamente ni que se ignore sin
+   avisar.
+
+4. **`POST /viajes` rechaza (no reasigna en silencio) un despacho que ya
+   pertenece a OTRO viaje.** Si Replit decide "mejorar" esto reasignando
+   automáticamente, un click apurado en la UI de 4B podría desarmar un
+   viaje ya planificado sin que nadie lo pida explícitamente. El mensaje de
+   error debe decirle al usuario que quite ese despacho del otro viaje
+   primero (con `PATCH /dispatches/:id`).
+
+5. **La validación de capacidad al unir un despacho a un viaje es POR
+   DESPACHO, no la suma de todos los despachos del viaje.** Es la misma
+   función `exceedsDispatchCapacity` que ya usa `POST /dispatches`, aplicada
+   al peso/volumen de CADA despacho individualmente contra la capacidad del
+   vehículo del viaje. Sumar la carga de todas las paradas y validarla junta
+   sería más "correcto" en teoría, pero asume un modelo de cuánto va cargado
+   en cada tramo del viaje que no existe todavía (fue una decisión explícita
+   de Pedro dejar el costeo/capacidad aproximados en esta fase). No lo
+   inventes — el chequeo por despacho individual es intencional, no un
+   atajo.
+
+6. **`viajes.fecha` es una fecha simple (`YYYY-MM-DD`), no un
+   `datetime-local`.** No reutilices el helper
+   `artifacts/logistics/src/lib/datetime-local.ts` (`toDatetimeLocal`) para
+   esto — es para inputs con hora, y esta tarea no tiene UI de todos modos.
+   Que quede anotado para quien escriba la Fase 4B: un input `type="date"`
+   NO tiene el mismo bug de huso horario que `datetime-local`, pero
+   `new Date("2026-08-24").toISOString()` SÍ lo tiene (interpreta la fecha
+   como medianoche UTC, que en Venezuela es el día anterior a las 8pm) —
+   si en algún momento se compara `viajes.fecha` con una fecha de JS,
+   comparar el string tal cual, nunca convertirlo con `new Date(...)`.
+
+7. **`Dispatch`/`DispatchDetail` en el openapi necesitan `viajeId` y
+   `orden` declarados explícitamente.** `buildDispatchRow` hace
+   `{ ...d, ... }`, así que las columnas nuevas van a estar en el objeto de
+   JavaScript automáticamente — pero las respuestas pasan por
+   `DispatchResponse.parse(...)` (Zod generado del contrato), y un campo no
+   declarado en el schema del contrato se descarta en silencio. Si no
+   agregas `viajeId`/`orden` al `Dispatch` y `DispatchDetail` del openapi,
+   vas a ver que el código los calcula bien pero la respuesta HTTP nunca
+   los trae, y va a parecer un bug de Drizzle cuando en realidad es que
+   falta declararlos en el contrato.
+
+════════ TAREA ════════
+
+1. Nuevo schema `lib/db/src/schema/viajes.ts`:
+```ts
+   export const viajesTable = pgTable("viajes", {
+     id: serial("id").primaryKey(),
+     vehiculoId: integer("vehiculo_id").notNull().references(() => vehiclesTable.id),
+     choferId: integer("chofer_id").notNull().references(() => personnelTable.id),
+     ayudanteId: integer("ayudante_id").references(() => personnelTable.id),
+     fecha: text("fecha").notNull(),
+     estado: text("estado").notNull().default("planificado"),
+     distanciaTotalKm: real("distancia_total_km"),
+     totalPeajesEstimado: real("total_peajes_estimado"),
+     notas: text("notas"),
+     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+   });
+```
+   Exportar desde `lib/db/src/schema/index.ts`. `estado` reconoce
+   `planificado | en_curso | completado | cancelado` (comentario, sin
+   constraint — mismo criterio que `personnel.rol`).
+
+2. En `lib/db/src/schema/dispatches.ts`, agregar:
+```ts
+   viajeId: integer("viaje_id").references(() => viajesTable.id, { onDelete: "set null" }),
+   orden: integer("orden"),
+```
+   `ON DELETE SET NULL`: si un viaje se borra, sus despachos vuelven a ser
+   despachos sueltos, no se borran.
+
+3. Migración `lib/db/src/migrations/0013_viajes.ts`, idempotente
+   (`CREATE TABLE IF NOT EXISTS`, `ADD COLUMN IF NOT EXISTS`, guardas
+   `pg_constraint`/`DO $$` para la FK igual que en migraciones anteriores),
+   registrada en `lib/db/src/migrations/index.ts`. Incluye:
+   - la tabla `viajes` completa
+   - `dispatches.viaje_id` + `dispatches.orden`
+   - `CREATE INDEX IF NOT EXISTS "dispatches_viaje_id_idx" ON "dispatches" ("viaje_id")`
+
+4. Nuevo servicio `artifacts/api-server/src/services/viajeEstadoSync.ts`,
+   mismo patrón que `saleEstadoSync.ts`:
+```ts
+   export function deriveViajeEstado(dispatchEstados: string[]): "planificado" | "en_curso" | "completado" | "cancelado" {
+     if (dispatchEstados.length === 0) return "planificado";
+     const activos = dispatchEstados.filter((e) => e !== "cancelado");
+     if (activos.length === 0) return "cancelado";
+     if (activos.every((e) => e === "entregado")) return "completado";
+     return "en_curso";
+   }
+
+   export async function syncViajeEstadoFromDispatch(viajeId: number): Promise<void> {
+     // Una sola sentencia SQL atómica, igual que syncSaleEstadoFromDispatch:
+     // UPDATE viajes SET estado = CASE
+     //   WHEN NOT EXISTS (SELECT 1 FROM dispatches WHERE viaje_id = ...) THEN 'planificado'
+     //   WHEN NOT EXISTS (SELECT 1 FROM dispatches WHERE viaje_id = ... AND estado <> 'cancelado') THEN 'cancelado'
+     //   WHEN EXISTS (SELECT 1 FROM dispatches WHERE viaje_id = ... AND estado <> 'cancelado' AND estado <> 'entregado') THEN 'en_curso'
+     //   ELSE 'completado'
+     // END
+     // WHERE id = ...
+   }
+
+   export async function reconcileViajeEstados(): Promise<number> {
+     // Mismo patrón que reconcileTrasladoEstados: recorre todos los viajes,
+     // aplica syncViajeEstadoFromDispatch a cada uno, devuelve cuántos cambiaron.
+   }
+```
+   Enganchar `reconcileViajeEstados()` al boot del servidor en
+   `artifacts/api-server/src/index.ts`, junto a `reconcileSaleEstados()` y
+   `reconcileTrasladoEstados()` (líneas ~65-70).
+
+5. Extender `dispatchEstadoSync.ts`:
+```ts
+   export async function syncLinkedDispatchEntity(dispatch): Promise<void> {
+     if (dispatch.tipo === "venta" && dispatch.ventaId !== null) {
+       await syncSaleEstadoFromDispatch(dispatch.ventaId);
+     } else if (dispatch.tipo === "traslado" && dispatch.trasladoId !== null) {
+       await syncTrasladoEstadoFromDispatch(dispatch.trasladoId);
+     }
+     if (dispatch.viajeId !== null) {
+       await syncViajeEstadoFromDispatch(dispatch.viajeId);
+     }
+   }
+```
+   Es un `if` aparte, NO parte de la cadena `if/else if` de arriba — un
+   despacho tiene tipo Y (opcionalmente) viaje al mismo tiempo, no son
+   mutuamente excluyentes.
+
+6. En `artifacts/api-server/src/routes/dispatches.ts`, `PATCH /dispatches/:id`
+   (trampa 1 y 2):
+   - Ampliar la condición que trae `existing` (hoy solo se dispara con
+     `routeId`/`distanciaKm`/`distanciaManual`) para que también se dispare
+     con `"viajeId" in parsed.data`, y guardar `existing.viajeId` ANTES del
+     `UPDATE`.
+   - Si `parsed.data.viajeId` no es `undefined` y no es `null`, validar que
+     ese viaje exista (404 `{error: "El viaje indicado no existe"}` si no).
+   - Ampliar el guard de sincronización a
+     `"estado" in parsed.data || "viajeId" in parsed.data`.
+   - Si el `viajeId` cambió (comparar el `existing.viajeId` guardado contra
+     `dispatch.viajeId` después del update) y el viejo no era `null`,
+     sincronizar también ese viaje anterior:
+     `await syncViajeEstadoFromDispatch(existing.viajeId)`.
+
+7. Nuevo servicio `artifacts/api-server/src/services/viajeQueries.ts`:
+   - `listViajes(filters?: { estado?: string; fecha?: string })` — lista
+     con joins a `vehicles`/`personnel` para `vehiculoModelo`/`choferNombre`/
+     `ayudanteNombre`, más `cantidadDespachos: count(dispatches.id)`.
+     Ordenar por `fecha DESC`.
+   - `getViaje(id)` — el viaje más
+     `despachos: <resultado de buildDispatchRow para cada uno>`, ordenados
+     por `orden`. Importar `buildDispatchRow` desde `../routes/dispatches`.
+   - `createViaje({ vehiculoId, choferId, ayudanteId, fecha, notas, despachoIds })`:
+     dentro de una transacción (`db.transaction`, mismo patrón que
+     `reemplazarAlmacenesDePersonal` en `personnelAlmacenes.ts`):
+     a. Validar que `vehiculoId`/`choferId` existan.
+     b. Validar que TODOS los `despachoIds` existan y que NINGUNO tenga ya
+        un `viajeId` distinto de `null` (trampa 4) — si alguno lo tiene,
+        lanzar un error con el id del despacho y del viaje que ya lo tiene.
+     c. Para cada despacho, validar `exceedsDispatchCapacity` con la
+        capacidad del vehículo nuevo contra el peso/volumen de ESE despacho
+        (trampa 5) — mismo cálculo de `pesoCarga`/`volumenCarga` que ya
+        existe en `POST /dispatches` (venta → `sale.pesoTotal`, traslado →
+        `traslado.pesoEfectivoKg`, etc.).
+     d. Insertar el viaje.
+     e. `UPDATE dispatches SET viaje_id = <nuevo id>, vehiculo_id = <viaje.vehiculoId>, chofer_id = <viaje.choferId>, ayudante_id = <viaje.ayudanteId>, orden = <posición en despachoIds, empezando en 1> WHERE id IN (despachoIds)`.
+     f. Llamar `syncViajeEstadoFromDispatch(nuevoViaje.id)` (los despachos
+        agrupados podrían ya estar `entregado`, por ejemplo, y el viaje debe
+        reflejarlo desde el primer momento, no quedarse en `planificado`).
+   - `updateViaje(id, data)` — campos editables:
+     `vehiculoId, choferId, ayudanteId, fecha, notas, distanciaTotalKm,
+     totalPeajesEstimado`. Si `data` trae `estado`, rechazar (trampa 3) —
+     esta función ni siquiera debería aceptar ese campo en su tipo de
+     entrada.
+
+8. Router `artifacts/api-server/src/routes/viajes.ts`:
+   - `POST /viajes` — body validado contra el contrato (ver paso 9), llama
+     `createViaje`. 400 con mensaje claro en cualquiera de los rechazos del
+     paso 7 (vehículo/chofer inexistente, despacho ya en otro viaje,
+     capacidad excedida).
+   - `GET /viajes` — query params opcionales `estado`, `fecha`.
+   - `GET /viajes/:id` — 404 si no existe.
+   - `PATCH /viajes/:id` — 404 si no existe, 400 si el body trae `estado`.
+   Montar en `artifacts/api-server/src/routes/index.ts` DESPUÉS de
+   `requireAuth`, junto a los demás routers (después de `actasRouter` está
+   bien).
+
+9. Contrato, en `lib/api-spec/openapi.yaml`:
+   - `Viaje` (respuesta de lista): id, vehiculoId, choferId, ayudanteId,
+     fecha, estado, distanciaTotalKm, totalPeajesEstimado, notas,
+     createdAt, vehiculoModelo, choferNombre, ayudanteNombre,
+     cantidadDespachos.
+   - `ViajeDetail`: lo anterior + `despachos: Dispatch[]`.
+   - `ViajeInput` (para `POST /viajes`): vehiculoId, choferId, ayudanteId?,
+     fecha, notas?, `despachoIds: integer[]` (mínimo 1 elemento).
+   - `ViajeUpdate` (para `PATCH /viajes/:id`): vehiculoId?, choferId?,
+     ayudanteId?, fecha?, notas?, distanciaTotalKm?, totalPeajesEstimado?.
+     Sin `estado` — no existe ese campo en este schema, a propósito.
+   - En `Dispatch` y `DispatchDetail` (trampa 7), agregar:
+```yaml
+     viajeId:
+       type: ["integer", "null"]
+     orden:
+       type: ["integer", "null"]
+```
+   - En `DispatchUpdate`, agregar:
+```yaml
+     viajeId:
+       type: ["integer", "null"]
+```
+     (nullable — así `PATCH /dispatches/:id` con `{"viajeId": null}` es
+     cómo se saca un despacho de su viaje.)
+   - Correr `pnpm --filter @workspace/api-spec run codegen` después.
+
+════════ NO HAGAS ════════
+- NO toques el constraint `dispatches_fuente_exclusiva_check` ni la lógica
+  de `tipo`/`ventaId`/`trasladoId`.
+- NO agregues autorización por almacén a `viajes`. Sin `requireRol`, sin
+  filtrar por `personal_almacenes`. Visible para todos, igual que hoy los
+  despachos de venta.
+- NO construyas ninguna UI. Ni en `artifacts/logistics` ni en
+  `artifacts/chofer`. Esta tarea es contrato + backend únicamente.
+- NO sumes el peso/volumen de todos los despachos de un viaje para validar
+  capacidad contra el vehículo. Validación por despacho individual, como
+  dice la trampa 5.
+- NO implementes optimización de ruta, geocodificación, ni cálculo
+  automático de `distanciaTotalKm`/`totalPeajesEstimado` a partir de los
+  despachos. Son campos manuales en esta fase.
+- NO agregues un endpoint para borrar viajes (`DELETE /viajes/:id`). Si un
+  viaje se queda sin despachos (todos reasignados a otro lado), su estado
+  ya se deriva a `planificado` — no hace falta borrarlo todavía, y borrar
+  trae su propia pregunta de qué hacer con las referencias que no vamos a
+  resolver en esta tarea.
+
+════════ VERIFICACIÓN ════════
+
+- `pnpm run typecheck` limpio, api-server reiniciado sin `SCHEMA MISMATCH`,
+  migración `0013_viajes` corrida dos veces seguidas sin fallar.
+- Crear 2 despachos de venta sueltos (o usar existentes en estado
+  `pre-despacho`/`aprobado`), con vehículos distintos, y agrupar ambos con
+  `POST /viajes` usando un tercer vehículo cualquiera → confirmar por SQL
+  que ambos despachos quedaron con `vehiculo_id`/`chofer_id` iguales a los
+  del viaje, `viaje_id` apuntando al nuevo viaje, y `orden` 1 y 2.
+- Marcar uno de esos dos despachos como `entregado` (vía
+  `PATCH /dispatches/:id`) → el viaje debe quedar en `en_curso` (el otro
+  despacho sigue activo y no entregado). Marcar el segundo también
+  `entregado` → el viaje pasa a `completado`.
+- Con el viaje anterior aún con 2 despachos activos, hacer
+  `PATCH /dispatches/:id` sobre uno de ellos con `{"viajeId": null}` → el
+  despacho queda suelto (sin `viaje_id`, sin `orden`), y el viaje original
+  se re-sincroniza según el despacho que le queda (probar los dos casos:
+  si el que queda está `entregado`, el viaje debe decir `completado`; si
+  el que queda todavía no, `en_curso`).
+- Intentar `POST /viajes` incluyendo un despacho que ya pertenece a otro
+  viaje → 400, y confirmar que NINGUNO de los cambios se aplicó (ni el
+  viaje nuevo se creó, ni el despacho existente se movió) — la transacción
+  completa debe revertirse.
+- Intentar `POST /viajes` con un despacho cuya carga (peso o volumen)
+  exceda la capacidad del vehículo del viaje → 400
+  `vehicle_capacity_exceeded`, mismo mensaje que ya usa `POST /dispatches`.
+- `PATCH /viajes/:id` con `{"estado": "completado"}` en el body → 400, y
+  confirmar que el `estado` real (derivado) no cambió por ese intento.
+- `GET /viajes/:id` sobre un viaje con despachos de AMBOS tipos (una venta
+  y un traslado agrupados) → responde sin error, con los dos despachos en
+  `despachos`, cada uno con su `referencia`/`clienteNombre` u
+  `origen`/`destino` según corresponda (reusa `buildDispatchRow`, así que
+  esto debería salir gratis).
+- Confirmar que `GET /dispatches/:id` de un despacho agrupado en un viaje
+  ahora trae `viajeId` y `orden` en la respuesta (no solo en la DB).
+- Correr `e2e/tests/dispatches-traslados.test.ts` y `e2e/tests/almacen-access-api.test.ts`
+  existentes — deben seguir pasando sin cambios, confirma que no se rompió
+  nada de las fases anteriores.
+- Agregar `e2e/tests/viajes.test.ts` cubriendo al menos: creación con
+  sobrescritura de vehículo/chofer, rechazo de despacho duplicado, rechazo
+  de capacidad excedida, derivación de estado en los 4 casos
+  (planificado/en_curso/completado/cancelado), y que `PATCH /dispatches/:id`
+  con cambio de viaje sincroniza AMBOS viajes (el que gana y el que pierde
+  el despacho).
