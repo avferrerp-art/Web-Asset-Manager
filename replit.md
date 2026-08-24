@@ -13,6 +13,7 @@ Sistema de gestión logística de flota: planifica despachos de ventas (propias 
 - `pnpm --filter @workspace/e2e run test` — Playwright browser suite (rutas UI); requiere la web corriendo en `localhost:80`
 - Required env: `DATABASE_URL` — Postgres connection string
 - Optional env (Odoo sync): `ODOO_URL`, `ODOO_DB`, `ODOO_USERNAME`, `ODOO_API_KEY` — if missing, sync stays silently disabled
+- Optional env (warehouse authorization): `ADMIN_EMAILS` — comma-separated administrative email bypass list, with no default. If omitted, incomplete or unlinked personnel records still retain their normal full-access fallback.
 
 ## Stack
 

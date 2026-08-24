@@ -8,7 +8,18 @@ import {
   productsTable,
   trasladosTable,
 } from "@workspace/db";
-import { and, count, desc, eq, ne, sql, type AnyColumn, type SQL } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  inArray,
+  ne,
+  or,
+  sql,
+  type AnyColumn,
+  type SQL,
+} from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 import {
   HORAS_RECEPCION_SIN_VALIDAR,
@@ -19,6 +30,7 @@ import {
 export type TrasladoFilters = {
   almacenOrigenId?: number;
   almacenDestinoId?: number;
+  authorizedAlmacenIds?: number[];
   estadoLogistico?: string;
   estadoOdoo?: string;
   search?: string;
@@ -69,6 +81,16 @@ async function selectTraslados(filters: TrasladoFilters, id?: number) {
   }
   if (filters.almacenDestinoId !== undefined) {
     conditions.push(eq(trasladosTable.almacenDestinoId, filters.almacenDestinoId));
+  }
+  if (filters.authorizedAlmacenIds !== undefined) {
+    conditions.push(
+      filters.authorizedAlmacenIds.length > 0
+        ? or(
+            inArray(trasladosTable.almacenOrigenId, filters.authorizedAlmacenIds),
+            inArray(trasladosTable.almacenDestinoId, filters.authorizedAlmacenIds),
+          )!
+        : sql`false`,
+    );
   }
   if (filters.estadoLogistico) {
     conditions.push(eq(trasladosTable.estadoLogistico, filters.estadoLogistico));
@@ -191,6 +213,17 @@ export async function listTraslados(filters: TrasladoFilters = {}) {
 export async function getTrasladoSummary(id: number) {
   const [row] = await selectTraslados({}, id);
   return row ? toSummary(row) : null;
+}
+
+export async function getTrasladoAlmacenes(id: number) {
+  const [traslado] = await db
+    .select({
+      almacenOrigenId: trasladosTable.almacenOrigenId,
+      almacenDestinoId: trasladosTable.almacenDestinoId,
+    })
+    .from(trasladosTable)
+    .where(eq(trasladosTable.id, id));
+  return traslado ?? null;
 }
 
 export async function getTraslado(id: number) {

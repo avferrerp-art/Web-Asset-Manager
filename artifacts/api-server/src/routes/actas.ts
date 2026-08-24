@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { db, dispatchesTable } from "@workspace/db";
+import { db, dispatchesTable, trasladosTable } from "@workspace/db";
 import { eq } from "drizzle-orm";
 import {
   ConfirmDispatchActaBody,
@@ -19,13 +19,27 @@ import {
   registrarLlegada,
 } from "../services/actasLlegada";
 import { resolveCurrentPerson } from "../services/currentPerson";
+import {
+  canOperateAlmacen,
+  resolveAlmacenAccess,
+} from "../services/almacenAccess";
 
 const router: IRouter = Router();
 
 async function getDispatch(id: number) {
   const [dispatch] = await db
-    .select({ id: dispatchesTable.id, estado: dispatchesTable.estado })
+    .select({
+      id: dispatchesTable.id,
+      estado: dispatchesTable.estado,
+      tipo: dispatchesTable.tipo,
+      trasladoId: dispatchesTable.trasladoId,
+      almacenDestinoId: trasladosTable.almacenDestinoId,
+    })
     .from(dispatchesTable)
+    .leftJoin(
+      trasladosTable,
+      eq(trasladosTable.id, dispatchesTable.trasladoId),
+    )
     .where(eq(dispatchesTable.id, id));
   return dispatch ?? null;
 }
@@ -117,8 +131,21 @@ router.patch("/dispatches/:id/acta", async (req, res): Promise<void> => {
     res.status(400).json({ error: "datos_de_recepcion_invalidos" });
     return;
   }
-  if (!(await getDispatch(params.data.id))) {
+  const dispatch = await getDispatch(params.data.id);
+  if (!dispatch) {
     res.status(404).json({ error: "despacho_no_encontrado" });
+    return;
+  }
+  if (
+    dispatch.tipo === "traslado" &&
+    dispatch.trasladoId !== null &&
+    dispatch.almacenDestinoId !== null &&
+    !canOperateAlmacen(
+      await resolveAlmacenAccess(req),
+      dispatch.almacenDestinoId,
+    )
+  ) {
+    res.status(403).json({ error: "almacen_no_autorizado" });
     return;
   }
 
