@@ -1,0 +1,56 @@
+═══════════════════════════════════════════════════════════ PROMPT 14 — Pre-Despacho: poner Ventas y Traslados lado a lado ════════════════════════════════════════════════════════════
+
+════════════════════════════════════════ CONTEXTO DEL PROYECTO ════════════════════════════════════════
+
+LogiFleet, monorepo pnpm, TypeScript 5.9. La pantalla afectada es artifacts/logistics/src/pages/pre-despacho.tsx (React + Vite + shadcn/ui).
+
+════════════════════════════════════════ POR QUÉ ESTA TAREA ════════════════════════════════════════
+
+Hoy la tarjeta "Órdenes de Venta por Planificar" y la tarjeta "Traslados por Planificar" (PendingTrasladosCard) están apiladas una debajo de la otra, sin límite de alto. Cuando hay muchas ventas pendientes (en producción hay decenas), hay que scrollear muchísimo para llegar a Traslados — un problema real detectado probando el modo "Armar viaje", donde justo hace falta ver ambas listas para poder combinar una venta con un traslado.
+
+La solución: mostrar las dos tarjetas lado a lado en pantallas anchas (cada una con su propio scroll interno acotado en alto), y mantenerlas apiladas en pantallas angostas como ya funciona hoy.
+
+════════════════════════════════════════ TRAMPAS ════════════════════════════════════════
+
+Ninguna de las dos tablas está hoy envuelta en un contenedor con overflow-x-auto. Al ponerlas a mitad de ancho de pantalla, una tabla de 6 columnas puede desbordar horizontalmente si no se le da scroll propio. Al acotar el alto, acotá también el ancho (overflow-auto cubre los dos ejes, o overflow-x-auto overflow-y-auto explícito).
+No toques la lógica de tripMode / selección / checkboxes en ninguno de los dos archivos — esto es puramente de layout (CSS/estructura JSX), cero cambios de comportamiento.
+El header de cada tabla (<TableHeader>) debe quedar fijo arriba mientras se scrollea la lista de esa tarjeta (sticky top-0), para no perder de vista las columnas. Usá el mismo color de fondo de la tarjeta (bg-card) y un z-10 para que no se transparente el contenido que pasa por debajo.
+Elegí el breakpoint para pasar a 2 columnas en xl (1280px) — no antes, para no apretar las tablas en laptops angostas. Por debajo de xl se mantiene el apilado vertical de siempre (columna única), igual que hoy.
+No cambies nada dentro de CardHeader de ninguna de las dos tarjetas (buscador, título) — solo el contenedor de la tabla dentro de CardContent.
+
+════════════════════════════════════════ TAREA ════════════════════════════════════════
+
+En artifacts/logistics/src/pages/pre-despacho.tsx: envolvé el <Card> de "Órdenes de Venta por Planificar" (el que contiene la tabla de ventas) y el <PendingTrasladosCard ... /> que le sigue como hermano, en un contenedor:
+tsx
+   <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start">
+     <Card> ... </Card>
+     <PendingTrasladosCard ... />
+   </div>
+
+No cambies ninguna prop de PendingTrasladosCard, solo el contenedor alrededor de ambos.
+
+En ese mismo archivo, dentro del <CardContent className="p-0"> de la tarjeta de Ventas, envolvé el <Table>...</Table> en:
+tsx
+   <div className="max-h-[560px] overflow-auto">
+     <Table> ... </Table>
+   </div>
+
+Y dentro de ese <Table>, agregale className="sticky top-0 bg-card    z-10" al <TableHeader> (o al <TableRow> que contiene los <TableHead>, lo que ya use el componente TableHeader de este proyecto para aplicar className — revisá components/ui/table.tsx si hace falta).
+
+En artifacts/logistics/src/components/pending-traslados-card.tsx: aplicá exactamente el mismo cambio (paso 2) a su propio <CardContent className="p-0"><Table>...</Table></CardContent> — mismo max-h-[560px] overflow-auto y mismo sticky top-0 bg-card z-10 en su TableHeader.
+Mantené el resto de cada archivo intacto — nada de lógica, nada de props, nada de estado nuevo.
+
+════════════════════════════════════════ NO HAGAS ════════════════════════════════════════
+
+No reordenes Ventas y Traslados (Ventas sigue yendo primero/izquierda, Traslados segundo/derecha) — es un cambio de layout, no de prioridad.
+No agregues paginación ni ningún control nuevo — el scroll interno con alto acotado alcanza para resolver el problema reportado.
+No toques viaje-wizard.tsx, viajes.tsx, ni ninguna otra pantalla — el problema reportado es específico de esta vista.
+No cambies el max-h a un valor que haga que la tabla quede con menos de 3-4 filas visibles en pantallas normales (560px es un punto de partida razonable, pero usá tu criterio si necesitás ajustarlo un poco para que se vea bien).
+
+════════════════════════════════════════ VERIFICACIÓN ════════════════════════════════════════
+
+En una pantalla ancha (≥1280px), Ventas y Traslados se ven lado a lado, ambas visibles sin scrollear la página — cada una con su propia barra de scroll interna si la lista es larga.
+Al scrollear dentro de la lista de Ventas, el encabezado de esa tabla (ID, Cliente, Destino, Peso, Volumen, Incluir/acciones) se queda fijo arriba.
+Reducí el ancho de la ventana por debajo de 1280px: las dos tarjetas vuelven a apilarse en una sola columna, igual que se comportaba antes de este cambio.
+Activá "Armar viaje" y confirmá que los checkboxes de ambas tablas siguen funcionando igual que antes (nada de esto debería haber cambiado).
+Confirmá que ninguna tabla se desborda horizontalmente ni corta columnas en un ancho de ~1280-1440px (el punto más ajustado del layout de 2 columnas).
