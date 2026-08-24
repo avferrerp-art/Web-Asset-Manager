@@ -1,0 +1,308 @@
+════════ CONTEXTO DEL PROYECTO ════════
+
+LogiFleet es un sistema de gestión logística de flota. Importa ventas desde Odoo,
+planifica despachos (vehículo + chofer + ruta), calcula costos, y tiene una app
+móvil para choferes.
+
+Monorepo pnpm workspaces, Node 24, TypeScript 5.9. Estructura:
+
+  lib/api-spec/         openapi.yaml — contrato de la API + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO (hooks React Query) — NO editar
+  artifacts/api-server/ API Express 5
+  artifacts/logistics/  Web React + Vite + wouter + shadcn/ui + React Query
+
+Lee `replit.md` en la raíz y `.agents/memory/` antes de empezar. Para esta
+tarea es especialmente relevante `.agents/memory/viaje-membership-concurrency.md`
+(las reglas de qué campos de un despacho agrupado se pueden editar y dónde).
+
+REGLAS DEL REPO — no negociables:
+  1. Esta tarea NO toca el contrato (`lib/api-spec/openapi.yaml`). Todos los
+     endpoints que necesitás (`POST/GET /viajes`, `GET/PATCH /viajes/{id}`,
+     `PATCH /dispatches/{id}` con `viajeId`) ya existen desde la Fase 4A y
+     ya tienen sus hooks generados (`useCreateViaje`, `useListViajes`,
+     `useGetViaje`, `useUpdateViaje`, `useUpdateDispatch`). Si sentís que
+     necesitás un endpoint nuevo, deténte — probablemente hay una forma de
+     lograrlo con lo que ya existe.
+  2. Esta tarea es SOLO frontend (`artifacts/logistics`). No toques
+     `artifacts/api-server`, `lib/db` ni `lib/api-spec`.
+  3. null = "sin dato". Nunca 0 ni "".
+
+════════ REQUISITO PREVIO ════════
+
+Fase 4A (commit `01a789b`) ya dejó:
+  - `POST /viajes` — agrupa despachos EXISTENTES por id
+    (`{ vehiculoId, choferId, ayudanteId?, fecha, notas?, despachoIds: number[] }`,
+    mínimo 1). Al agrupar, sobrescribe el `vehiculoId`/`choferId`/`ayudanteId`
+    de cada despacho con los del viaje. Rechaza (400) si algún despacho ya
+    pertenece a otro viaje, o si su carga excede la capacidad del vehículo.
+  - `GET /viajes` (lista, con `estado` derivado) y `GET /viajes/{id}`
+    (detalle, con `despachos: Dispatch[]` ordenados por `orden`).
+  - `PATCH /viajes/{id}` — edita `vehiculoId`, `choferId`, `ayudanteId`,
+    `fecha`, `notas`, `distanciaTotalKm`, `totalPeajesEstimado`. Rechaza
+    (400 `derived_state_readonly`) si el body trae `estado` — se deriva
+    solo de los despachos, nunca se escribe a mano. Si cambia el vehículo,
+    revalida la capacidad de TODOS los despachos ya agrupados.
+  - `PATCH /dispatches/{id}` acepta `viajeId` (número para unir, `null`
+    para desvincular). **Mientras un despacho pertenece a un viaje, su
+    `vehiculoId`/`choferId`/`ayudanteId` NO se pueden editar directo por
+    ese mismo endpoint** — el servidor responde 400
+    `dispatch_assignments_owned_by_viaje`. Solo se editan a través del
+    viaje, o en la misma llamada que lo desvincula (`viajeId: null`).
+  - `viajes.estado` ∈ `planificado | en_curso | completado | cancelado`,
+    derivado: sin despachos → planificado; todos cancelados → cancelado;
+    algún despacho activo no entregado → en_curso; todos los activos
+    entregados → completado.
+
+Si algo de esto no está, detente y repórtalo.
+
+════════ POR QUÉ ESTA TAREA ════════
+
+Hoy Pre-Despacho crea despachos de a uno: seleccionás una venta o un
+traslado de la cola, elegís vehículo y chofer en un modal
+(`dispatchSchema`, componente `CargoWizard` para la sugerencia con
+capacidad), y se crea un despacho suelto. Esta tarea agrega la posibilidad
+de armar un VIAJE: elegir varias órdenes pendientes de la cola (ventas y
+traslados mezclados), un solo vehículo/chofer/fecha para todas, y
+crearlas agrupadas.
+
+**Decisión de alcance, confirmada con Pedro antes de este prompt: selección
+simple, sin sugerencia automática de vehículo por capacidad combinada.**
+El `CargoWizard` de 3 pasos (Orden → Partidas → Flota) que sugiere el
+vehículo ideal para UNA orden NO se toca ni se extiende — sigue existiendo
+tal cual para el flujo de despacho suelto. El flujo de viaje es un modal
+nuevo y más simple: el usuario elige el vehículo (el sistema solo valida
+que la carga sume, no la sugiere), y el servidor rechaza si no alcanza —
+igual que ya pasa hoy al crear un despacho suelto con un vehículo muy
+chico.
+
+**Por qué la validación de capacidad se hace en el cliente ANTES de crear
+nada.** No existe un endpoint que cree varios despachos y los agrupe en
+una sola operación atómica — `POST /viajes` agrupa despachos que YA
+existen. El flujo de esta tarea entonces es, en dos pasos desde el
+navegador: (1) crear un despacho por cada orden seleccionada
+(`POST /dispatches`, uno por uno, reusando el mismo vehículo/chofer/fecha
+para todos), (2) agrupar esos despachos nuevos con `POST /viajes`. Si el
+paso 1 falla a mitad de camino (por ejemplo, el despacho #3 de 5 no
+alcanza de capacidad), los despachos #1 y #2 ya se crearon como despachos
+SUELTOS — no hay forma de deshacerlos automáticamente sin otro endpoint
+que esta fase no construye. Por eso el wizard valida la capacidad de
+TODAS las órdenes seleccionadas contra el vehículo elegido usando los
+datos que ya están en pantalla (`pesoTotal`/`volumenTotal` de cada venta,
+`pesoEfectivoKg`/`volumenCalculadoM3` de cada traslado) ANTES de mandar
+ninguna request — así el caso de "falla a mitad de camino" queda
+acotado a errores genuinos del servidor (no simplemente "elegiste un
+camión chico"), y ese caso se comunica con claridad en vez de fallar en
+silencio.
+
+════════ TRAMPAS ════════
+
+1. **Un despacho de traslado agrupado en un viaje sigue usando
+   `pesoEfectivoKg`/`volumenCalculadoM3` para la validación de capacidad,
+   no `pesoCalculadoKg`/`pesoEstimadoKg` por separado.** `TrasladoSummary`
+   ya expone `pesoEfectivoKg` calculado
+   (`pesoCalculadoKg ?? pesoEstimadoKg`) — es el mismo campo que ya usa
+   `handleSelectTraslado` en `pre-despacho.tsx` (línea ~283) para el flujo
+   de despacho suelto. Reusalo, no reinventes el cálculo.
+
+2. **La cola de traslados pendientes (`PendingTrasladosCard`) filtra por
+   `estadoLogistico === "por_planificar"` y excluye `mismoAlmacen`** —
+   revisa `pending-traslados-card.tsx` antes de tocarla. Cuando le
+   agregues el modo selección, no cambies ese filtro.
+
+3. **El toggle "Armar viaje" tiene que ocultar (no solo deshabilitar) los
+   botones "Planificar"/"Crear Despacho" de cada fila mientras está
+   activo.** Si los dejás visibles junto al checkbox, un click accidental
+   en "Crear Despacho" crea un despacho suelto de una orden que el usuario
+   ya había marcado para el viaje — quedaría duplicada: una vez como
+   despacho suelto, y (si el usuario no se da cuenta y sigue) intentando
+   agruparse en el viaje después, lo cual el servidor va a rechazar
+   correctamente (`dispatch_already_assigned` no aplica acá porque ya no
+   estaría en la cola de pendientes — pero sí generaría un despacho de
+   más que nadie pidió).
+
+4. **Al mandar `fecha` a `POST /viajes`, mandá SOLO la fecha
+   (`YYYY-MM-DD`), nunca un datetime.** El contrato la tipa
+   `format: date` y el servidor la interpreta como fecha calendario. Un
+   input `<input type="date">` ya entrega ese formato directo — no le
+   apliques `toDatetimeLocal` (ese helper es para
+   `fechaEstimadaSalida`/`fechaEstimadaLlegada`, que SÍ son
+   `datetime-local`) ni construyas la fecha con `new Date(...).toISOString()`
+   si en algún momento partís de un objeto `Date` con hora local
+   distinta de medianoche — eso sí puede correr el día.
+
+5. **`fechaEstimadaSalida`/`fechaEstimadaLlegada`/`distanciaKm` de cada
+   despacho creado en el viaje son un valor COMPARTIDO, elegido una sola
+   vez en el wizard, no un dato por orden.** Es la misma simplificación
+   "aproximado" que ya se decidió para el costeo del viaje — no le pidas
+   al usuario que cargue una hora de salida distinta por parada.
+
+6. **Si `POST /dispatches` falla para alguna orden después de haber
+   creado despachos para otras, NO sigas creando las que faltan ni
+   intentes agrupar los que sí se crearon automáticamente.** Detené el
+   proceso, decile al usuario exactamente qué órdenes sí se despacharon
+   (ahora como despachos sueltos, visibles en Despachos) y cuál falló y
+   por qué, y dejá que decida qué hacer — no hay una forma segura de
+   deshacer esto solo, y agrupar "lo que se pudo" sin que el usuario lo
+   pida es peor que preguntarle.
+
+7. **La pantalla de detalle de un viaje NO permite editar
+   `vehiculoId`/`choferId`/`ayudanteId` de un despacho individual
+   directamente.** El único lugar donde se edita el vehículo/chofer de un
+   despacho agrupado es el formulario del VIAJE (`PATCH /viajes/{id}`),
+   que además revalida capacidad de todos los despachos del viaje contra
+   el vehículo nuevo. Si el detalle del viaje muestra cada despacho con un
+   link/botón de edición, ese botón no debe abrir un formulario que
+   permita tocar esos tres campos — el servidor los va a rechazar con 400
+   de todos modos, pero mostrarle al usuario un campo editable que va a
+   fallar es peor que no mostrarlo.
+
+8. **Sacar un despacho de un viaje es `PATCH /dispatches/{id}` con
+   `{"viajeId": null}` — no un endpoint separado.** Después de sacarlo,
+   ese despacho vuelve a ser un despacho suelto con su vehículo/chofer tal
+   como estaban (los del viaje, no se resetean) — no hace falta pedirle al
+   usuario que los reconfigure, pero sí es correcto mostrárselos por si
+   quiere cambiarlos ahora que el despacho está libre de nuevo.
+
+════════ TAREA ════════
+
+1. **Modo selección en las dos colas de Pre-Despacho**
+   (`artifacts/logistics/src/pages/pre-despacho.tsx` y
+   `artifacts/logistics/src/components/pending-traslados-card.tsx`):
+   - Estado nuevo en `pre-despacho.tsx`: un `Set<string>` de claves
+     `"venta:123"` / `"traslado:45"` para la selección (evita colisión de
+     ids entre los dos tipos), y un booleano `viajeModeActive`.
+   - Un control (`Switch` o botón toggle, lo que ya use el design system
+     del repo) cerca del buscador: "Armar viaje". Al activarse, cada fila
+     de AMBAS colas muestra un `Checkbox` en vez de los botones
+     "Planificar"/"Crear Despacho" (trampa 3). `PendingTrasladosCard`
+     necesita props nuevas: `selectionMode: boolean`,
+     `selectedIds: Set<number>`, `onToggleSelect: (traslado) => void`.
+   - Una barra de acción (fija o al pie de la página) visible solo cuando
+     `viajeModeActive && selección.length > 0`: cuenta de órdenes
+     seleccionadas, suma de peso/volumen (usando `formatCarga`/
+     `sinDatoCarga` para ventas y `formatTrasladoMedida` para traslados,
+     cada uno con su propia semántica de "sin dato" — NO las mezcles), y
+     un botón "Armar viaje (N)".
+
+2. **Nuevo componente `artifacts/logistics/src/components/viaje-wizard.tsx`**,
+   modal abierto por el botón "Armar viaje (N)":
+   - Recibe la lista de órdenes seleccionadas (ventas y traslados, ya
+     resueltos a sus objetos completos, no solo ids).
+   - Muestra esa lista de solo lectura (referencia, cliente/destino u
+     origen→destino, peso/volumen) para que el usuario confirme qué está
+     agrupando, con un botón para quitar una orden de la selección sin
+     cerrar el modal.
+   - Formulario compartido: `vehiculoId`, `choferId`, `ayudanteId?`,
+     `fecha` (`<input type="date">`, trampa 4), `fechaEstimadaSalida`/
+     `fechaEstimadaLlegada` (`datetime-local`, usando `toDatetimeLocal`
+     para los valores por defecto — hoy/mañana, mismo patrón que
+     `handleSelectSale`), `distanciaKm` (default 100, igual que hoy),
+     `notas?`.
+   - Validación de capacidad (trampa 6, antes de mandar nada): sumar
+     `pesoTotal`/`volumenTotal` de las ventas seleccionadas +
+     `pesoEfectivoKg`/`volumenCalculadoM3` (trampa 1) de los traslados
+     seleccionados, comparar contra `capacidadPeso`/`capacidadVolumen`
+     del vehículo elegido. Si excede, bloquear el submit con un mensaje
+     claro (qué vehículo, cuánto pesa/mide la carga combinada, cuánto
+     alcanza el vehículo) — no dejar que el usuario lo intente y falle
+     recién en el servidor a mitad de la creación.
+   - Al confirmar: crear un despacho por orden (secuencial, no
+     `Promise.all` — así un fallo a mitad de camino es determinístico y
+     sabés exactamente cuáles se crearon, trampa 6), todos con el mismo
+     `vehiculoId`/`choferId`/`ayudanteId`/`fechaEstimadaSalida`/
+     `fechaEstimadaLlegada`/`distanciaKm` del formulario. Si alguno falla,
+     detener y mostrar exactamente qué se alcanzó a crear (trampa 6). Si
+     todos se crean, llamar `POST /viajes` con esos ids + el resto de los
+     campos del viaje (`vehiculoId`, `choferId`, `ayudanteId`, `fecha`,
+     `notas`). Si `POST /viajes` falla (por ejemplo, alguien agrupó uno de
+     esos despachos nuevos en otro viaje en el medio — poco probable pero
+     posible), los despachos creados quedan sueltos y visibles en
+     Despachos; comunicarlo igual de claro.
+   - Al terminar con éxito: invalidar las queries de `sales`, `traslados`,
+     `dispatches` y `viajes` (mismo patrón de invalidación que ya usa
+     `onSubmit` en `pre-despacho.tsx`), limpiar la selección, salir del
+     modo viaje, toast de éxito, y navegar a `/viajes/{id}` del viaje
+     recién creado (o al menos ofrecer un link ahí en el toast).
+
+3. **Badge de estado** `artifacts/logistics/src/lib/viaje-status.tsx`,
+   mismo patrón que `traslado-status.tsx`: mapear
+   `planificado | en_curso | completado | cancelado` a colores/etiquetas
+   coherentes con el resto de la app (cancelado en rojo, completado en
+   verde, planificado y en_curso en los tonos que ya usa el resto de
+   badges "en progreso").
+
+4. **Nueva página `artifacts/logistics/src/pages/viajes.tsx`**, mismo
+   patrón que `pages/traslados.tsx`:
+   - Tabla: fecha, vehículo, chofer, cantidad de despachos, estado
+     (badge), distancia/peaje estimados si están cargados. Ordenar por
+     fecha descendente (ya viene así de `GET /viajes`).
+   - Filtro por estado, búsqueda simple (reusar `matchesSearch` de
+     `@/lib/search`).
+   - Click en una fila abre un panel de detalle (mismo componente de
+     `Sheet` que usa `traslado-detail-sheet.tsx` como referencia):
+     - Cabecera: vehículo, chofer, ayudante, fecha, estado.
+     - Formulario editable de los campos manuales
+       (`vehiculoId`/`choferId`/`ayudanteId`/`fecha`/`notas`/
+       `distanciaTotalKm`/`totalPeajesEstimado`) vía `PATCH /viajes/{id}`.
+       Si el servidor rechaza por capacidad al cambiar el vehículo,
+       mostrar el mensaje del servidor tal cual (ya viene claro desde el
+       backend).
+     - Lista de despachos agrupados (`despachos` del detalle), cada uno
+       con su referencia/cliente-destino u origen→destino, peso, estado,
+       y un botón "Quitar del viaje" que hace
+       `PATCH /dispatches/{id}` con `{"viajeId": null}` (trampa 8) y
+       refresca el detalle. SIN edición de vehículo/chofer/ayudante desde
+       acá (trampa 7).
+
+5. **Ruta y navegación**: agregar `/viajes` en
+   `artifacts/logistics/src/App.tsx` (mismo patrón que `/traslados`,
+   envuelto en `ProtectedPage`) y una entrada en el sidebar
+   (`artifacts/logistics/src/components/layout.tsx`), con un ícono que
+   sugiera un viaje/ruta compartida (no el mismo `ArrowRightLeft` que ya
+   usa Traslados).
+
+════════ NO HAGAS ════════
+- NO toques `CargoWizard` ni el flujo de despacho suelto existente
+  (`dispatchSchema`, `handleSelectSale`, `handleSelectTraslado`, el
+  `Dialog` de "Crear Despacho"). Siguen funcionando exactamente igual, sin
+  modo viaje.
+- NO agregues sugerencia de vehículo por capacidad combinada al wizard de
+  viaje. Selección simple, como se decidió.
+- NO permitas editar `vehiculoId`/`choferId`/`ayudanteId` de un despacho
+  individual desde la pantalla de detalle del viaje (trampa 7) — el
+  servidor lo rechaza de todos modos, pero no lo ofrezcas en la UI.
+- NO construyas una forma de crear un viaje a partir de despachos SUELTOS
+  ya existentes (por fuera de Pre-Despacho). Solo el flujo "seleccionar
+  de la cola de pendientes → crear y agrupar" que describe esta tarea.
+  Agrupar despachos ya creados queda para una fase posterior si hace
+  falta.
+- NO toques `lib/api-spec/openapi.yaml`, `lib/api-zod`, ni
+  `lib/api-client-react` — todo lo que necesitás ya está generado.
+- NO toques `artifacts/chofer` ni `artifacts/api-server`.
+
+════════ VERIFICACIÓN ════════
+- Activar "Armar viaje", seleccionar 2 ventas + 1 traslado de las colas,
+  confirmar que el checkbox reemplaza los botones normales en esas filas
+  (trampa 3) y que la barra de acción muestra "3" y la suma correcta de
+  peso/volumen.
+- Elegir un vehículo cuya capacidad NO alcance para la suma → el wizard
+  bloquea el submit con un mensaje claro, SIN haber creado ningún
+  despacho (confirmar por la lista de Despachos que no aparece nada
+  nuevo).
+- Elegir un vehículo que sí alcanza → confirmar que se crean 3 despachos
+  nuevos y un viaje que los agrupa; `GET /viajes/{id}` (o la pantalla de
+  detalle) muestra los 3 con el mismo vehículo/chofer del formulario, y
+  las 3 órdenes ya no aparecen en las colas de pendientes.
+- En la pantalla `/viajes`, abrir el detalle del viaje recién creado,
+  cambiarle `totalPeajesEstimado` y guardarlo → se refleja en la tabla.
+- Con ese mismo viaje, "Quitar del viaje" uno de los 3 despachos →
+  desaparece de la lista de despachos del viaje, el viaje pasa a mostrar
+  2, y el despacho suelto sigue existiendo (visible en Despachos) con el
+  vehículo/chofer que tenía dentro del viaje.
+- Cambiar el vehículo del viaje (con los 2 despachos restantes) a uno más
+  chico que no alcance → el `PATCH /viajes/{id}` es rechazado y el
+  mensaje del servidor se muestra en la UI, sin que el cambio se aplique.
+- Confirmar que el flujo de "Crear Despacho" suelto (sin modo viaje
+  activado) sigue funcionando exactamente igual que antes de esta tarea.
+- `pnpm run typecheck` limpio.
