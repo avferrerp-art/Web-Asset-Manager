@@ -1,0 +1,51 @@
+════════════════════════════════════════════════════════════ PROMPT 12B — Fase 4B (parche): validar conflicto de vehículo al crear un viaje compartido ════════════════════════════════════════════════════════════
+
+════════════════════════════════════════ CONTEXTO DEL PROYECTO ════════════════════════════════════════
+
+LogiFleet es un sistema de gestión logística de flota (monorepo pnpm, Node 24, TypeScript 5.9, corre en Replit). El módulo "Logistics Manager" (artifacts/logistics) es la app web de operaciones (React + Vite + wouter + shadcn/ui).
+
+En PROMPT 12 (commit 3b46579, "Implement shared trip planning and management in Logistics Manager") se implementó la Fase 4B: un modo "Armar viaje" en Pre-Despacho que permite seleccionar varias ventas/traslados, configurarlos con un vehículo/chofer/ayudante compartido en viaje-wizard.tsx, crear un despacho por cada orden seleccionada, y agruparlos en un POST /viajes.
+
+Ese commit quedó revisado y correcto en casi todo, salvo un hueco puntual que este prompt viene a cerrar: el asistente de viaje no valida que el vehículo elegido esté libre durante el rango horario del viaje, algo que el formulario de despacho único sí valida y bloquea.
+
+════════════════════════════════════════ REQUISITO PREVIO ════════════════════════════════════════
+
+Este prompt asume que el commit 3b46579 (PROMPT 12) ya está aplicado, es decir que artifacts/logistics/src/components/viaje-wizard.tsx, artifacts/logistics/src/pages/pre-despacho.tsx y artifacts/logistics/src/components/pending-traslados-card.tsx ya existen con el modo "Armar viaje" funcionando. Verifica con git log antes de empezar.
+
+════════════════════════════════════════ POR QUÉ ESTA TAREA ════════════════════════════════════════
+
+En pre-despacho.tsx, el formulario de despacho único calcula un vehicleConflict: busca en allDispatches (todos los despachos, vía useListDispatches) alguno que use el mismo vehiculoId, esté en un estado "ocupado" (pre-despacho, aprobado, en-ruta) y cuyo rango fechaEstimadaSalida–fechaEstimadaLlegada se solape con el que se está por crear. Si hay conflicto, el botón de submit se deshabilita — es un bloqueo duro, no solo una advertencia visual.
+
+viaje-wizard.tsx no reimplementa nada de esto. Como todos los despachos de un mismo viaje comparten vehículo y ventana horaria por diseño, replicar el chequeo contra los despachos que se van creando dentro del mismo lote generaría falsos positivos (el segundo despacho del viaje "chocaría" contra el primero). Pero eso no es excusa para omitir el chequeo por completo: si el vehículo elegido ya tiene comprometido OTRO despacho —ajeno a este viaje— en un horario que se solapa, hoy no hay ninguna advertencia y se puede terminar doble-reservando un camión.
+
+Este prompt agrega ese chequeo, comparando solo contra despachos que no están en la selección actual del viaje.
+
+════════════════════════════════════════ TAREA ════════════════════════════════════════
+
+En artifacts/logistics/src/pages/pre-despacho.tsx:
+Pasa allDispatches (el array ya obtenido más arriba en el componente vía useListDispatches) como nueva prop existingDispatches al <ViajeWizard ... />. Si allDispatches es undefined mientras carga, pasa [].
+En artifacts/logistics/src/components/viaje-wizard.tsx:
+Añade a ViajeWizardProps un campo existingDispatches: Dispatch[] (importa el tipo Dispatch desde @workspace/api-client-react, ya usado en otros archivos del proyecto para ese mismo propósito).
+Define el mismo conjunto de estados "ocupados" que usa el formulario de despacho único: const BUSY_STATES = ["pre-despacho", "aprobado", "en-ruta"]; (cópialo tal cual, no lo reimportes desde pre-despacho.tsx para no crear un acoplamiento entre archivos que hoy no lo tienen).
+Agrega un useMemo (o cálculo derivado, siguiendo el patrón que ya usa el archivo para carga/vehicle/capacityExceeded) llamado vehicleConflict que: a. Si no hay vehiculoId, fechaSalida o fechaLlegada seleccionados, devuelve null. b. Si los hay, busca en existingDispatches el primer despacho que cumpla las tres condiciones: mismo vehiculoId (convertido a número), estado dentro de BUSY_STATES, y solape de rango horario con [fechaSalida, fechaLlegada] usando la misma comparación de timestamps que usa pre-despacho.tsx (newStart < new Date(d.fechaEstimadaLlegada).getTime() && newEnd >    new Date(d.fechaEstimadaSalida).getTime()). c. Devuelve ese despacho o null.
+Importante: como los despachos de este viaje aún no existen en el momento de validar (se crean recién al confirmar), no hace falta excluir nada de existingDispatches por selección — el array que llega de pre-despacho.tsx nunca incluye despachos de un viaje que todavía no se creó. No filtres por los orders seleccionados; usa existingDispatches tal como llega.
+Muestra el conflicto, si existe, en un bloque de alerta simple debajo del selector de vehículo (no hace falta replicar el detalle rico del formulario de despacho único — cliente, ruta completa, botón "Ver despacho"). Alcanza con: "El vehículo [modelo] ya tiene el despacho #[id] entre [fechaEstimadaSalida] y [fechaEstimadaLlegada]. Elige otro vehículo u horario para este viaje." Formatea las fechas con toLocaleString("es-VE") o similar — no hace falta un helper nuevo.
+Agrega vehicleConflict a la condición disabled del botón "Crear viaje y N despachos" (junto a isSubmitting || capacityExceeded || orders.length === 0), y también a la validación dura al inicio de submit() (mismo patrón que las otras validaciones tempranas de esa función: si hay conflicto, setFormError(...) con un mensaje y return, para cubrir el caso de que el usuario dispare submit() sin pasar por el botón deshabilitado).
+
+════════════════════════════════════════ NO HAGAS ════════════════════════════════════════
+
+No toques pre-despacho.tsx más allá de pasar la nueva prop existingDispatches. No dupliques su vehicleConflict ni lo extraigas a un hook compartido — dos implementaciones cortas y paralelas son aceptables aquí, no vale la pena el refactor para este alcance.
+No agregues validación de conflicto de chofer ni de ayudante en este prompt — el formulario de despacho único tampoco lo hace hoy (solo valida vehículo), así que agregar solo para viajes sería inconsistente y fuera de alcance. Si Pedro lo pide más adelante, es un prompt aparte que toque ambos flujos a la vez.
+No agregues chequeo de conflicto en el backend (POST /dispatches o POST /viajes) — el backend hoy no valida esto para el flujo de despacho único tampoco; es puramente un guard de UI. Mantener la paridad entre ambos flujos, no inventar una validación nueva que ninguno tenía.
+No cambies BUSY_STATES ni la lógica de solape existente en pre-despacho.tsx.
+No toques viaje-detail-sheet.tsx, viajes.tsx, pending-traslados-card.tsx, el backend, ni el contrato OpenAPI.
+
+════════════════════════════════════════ VERIFICACIÓN ════════════════════════════════════════
+
+Con dos vehículos y al menos un despacho existente en estado pre-despacho/aprobado/en-ruta para el Vehículo A con un rango horario conocido:
+Entra a "Armar viaje", selecciona 2+ órdenes, abre el asistente.
+Elige el Vehículo A y un rango de salida/llegada que se solape con el despacho existente → debe aparecer la alerta de conflicto y el botón "Crear viaje..." debe estar deshabilitado.
+Cambia el rango para que NO se solape (o elige el Vehículo B) → la alerta desaparece y el botón se habilita (asumiendo que el resto de la validación —capacidad, campos requeridos— ya está satisfecha).
+Confirma que seleccionar 3 órdenes para el mismo viaje, con el mismo vehículo y el mismo rango horario compartido entre las tres, no dispara ninguna alerta de conflicto contra sí mismo (es decir, que no quedó ningún filtrado raro que compare al viaje contra despachos que él mismo está por crear).
+Verifica que el formulario de despacho único (pre-despacho.tsx, fuera del modo viaje) sigue funcionando exactamente igual que antes — no debería haber ningún cambio de comportamiento ahí, solo el paso de la nueva prop.
+Repite la creación de un viaje sin conflicto de principio a fin (2+ órdenes, vehículo libre) para confirmar que el flujo feliz de PROMPT 12 sigue intacto.
