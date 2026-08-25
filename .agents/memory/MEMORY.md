@@ -22,3 +22,4 @@
 - [Focused frontend typecheck](focused-frontend-typecheck.md) — rebuild shared declarations before artifact-only typechecks, or stale dist types report missing generated exports.
 - [Viaje membership concurrency](viaje-membership-concurrency.md) — trip-first locks, atomic state sync, and unique stop order are mandatory for every membership write.
 - [Personnel warehouse migration test](personnel-warehouse-migration-test.md) — its public-table PK rewrite fails when real personnel already have multiple warehouse assignments; isolate it.
+- [Operational conflict serialization](operational-conflict-serialization.md) — schedule and load-mode validation must serialize by resource/order; exact shared-trip windows are one physical service.

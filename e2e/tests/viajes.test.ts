@@ -78,6 +78,22 @@ async function api(path: string, init: RequestInit = {}) {
   });
 }
 
+async function createSale(options: { peso?: number | null; volumen?: number | null } = {}) {
+  const [sale] = await db
+    .insert(salesTable)
+    .values({
+      cliente: `Cliente conflicto ${suffix}`,
+      destino: "Destino QA",
+      almacenOrigen: "Origen QA",
+      odooRef: `CONFLICT-SALE-${suffix}-${Math.random()}`,
+      pesoTotal: "peso" in options ? options.peso : 100,
+      volumenTotal: "volumen" in options ? options.volumen : 1,
+    })
+    .returning();
+  saleIds.push(sale!.id);
+  return sale!;
+}
+
 async function createSaleDispatch(options: {
   peso?: number | null;
   volumen?: number | null;
@@ -86,6 +102,10 @@ async function createSaleDispatch(options: {
   estado?: string;
   vehicleId?: number;
   cargaParcial?: boolean;
+  choferId?: number;
+  ayudanteId?: number | null;
+  salida?: string;
+  llegada?: string;
 }) {
   const [sale] = await db
     .insert(salesTable)
@@ -106,9 +126,10 @@ async function createSaleDispatch(options: {
       ventaId: sale!.id,
       trasladoId: null,
       vehiculoId: options.vehicleId ?? vehicleIds[0]!,
-      choferId: personnelIds[0]!,
-      fechaEstimadaSalida: "2035-08-01T08:00:00.000Z",
-      fechaEstimadaLlegada: "2035-08-01T18:00:00.000Z",
+      choferId: options.choferId ?? personnelIds[0]!,
+      ayudanteId: options.ayudanteId ?? null,
+      fechaEstimadaSalida: options.salida ?? "2035-08-01T08:00:00.000Z",
+      fechaEstimadaLlegada: options.llegada ?? "2035-08-01T18:00:00.000Z",
       estado: options.estado ?? "pre-despacho",
       pesoEstimadoKg: options.pesoEstimadoKg ?? null,
       volumenEstimadoM3: options.volumenEstimadoM3 ?? null,
@@ -292,6 +313,354 @@ afterAll(async () => {
 });
 
 describe.sequential("viajes compartidos", () => {
+  it("rechaza solapamientos de vehículo y personas en roles cruzados, pero permite límites y recursos liberados", async () => {
+    const occupied = await createSaleDispatch({
+      vehicleId: vehicleIds[0],
+      choferId: personnelIds[0],
+      ayudanteId: personnelIds[2],
+      salida: "2035-09-01T08:00:00.000Z",
+      llegada: "2035-09-01T10:00:00.000Z",
+    });
+    const unchanged = await api(`/dispatches/${occupied.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        fechaEstimadaSalida: occupied.fechaEstimadaSalida,
+        fechaEstimadaLlegada: occupied.fechaEstimadaLlegada,
+      }),
+    });
+    expect(unchanged.status).toBe(200);
+    const vehicleSale = await createSale();
+    const vehicleConflict = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: vehicleSale.id,
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[1],
+        fechaEstimadaSalida: "2035-09-01T09:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-01T11:00:00.000Z",
+      }),
+    });
+    expect(vehicleConflict.status).toBe(409);
+    expect(await vehicleConflict.json()).toMatchObject({
+      error: "vehicle_schedule_conflict",
+    });
+
+    const personSale = await createSale();
+    const personConflict = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: personSale.id,
+        vehiculoId: vehicleIds[2],
+        choferId: personnelIds[2],
+        fechaEstimadaSalida: "2035-09-01T09:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-01T11:00:00.000Z",
+      }),
+    });
+    expect(personConflict.status).toBe(409);
+    expect(await personConflict.json()).toMatchObject({
+      error: "person_schedule_conflict",
+    });
+
+    const consecutiveSale = await createSale();
+    const consecutive = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: consecutiveSale.id,
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[0],
+        fechaEstimadaSalida: "2035-09-01T10:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-01T12:00:00.000Z",
+      }),
+    });
+    expect(consecutive.status).toBe(201);
+    const consecutiveJson = await consecutive.json();
+    dispatchIds.push(consecutiveJson.id);
+
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "entregado" })
+      .where(inArray(dispatchesTable.id, [occupied.id, consecutiveJson.id]));
+    const releasedSale = await createSale();
+    const released = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: releasedSale.id,
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[0],
+        fechaEstimadaSalida: "2035-09-01T09:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-01T11:00:00.000Z",
+      }),
+    });
+    expect(released.status).toBe(201);
+    dispatchIds.push((await released.json()).id);
+  });
+
+  it("crea tres paradas idénticas como un solo viaje físico y se autoexcluye al editar", async () => {
+    const members: Array<{ id: number }> = [];
+    for (let index = 0; index < 3; index += 1) {
+      const sale = await createSale();
+      const response = await api("/dispatches", {
+        method: "POST",
+        body: JSON.stringify({
+          tipo: "venta",
+          ventaId: sale.id,
+          vehiculoId: vehicleIds[0],
+          choferId: personnelIds[0],
+          fechaEstimadaSalida: "2035-09-02T08:00:00.000Z",
+          fechaEstimadaLlegada: "2035-09-02T18:00:00.000Z",
+        }),
+      });
+      expect(response.status).toBe(201);
+      const dispatch = await response.json();
+      dispatchIds.push(dispatch.id);
+      members.push(dispatch);
+    }
+    const created = await postViaje({
+      vehiculoId: vehicleIds[0],
+      choferId: personnelIds[0],
+      fecha: "2035-09-02",
+      despachoIds: members.map(({ id }) => id),
+    });
+    expect(created.response.status).toBe(201);
+    expect(created.json.despachos).toHaveLength(3);
+    const noOp = await api(`/viajes/${created.json.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[0],
+      }),
+    });
+    expect(noOp.status).toBe(200);
+  });
+
+  it("valida conflictos al editar un viaje sin confundir sus propias paradas", async () => {
+    await createSaleDispatch({
+      vehicleId: vehicleIds[2],
+      choferId: personnelIds[1],
+      salida: "2035-09-03T08:00:00.000Z",
+      llegada: "2035-09-03T18:00:00.000Z",
+    });
+    const member = await createSaleDispatch({
+      vehicleId: vehicleIds[0],
+      choferId: personnelIds[0],
+      salida: "2035-09-03T09:00:00.000Z",
+      llegada: "2035-09-03T17:00:00.000Z",
+    });
+    const created = await postViaje({
+      vehiculoId: vehicleIds[0],
+      choferId: personnelIds[0],
+      fecha: "2035-09-03",
+      despachoIds: [member.id],
+    });
+    expect(created.response.status).toBe(201);
+    const conflict = await api(`/viajes/${created.json.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        vehiculoId: vehicleIds[2],
+        choferId: personnelIds[1],
+      }),
+    });
+    expect(conflict.status).toBe(409);
+    expect(await conflict.json()).toMatchObject({
+      error: "vehicle_schedule_conflict",
+    });
+  });
+
+  it("serializa solicitudes simultáneas para recursos y modalidades de una orden", async () => {
+    const firstSale = await createSale();
+    const secondSale = await createSale();
+    const resourceBodies = [
+      {
+        tipo: "venta",
+        ventaId: firstSale.id,
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[0],
+        fechaEstimadaSalida: "2035-09-10T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-10T11:00:00.000Z",
+      },
+      {
+        tipo: "venta",
+        ventaId: secondSale.id,
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[1],
+        fechaEstimadaSalida: "2035-09-10T09:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-10T12:00:00.000Z",
+      },
+    ];
+    const resourceResponses = await Promise.all(
+      resourceBodies.map((body) =>
+        api("/dispatches", { method: "POST", body: JSON.stringify(body) }),
+      ),
+    );
+    expect(resourceResponses.map(({ status }) => status).sort()).toEqual([201, 409]);
+    for (const response of resourceResponses) {
+      const body = await response.json();
+      if (response.status === 201) dispatchIds.push(body.id);
+    }
+
+    const sharedSale = await createSale({ peso: 100, volumen: 1 });
+    const loadResponses = await Promise.all([
+      api("/dispatches", {
+        method: "POST",
+        body: JSON.stringify({
+          tipo: "venta",
+          ventaId: sharedSale.id,
+          vehiculoId: vehicleIds[0],
+          choferId: personnelIds[0],
+          fechaEstimadaSalida: "2035-09-11T08:00:00.000Z",
+          fechaEstimadaLlegada: "2035-09-11T10:00:00.000Z",
+        }),
+      }),
+      api("/dispatches", {
+        method: "POST",
+        body: JSON.stringify({
+          tipo: "venta",
+          ventaId: sharedSale.id,
+          vehiculoId: vehicleIds[2],
+          choferId: personnelIds[1],
+          fechaEstimadaSalida: "2035-09-12T08:00:00.000Z",
+          fechaEstimadaLlegada: "2035-09-12T10:00:00.000Z",
+          cargaParcial: true,
+          pesoEstimadoKg: 50,
+        }),
+      }),
+    ]);
+    expect(loadResponses.map(({ status }) => status).sort()).toEqual([201, 409]);
+    for (const response of loadResponses) {
+      const body = await response.json();
+      if (response.status === 201) dispatchIds.push(body.id);
+      else expect(body.error).toBe("order_load_mode_conflict");
+    }
+  });
+
+  it("impide mezclar cargas parciales y completas y limpia cuotas heredadas", async () => {
+    const partialSale = await createSale({ peso: 1_000, volumen: 10 });
+    const partial = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: partialSale.id,
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[0],
+        fechaEstimadaSalida: "2035-09-04T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-04T10:00:00.000Z",
+        cargaParcial: true,
+        pesoEstimadoKg: 200,
+        volumenEstimadoM3: 2,
+      }),
+    });
+    expect(partial.status).toBe(201);
+    const partialJson = await partial.json();
+    dispatchIds.push(partialJson.id);
+    const mixedComplete = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: partialSale.id,
+        vehiculoId: vehicleIds[2],
+        choferId: personnelIds[1],
+        fechaEstimadaSalida: "2035-09-05T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-05T10:00:00.000Z",
+      }),
+    });
+    expect(mixedComplete.status).toBe(409);
+    expect(await mixedComplete.json()).toMatchObject({
+      error: "order_load_mode_conflict",
+    });
+
+    const converted = await api(`/dispatches/${partialJson.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ cargaParcial: false }),
+    });
+    expect(converted.status).toBe(200);
+    expect(await converted.json()).toMatchObject({
+      cargaParcial: false,
+      pesoEstimadoKg: null,
+      volumenEstimadoM3: null,
+    });
+
+    const completeSale = await createSale({ peso: 100, volumen: 1 });
+    const complete = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: completeSale.id,
+        vehiculoId: vehicleIds[0],
+        choferId: personnelIds[0],
+        fechaEstimadaSalida: "2035-09-06T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-06T10:00:00.000Z",
+      }),
+    });
+    expect(complete.status).toBe(201);
+    dispatchIds.push((await complete.json()).id);
+    const mixedPartial = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: completeSale.id,
+        vehiculoId: vehicleIds[2],
+        choferId: personnelIds[1],
+        fechaEstimadaSalida: "2035-09-07T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-07T10:00:00.000Z",
+        cargaParcial: true,
+        pesoEstimadoKg: 50,
+      }),
+    });
+    expect(mixedPartial.status).toBe(409);
+    expect(await mixedPartial.json()).toMatchObject({
+      error: "order_load_mode_conflict",
+    });
+
+    const transfer = await createTransferDispatch();
+    const mixedTransfer = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "traslado",
+        trasladoId: transfer.trasladoId,
+        vehiculoId: vehicleIds[2],
+        choferId: personnelIds[1],
+        fechaEstimadaSalida: "2035-09-09T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-09-09T10:00:00.000Z",
+        cargaParcial: true,
+        pesoEstimadoKg: 50,
+      }),
+    });
+    expect(mixedTransfer.status).toBe(409);
+    expect(await mixedTransfer.json()).toMatchObject({
+      error: "order_load_mode_conflict",
+    });
+
+    const replacementSale = await createSale({ peso: 100, volumen: 1 });
+    const replacementPartial = await createSaleDispatch({
+      cargaParcial: true,
+      pesoEstimadoKg: 25,
+      volumenEstimadoM3: 1,
+      salida: "2035-09-08T08:00:00.000Z",
+      llegada: "2035-09-08T10:00:00.000Z",
+    });
+    await db
+      .update(dispatchesTable)
+      .set({ ventaId: replacementSale.id })
+      .where(eq(dispatchesTable.id, replacementPartial.id));
+    const replacement = await api(`/dispatches/${replacementPartial.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        cargaParcial: false,
+        pesoEstimadoKg: 80,
+      }),
+    });
+    expect(replacement.status).toBe(200);
+    expect(await replacement.json()).toMatchObject({
+      cargaParcial: false,
+      pesoEstimadoKg: 80,
+      volumenEstimadoM3: null,
+    });
+  });
+
   it("calcula viáticos individuales por kilómetros y conserva días por compatibilidad", async () => {
     await db
       .update(personnelTable)
@@ -486,6 +855,10 @@ describe.sequential("viajes compartidos", () => {
       { viajeId: null, orden: null },
       { viajeId: null, orden: null },
     ]);
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "cancelado" })
+      .where(inArray(dispatchesTable.id, [heavyDispatch.id, looseDispatch.id]));
     const owner = await postViaje({
       vehiculoId: vehicleIds[0],
       choferId: personnelIds[0],
@@ -731,6 +1104,7 @@ describe.sequential("viajes compartidos", () => {
       pesoEstimadoKg: 100,
       volumenEstimadoM3: 1,
       vehicleId: vehicleIds[1],
+      estado: "cancelado",
     });
     const trip = await postViaje({
       vehiculoId: vehicleIds[1],
@@ -908,8 +1282,8 @@ describe.sequential("viajes compartidos", () => {
   });
 
   it("asigna órdenes únicas cuando dos paradas se agregan al mismo tiempo", async () => {
-    const first = await createSaleDispatch({ estado: "pre-despacho" });
-    const second = await createSaleDispatch({ estado: "pre-despacho" });
+    const first = await createSaleDispatch({ estado: "cancelado" });
+    const second = await createSaleDispatch({ estado: "cancelado" });
     const starter = await createSaleDispatch({ estado: "cancelado" });
     const viaje = await postViaje({
       vehiculoId: vehicleIds[0],
@@ -939,7 +1313,7 @@ describe.sequential("viajes compartidos", () => {
 
   it("mantiene las asignaciones alineadas si el viaje y una parada cambian a la vez", async () => {
     const starter = await createSaleDispatch({ estado: "pre-despacho" });
-    const joining = await createSaleDispatch({ estado: "pre-despacho" });
+    const joining = await createSaleDispatch({ estado: "cancelado" });
     const viaje = await postViaje({
       vehiculoId: vehicleIds[0],
       choferId: personnelIds[0],

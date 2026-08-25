@@ -20,6 +20,12 @@ import {
 } from "@workspace/db";
 import { effectivePartialDispatchMeasure, exceedsDispatchCapacity } from "./dispatchCapacity";
 import { deriveViajeEstado, viajeEstadoUpdateSql } from "./viajeEstadoSync";
+import {
+  DispatchConflictError,
+  lockDispatchConflictScopes,
+  validateOperationalConflicts,
+  validateOrderLoadCoherence,
+} from "./dispatchConflicts";
 
 export class ViajeInputError extends Error {
   constructor(
@@ -29,6 +35,34 @@ export class ViajeInputError extends Error {
   ) {
     super(message);
     this.name = "ViajeInputError";
+  }
+}
+
+function rethrowDispatchConflict(error: unknown): never {
+  if (error instanceof DispatchConflictError) {
+    throw new ViajeInputError(409, error.code, error.message);
+  }
+  throw error;
+}
+
+async function validateViajeCandidates(
+  tx: any,
+  dispatches: Array<typeof dispatchesTable.$inferSelect>,
+  operational: { vehiculoId: number; choferId: number; ayudanteId?: number | null },
+  options: { excludeDispatchIds?: number[]; excludeViajeId?: number | null } = {},
+) {
+  await lockDispatchConflictScopes(
+    tx,
+    dispatches.map((dispatch) => ({ ...dispatch, ...operational })),
+  );
+  for (const dispatch of dispatches) {
+    const candidate = { ...dispatch, ...operational };
+    try {
+      await validateOperationalConflicts(tx, candidate, options);
+      await validateOrderLoadCoherence(tx, candidate);
+    } catch (error) {
+      rethrowDispatchConflict(error);
+    }
   }
 }
 
@@ -208,6 +242,9 @@ export async function createViaje(input: ViajeInput) {
       throw new ViajeInputError(400, "dispatch_already_assigned", "Uno o más despachos ya pertenecen a otro viaje.");
     }
     await validateCapacity(vehicle, dispatches, tx);
+    await validateViajeCandidates(tx, dispatches, input, {
+      excludeDispatchIds: input.despachoIds,
+    });
     const [viaje] = await tx
       .insert(viajesTable)
       .values({
@@ -260,6 +297,10 @@ export async function updateViaje(id: number, data: ViajeUpdate) {
       .from(dispatchesTable)
       .where(eq(dispatchesTable.viajeId, id))
       .for("update");
+    await validateViajeCandidates(tx, members, operational, {
+      excludeViajeId: id,
+      excludeDispatchIds: members.map((member) => member.id),
+    });
     await validateCapacity(vehicle, members, tx);
     const [viaje] = await tx
       .update(viajesTable)
@@ -358,6 +399,16 @@ async function mutateDispatchViaje(
         choferId: targetViaje.choferId,
         ayudanteId: targetViaje.ayudanteId,
       };
+      try {
+        await lockDispatchConflictScopes(tx, [candidate]);
+        await validateOperationalConflicts(tx, candidate, {
+          excludeViajeId: targetViaje.id,
+          excludeDispatchIds: targetMembers.map((member) => member.id),
+        });
+        await validateOrderLoadCoherence(tx, candidate);
+      } catch (error) {
+        rethrowDispatchConflict(error);
+      }
       await validateCapacity(
         vehicle,
         [
@@ -380,6 +431,16 @@ async function mutateDispatchViaje(
         choferId: targetViaje.choferId,
         ayudanteId: targetViaje.ayudanteId,
       };
+    }
+    const finalCandidate = { ...dispatch, ...updateData, ...membershipData };
+    try {
+      await lockDispatchConflictScopes(tx, [finalCandidate]);
+      await validateOperationalConflicts(tx, finalCandidate, {
+        excludeViajeId: finalCandidate.viajeId as number | null,
+      });
+      await validateOrderLoadCoherence(tx, finalCandidate);
+    } catch (error) {
+      rethrowDispatchConflict(error);
     }
     const [updated] = await tx
       .update(dispatchesTable)

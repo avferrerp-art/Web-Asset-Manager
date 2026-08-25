@@ -15,6 +15,10 @@ import {
   ViajeInputError,
 } from "../services/viajeQueries";
 import {
+  DispatchConflictError,
+  validateDispatchCandidate,
+} from "../services/dispatchConflicts";
+import {
   ListDispatchesQueryParams,
   CreateDispatchBody,
   GetDispatchParams,
@@ -285,29 +289,51 @@ router.post("/dispatches", async (req, res): Promise<void> => {
   }
 
   const resolvedDistanciaKm = await resolveDistancia(dispatchData);
-  const [dispatch] = await db
-    .insert(dispatchesTable)
-    .values({
-      ...dispatchData,
-      ventaId: dispatchData.tipo === "venta" ? dispatchData.ventaId : null,
-      trasladoId: dispatchData.tipo === "traslado" ? dispatchData.trasladoId : null,
-      distanciaKm: resolvedDistanciaKm,
-    })
-    .returning();
-
-  const initialPeajes = dispatch.totalPeajes ?? 0;
-  await db.insert(travelCostsTable).values({
-    despachoId: dispatch.id,
-    costoPeajes: initialPeajes,
-    costoCombustible: 0,
-    costoViaticos: 0,
-    total: initialPeajes,
-  });
-
-  if (routePoints && routePoints.length > 0) {
-    await db.insert(routePointsTable).values(
-      routePoints.map((rp) => ({ ...rp, despachoId: dispatch.id })),
-    );
+  let dispatch: typeof dispatchesTable.$inferSelect;
+  try {
+    dispatch = await db.transaction(async (tx) => {
+      const candidate = {
+        ...dispatchData,
+        id: 0,
+        ventaId: dispatchData.tipo === "venta" ? dispatchData.ventaId : null,
+        trasladoId: dispatchData.tipo === "traslado" ? dispatchData.trasladoId : null,
+        ayudanteId: dispatchData.ayudanteId ?? null,
+        estado: "pre-despacho",
+        cargaParcial: dispatchData.cargaParcial ?? false,
+        viajeId: null,
+      };
+      await validateDispatchCandidate(tx, candidate);
+      const [created] = await tx
+        .insert(dispatchesTable)
+        .values({
+          ...dispatchData,
+          ventaId: candidate.ventaId,
+          trasladoId: candidate.trasladoId,
+          ayudanteId: candidate.ayudanteId,
+          distanciaKm: resolvedDistanciaKm,
+        })
+        .returning();
+      const initialPeajes = created!.totalPeajes ?? 0;
+      await tx.insert(travelCostsTable).values({
+        despachoId: created!.id,
+        costoPeajes: initialPeajes,
+        costoCombustible: 0,
+        costoViaticos: 0,
+        total: initialPeajes,
+      });
+      if (routePoints && routePoints.length > 0) {
+        await tx.insert(routePointsTable).values(
+          routePoints.map((rp) => ({ ...rp, despachoId: created!.id })),
+        );
+      }
+      return created!;
+    });
+  } catch (error) {
+    if (error instanceof DispatchConflictError) {
+      res.status(409).json({ error: error.code, message: error.message });
+      return;
+    }
+    throw error;
   }
 
   await syncLinkedDispatchEntity(dispatch);
@@ -368,6 +394,19 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
       distanciaManual: parsed.data.distanciaManual ?? existing.distanciaManual,
     });
     updateData = { ...parsed.data, distanciaKm: resolvedDistanciaKm ?? undefined };
+  }
+  if (
+    existing &&
+    existing.cargaParcial &&
+    parsed.data.cargaParcial === false
+  ) {
+    updateData = {
+      ...updateData,
+      pesoEstimadoKg:
+        "pesoEstimadoKg" in parsed.data ? parsed.data.pesoEstimadoKg : null,
+      volumenEstimadoM3:
+        "volumenEstimadoM3" in parsed.data ? parsed.data.volumenEstimadoM3 : null,
+    };
   }
   const targetViajeId = parsed.data.viajeId;
   const hasViajePatch =
@@ -460,11 +499,30 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
       throw error;
     }
   } else {
-    [dispatch] = await db
-      .update(dispatchesTable)
-      .set(updateData)
-      .where(eq(dispatchesTable.id, params.data.id))
-      .returning();
+    try {
+      dispatch = await db.transaction(async (tx) => {
+        const [locked] = await tx
+          .select()
+          .from(dispatchesTable)
+          .where(eq(dispatchesTable.id, params.data.id))
+          .for("update");
+        if (!locked) return null;
+        const candidate = { ...locked, ...updateData };
+        await validateDispatchCandidate(tx, candidate);
+        const [updated] = await tx
+          .update(dispatchesTable)
+          .set(updateData)
+          .where(eq(dispatchesTable.id, params.data.id))
+          .returning();
+        return updated ?? null;
+      });
+    } catch (error) {
+      if (error instanceof DispatchConflictError) {
+        res.status(409).json({ error: error.code, message: error.message });
+        return;
+      }
+      throw error;
+    }
   }
   if (!dispatch) {
     res.status(404).json({ error: "Dispatch not found" });
