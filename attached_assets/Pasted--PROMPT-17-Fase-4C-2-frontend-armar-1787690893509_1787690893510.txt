@@ -1,0 +1,378 @@
+════════════════════════════════════════════════════════════
+PROMPT 17 — Fase 4C-2 (frontend): armar el reparto de una orden
+entre varios camiones desde Pre-Despacho
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Este prompt asume que ya está aplicado el commit
+`Permitir carga parcial y corregir entrega multidespacho` (4C-1, backend).
+Concretamente, ya existen y funcionan:
+
+- `dispatches.carga_parcial` (boolean, default `false`) — migración 0018.
+- `cargaParcial` en los schemas `Dispatch`, `DispatchDetail`,
+  `DispatchInputBase` y `DispatchUpdate` del contrato, con sus tipos y hooks
+  ya generados.
+- `effectivePartialDispatchMeasure()` en el backend: cuando
+  `cargaParcial` es `true`, la cuota del despacho manda sobre el total de
+  Odoo.
+- `POST /dispatches` y `PATCH /dispatches/:id` rechazan con `400` un
+  despacho parcial sin cuota positiva (`partial_cargo_quota_required`).
+- Una orden queda `entregado` solo cuando **todos** sus despachos activos
+  están entregados.
+
+**Este prompt es 100% frontend.** No toques el backend, el contrato, las
+migraciones ni nada dentro de `generated/`.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9.
+App web: `artifacts/logistics` (React + Vite + wouter + shadcn/ui).
+
+Archivos que vas a tocar:
+- `artifacts/logistics/src/pages/pre-despacho.tsx`
+- `artifacts/logistics/src/components/dispatch-cargo-estimate-editor.tsx`
+- `artifacts/logistics/src/components/pending-traslados-card.tsx`
+
+Convención del proyecto: **`null` = "sin dato", nunca `0`**.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+El backend ya permite repartir una orden entre varios camiones, pero **no
+hay forma de hacerlo desde la interfaz**. Hoy, apenas una orden tiene un
+despacho activo, desaparece de Pre-Despacho por dos filtros distintos en
+`pre-despacho.tsx`:
+
+```ts
+const salesWithDispatch = new Set(
+  (allDispatches ?? []).filter(d => d.estado !== "cancelado").map(d => d.ventaId)
+);
+const allPendingSales = (sales ?? []).filter(
+  s => s.estado === "pendiente" && !salesWithDispatch.has(s.id)
+);
+```
+
+Y además, el editor de medidas (`DispatchCargoEstimateEditor`) pone el campo
+en **solo lectura** cuando Odoo tiene el dato:
+
+```tsx
+{fromOdoo ? (
+  <p className="font-semibold">{odooValue} {unit}</p>
+  ...Solo lectura. El dato de Odoo siempre tiene prioridad.
+```
+
+Eso es correcto para un despacho normal, pero para un reparto necesitamos
+poder escribir *"este camión lleva 4.000 de los 10.000 kg"* aunque Odoo
+tenga el total.
+
+Resultado: hay que (a) dejar que la orden siga visible mientras esté
+parcialmente cubierta, y (b) permitir cargar la cuota de cada camión.
+
+════════════════════════════════════════
+DECISIONES DE DISEÑO YA TOMADAS
+════════════════════════════════════════
+
+No las re-evalúes:
+
+- **La suma de las cuotas no bloquea.** Si las partes no cuadran con el
+  total de la orden, se muestra un **aviso visual** y se deja confirmar
+  igual. Mermas, redondeos y órdenes sin peso en Odoo son normales.
+- **Sin estados nuevos.** No inventes badges de estado en la lista de
+  Ventas ni toques los filtros de esa pantalla. El avance parcial se ve en
+  Pre-Despacho y en el detalle del despacho.
+- **El wizard "Nuevo Despacho" queda como está**: es el camino simple, de
+  orden completa. El reparto se arma solo desde Pre-Despacho.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **`sale.estado` pasa a `"despachado"` apenas se crea el primer
+   despacho.** Ésta es LA trampa de este prompt. Aunque arregles el filtro
+   `salesWithDispatch`, la orden igual va a desaparecer por la condición
+   `s.estado === "pendiente"`. Hay que relajar **las dos** condiciones, no
+   una. Lo mismo pasa del lado de traslados: `estadoLogistico` pasa de
+   `por_planificar` a `planificado`, y el filtro de
+   `pending-traslados-card.tsx` exige `por_planificar`.
+
+2. **Solo los despachos parciales dejan la orden visible.** Si una orden
+   tiene un despacho activo **normal** (no parcial), sigue desapareciendo
+   igual que hoy — ya está cubierta entera. La orden vuelve a la lista
+   únicamente cuando *todos* sus despachos activos son parciales.
+
+3. **Los despachos cancelados no cuentan para nada** — ni para ocultar la
+   orden, ni para sumar carga asignada, ni para el contador de camiones.
+   Filtrá `estado !== "cancelado"` en todos los cálculos nuevos.
+
+4. **No unifiques los helpers de medidas de ventas y traslados.** Ventas
+   trata cualquier valor `<= 0` como ausencia (`sinDatoCarga`,
+   `zeroMeansMissing = true`); traslados reservan `null`. Está documentado
+   en `.agents/memory/measurement-domain-semantics.md`. Respetá el
+   parámetro `zeroMeansMissing` tal como está hoy en cada llamada.
+
+5. **El chequeo de capacidad del vehículo tiene que usar la cuota, no el
+   total.** Hoy `selectedPesoEfectivo` / `selectedVolumenEfectivo` se
+   calculan con `effectiveCargoMeasure`, donde el dato de Odoo gana. Si no
+   lo cambiás, al marcar "carga parcial" el diálogo va a seguir comparando
+   los 10.000 kg de la orden contra el camión y bloqueando el botón — que
+   es exactamente lo que esta fase viene a destrabar.
+
+6. **`cargoEstimateDraftValid` cambia de significado en modo parcial.**
+   Hoy un campo vacío es válido (significa "sin estimación"). En modo
+   parcial, vacío en *ambos* campos es **inválido** — el backend lo va a
+   rechazar con `400`. Ajustá la validación del lado del cliente para no
+   mandar un request que ya sabés que va a fallar.
+
+7. **Resetear el switch junto con el borrador.** Donde hoy se hace
+   `setEstimateDraft({ peso: "", volumen: "" })` (al abrir el diálogo, al
+   cerrarlo y en el `onSuccess` de la mutación) también hay que resetear el
+   estado nuevo de "carga parcial". Si no, el switch queda pegado de una
+   orden a la siguiente y se crean parciales sin querer.
+
+8. **El aviso de suma es informativo, no un bloqueo.** No deshabilites el
+   botón de confirmar por ese motivo (ver decisiones de diseño). El único
+   bloqueo nuevo es el de la trampa 6: parcial sin ninguna cuota cargada.
+
+9. **No dupliques la lógica del backend.** Ya existe
+   `effectivePartialDispatchMeasure` del lado del servidor; del lado del
+   cliente ya existe su equivalente no-parcial `effectiveCargoMeasure` en
+   `dispatch-cargo-estimate-editor.tsx`. Agregá **un solo** helper nuevo
+   ahí y usalo en todos los lugares del frontend que lo necesiten, en vez
+   de repetir el `if (cargaParcial)` suelto en cada archivo.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Helper de cuota en el frontend**
+
+En `artifacts/logistics/src/components/dispatch-cargo-estimate-editor.tsx`,
+agregá — **sin modificar** `effectiveCargoMeasure`, que se sigue usando tal
+cual para los despachos normales:
+
+```ts
+/**
+ * Carga que transporta ESTE camión.
+ * Espejo de effectivePartialDispatchMeasure del backend.
+ */
+export function partialCargoMeasure(
+  cargaParcial: boolean,
+  odooValue: number | null | undefined,
+  estimateValue: string,
+  zeroMeansMissing = false,
+) {
+  if (cargaParcial) return parsePositiveEstimate(estimateValue) ?? null;
+  return effectiveCargoMeasure(odooValue, estimateValue, zeroMeansMissing);
+}
+```
+
+Y una validación específica del modo parcial:
+
+```ts
+export function partialQuotaDraftValid(
+  cargaParcial: boolean,
+  draft: DispatchCargoEstimateDraft,
+) {
+  if (!cargoEstimateDraftValid(draft)) return false;
+  if (!cargaParcial) return true;
+  // En modo parcial hace falta al menos una cuota positiva.
+  return Boolean(parsePositiveEstimate(draft.peso) || parsePositiveEstimate(draft.volumen));
+}
+```
+
+**2. El editor acepta modo cuota**
+
+Agregá una prop `cargaParcial?: boolean` a `DispatchCargoEstimateEditor` y
+pasala a los dos `EstimateField`.
+
+Dentro de `EstimateField`, cuando `cargaParcial` es `true`:
+- Mostrá **siempre** el input editable, aunque `fromOdoo` sea `true`
+  (hoy la rama `fromOdoo` renderiza solo texto).
+- El badge dice `"Cuota de este camión"` en vez de `"Odoo"` /
+  `"Estimación del despacho"`.
+- Si además hay valor de Odoo, mostralo debajo como referencia:
+  `"Total de la orden en Odoo: {odooValue} {unit}"`.
+- El texto de ayuda pasa a ser `"Cantidad que transporta este camión."`.
+
+Cuando `cargaParcial` es `false`, el componente se comporta **exactamente**
+como hoy. No cambies ese camino.
+
+**3. Pre-Despacho: mantener visible la orden parcialmente cubierta**
+
+En `artifacts/logistics/src/pages/pre-despacho.tsx`, reemplazá el cálculo
+actual de `salesWithDispatch` por dos derivaciones separadas:
+
+```ts
+const activeDispatches = (allDispatches ?? []).filter(d => d.estado !== "cancelado");
+
+// Órdenes cubiertas por un despacho completo: se ocultan, como siempre.
+const salesWithFullDispatch = new Set(
+  activeDispatches.filter(d => !d.cargaParcial).map(d => d.ventaId)
+);
+
+// Órdenes con reparto en curso: siguen visibles para sumarles otro camión.
+const partialDispatchesBySale = new Map<number, typeof activeDispatches>();
+for (const d of activeDispatches) {
+  if (!d.cargaParcial || d.ventaId == null) continue;
+  partialDispatchesBySale.set(d.ventaId, [...(partialDispatchesBySale.get(d.ventaId) ?? []), d]);
+}
+```
+
+Y la lista de ventas pendientes:
+
+```ts
+const allPendingSales = (sales ?? []).filter(
+  s => (s.estado === "pendiente" || partialDispatchesBySale.has(s.id))
+    && !salesWithFullDispatch.has(s.id)
+);
+```
+
+Hacé lo equivalente con traslados: `activeDispatchTrasladoIds` pasa a
+contener solo los traslados con despacho activo **no parcial**, y armá
+además un `Map` `partialDispatchesByTraslado` con el mismo criterio.
+Pasale a `<PendingTrasladosCard>` una prop nueva
+`partialDispatchesByTraslado` y, dentro de ese componente, relajá el filtro
+`traslado.estadoLogistico === "por_planificar"` para que también acepte un
+traslado que tenga despachos parciales activos (el resto de las condiciones
+del filtro —`!mismoAlmacen`, origen y destino no nulos— se mantienen).
+
+**4. Indicador de avance en la fila**
+
+Para cada orden que esté en `partialDispatchesBySale` (o su equivalente de
+traslados), mostrá en su fila un `<Badge variant="secondary">` con el
+avance. Calculá la carga ya asignada sumando `pesoEstimadoKg` de sus
+despachos parciales activos:
+
+```
+Parcial · 4000 / 10000 kg en 1 camión
+```
+
+Si la orden no tiene peso conocido en Odoo, mostrá solo lo asignado y la
+cantidad de camiones (`Parcial · 4000 kg en 1 camión`), sin el
+denominador — no inventes un total que no existe.
+
+**5. Diálogo de despacho: switch de carga parcial**
+
+Agregá un estado nuevo junto a `estimateDraft`:
+
+```ts
+const [cargaParcial, setCargaParcial] = useState(false);
+```
+
+En el diálogo, arriba de `<DispatchCargoEstimateEditor>`, agregá un
+`<Switch>` (`@/components/ui/switch`, ya existe en el proyecto) con
+`data-testid="switch-carga-parcial"`, etiqueta **"Carga parcial"** y
+descripción **"Este camión transporta solo una parte de la orden."**
+
+Comportamiento:
+- Al abrir el diálogo para una orden que **ya tiene** despachos parciales
+  activos, el switch arranca en `true` (se está continuando un reparto).
+  En cualquier otro caso arranca en `false`.
+- Pasale `cargaParcial` al `DispatchCargoEstimateEditor`.
+- Cuando está activo, mostrá debajo del editor un resumen de contexto:
+  lo ya asignado por los otros camiones, la cuota que estás cargando ahora
+  y el total de la orden si se conoce.
+- Si `asignado + cuotaActual > total` (y el total se conoce), mostrá un
+  `<Alert>` de advertencia con texto claro — por ejemplo *"La suma de las
+  cuotas (11.000 kg) supera el total de la orden (10.000 kg). Podés
+  continuar igual si es intencional."* **Sin bloquear el botón.**
+
+**6. Enviar el campo y ajustar validaciones**
+
+En `onSubmit`:
+- Reemplazá `cargoEstimateDraftValid(estimateDraft)` por
+  `partialQuotaDraftValid(cargaParcial, estimateDraft)`, con un mensaje de
+  toast específico cuando falla por falta de cuota en modo parcial.
+- Agregá `payload.cargaParcial = cargaParcial;` (mandalo siempre, no solo
+  cuando es `true`).
+- En el `onSuccess`, además de `setEstimateDraft({ peso: "", volumen: "" })`,
+  hacé `setCargaParcial(false)`.
+
+Reseteá también `cargaParcial` en `handleSelectSale` / el handler
+equivalente de traslados y al cerrar el diálogo (trampa 7).
+
+**7. Capacidad del vehículo con la cuota**
+
+Cambiá `selectedPesoEfectivo` y `selectedVolumenEfectivo` para que usen el
+helper nuevo:
+
+```ts
+const selectedPesoEfectivo = partialCargoMeasure(
+  cargaParcial, selectedPesoOdoo, estimateDraft.peso, Boolean(selectedSale),
+);
+const selectedVolumenEfectivo = partialCargoMeasure(
+  cargaParcial, selectedVolumenOdoo, estimateDraft.volumen, Boolean(selectedSale),
+);
+```
+
+Así, con "carga parcial" activo, el aviso de vehículo incompatible se
+evalúa contra la cuota de ese camión y no contra el total de la orden.
+
+**8. Manejo del error del backend**
+
+En el `onError` de la mutación, si el servidor devuelve
+`partial_cargo_quota_required`, mostrá un toast con un mensaje entendible
+("Indica cuánto peso o volumen transporta este camión") en vez del mensaje
+crudo del servidor.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni nada dentro de
+  `generated/`.
+- No modifiques `effectiveCargoMeasure`, `cargoEstimateDraftValid`,
+  `parsePositiveEstimate`, `hasOdooMeasure`, `sinDatoCarga`, `formatCarga`,
+  `trasladoSinMedida` ni `formatTrasladoMedida`. Solo agregás funciones
+  nuevas.
+- No toques `nuevo-despacho-wizard.tsx`, `viaje-wizard.tsx`,
+  `cargo-wizard.tsx`, `odoo-sync-card.tsx` ni la app del chofer.
+- No agregues carga parcial al flujo de viajes compartidos — eso es otra
+  fase.
+- No cambies la pantalla de Ventas: ni sus filtros, ni sus badges, ni sus
+  columnas.
+- No bloquees la confirmación por el aviso de suma.
+- No cambies el layout de Pre-Despacho (las tarjetas siguen apiladas con
+  `max-h-[420px]` y header sticky, como quedaron en el commit "Acorta y
+  apila las tablas de Pre-Despacho").
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm typecheck` (o el script equivalente) pasa sin errores.
+2. **Camino de siempre intacto**: con el switch apagado, crear un despacho
+   funciona exactamente igual que antes — el campo con dato de Odoo sigue
+   en solo lectura y la orden desaparece de Pre-Despacho al confirmar.
+3. **Reparto completo, de punta a punta**:
+   - Tomá una orden cuyo peso supere la capacidad de todos tus vehículos.
+   - Abrí el diálogo, activá **Carga parcial**, cargá una cuota que sí
+     entre en el camión elegido, confirmá. Debe crearse sin el error de
+     capacidad.
+   - La orden **sigue apareciendo** en Pre-Despacho, ahora con el badge
+     `Parcial · X / Y kg en 1 camión`.
+   - Abrí el diálogo de nuevo sobre esa misma orden: el switch tiene que
+     venir ya encendido, y el resumen debe mostrar lo asignado por el
+     primer camión.
+   - Cargá el resto en un segundo camión y confirmá.
+   - Ahora la orden **sí desaparece** de Pre-Despacho (dos despachos
+     activos, nada más que asignar desde esta pantalla).
+4. **Aviso de suma**: repetí el paso 3 pero cargando en el segundo camión
+   una cuota que haga superar el total. Debe aparecer el aviso y el botón
+   debe seguir habilitado.
+5. **Bloqueo de cuota vacía**: activá "Carga parcial" y dejá los dos campos
+   vacíos → el toast avisa y no se dispara el request.
+6. En **Despachos**, abrí los dos despachos del reparto y confirmá que cada
+   uno muestra su propia cuota, no el total de la orden.
+7. Marcá **uno** de los dos como entregado y confirmá en **Ventas** que la
+   orden sigue en "Despachado". Al marcar el segundo, recién ahí pasa a
+   "Entregado". (Esto ya lo garantiza 4C-1; sirve como prueba de que el
+   frontend está creando de verdad dos despachos de la misma orden.)
+8. Probá lo mismo con un **traslado interno**: tiene que aparecer en la
+   tarjeta "Traslados por Planificar" mientras esté parcialmente cubierto.
