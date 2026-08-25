@@ -1,0 +1,183 @@
+════════════════════════════════════════════════════════════
+PROMPT 17B — Corregir el filtro de Pre-Despacho: las órdenes en
+estado terminal nunca salen de la lista
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Este prompt corrige un bug introducido en el commit
+`Completar reparto de carga parcial desde Pre-Despacho` (4C-2). Aplicalo
+sobre ese commit, no antes.
+
+Es un cambio **muy acotado**: dos expresiones booleanas en dos archivos.
+No hay migraciones, no hay contrato, no hay backend.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9.
+App web: `artifacts/logistics` (React + Vite + shadcn/ui).
+
+Archivos afectados (los dos únicos):
+- `artifacts/logistics/src/pages/pre-despacho.tsx`
+- `artifacts/logistics/src/components/pending-traslados-card.tsx`
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Para que una orden con reparto en curso siguiera visible en Pre-Despacho,
+4C-2 relajó el filtro que antes exigía `estado === "pendiente"`. Quedó así
+en `pre-despacho.tsx`:
+
+```ts
+const allPendingSales = (sales ?? []).filter(
+  (sale) => {
+    const progress = dispatchProgressBySaleId.get(sale.id);
+    return (sale.estado === "pendiente" || Boolean(progress?.partialCount))
+      && !progress?.hasComplete;
+  }
+);
+```
+
+El problema es que `progress.partialCount` cuenta los despachos parciales
+**activos**, y "activo" ahí significa únicamente `estado !== "cancelado"`.
+Un despacho **entregado sigue contando**. Entonces:
+
+1. Repartís una orden entre dos camiones → aparece con su badge de avance.
+   Correcto.
+2. Marcás los dos despachos como entregados → `sales.estado` pasa a
+   `"entregado"`, pero `partialCount` sigue valiendo 2 y `hasComplete`
+   sigue en `false`.
+3. La condición se cumple igual → **la orden sigue apareciendo en
+   Pre-Despacho como pendiente de planificar, para siempre.**
+
+La causa de fondo: el filtro viejo (`estado === "pendiente"`) excluía
+*implícitamente* todos los demás estados. Al relajarlo se perdió esa
+exclusión y no se repuso.
+
+En `pending-traslados-card.tsx` pasa exactamente lo mismo, y ahí es peor,
+porque tampoco excluye los estados terminales de Odoo: un traslado en
+`confirmado_odoo` o `cancelado` con despachos parciales seguiría listado en
+"Traslados por Planificar".
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **No alcanza con excluir `entregado`.** La lista de estados que SÍ
+   califican es más corta que la de los que no. Escribí el filtro como una
+   lista blanca de estados permitidos, no como una lista negra de estados
+   excluidos — así, si mañana aparece un estado nuevo, el default es
+   "no aparece en planificación" en vez de "aparece por error".
+
+2. **Los estados de venta y de traslado son distintos y no se mezclan.**
+   - `sales.estado`: `pendiente` | `despachado` | `entregado` | `cancelado`
+   - `traslados.estadoLogistico`: `por_planificar` | `planificado` |
+     `en_carga` | `en_transito` | `entregado` | `confirmado_odoo` |
+     `cancelado`
+
+   No armes un helper compartido ni una constante común para los dos: son
+   dominios separados por diseño (ver
+   `.agents/memory/measurement-domain-semantics.md`, que documenta el mismo
+   criterio para las medidas).
+
+3. **`en_transito` sí califica en traslados.** Si un camión ya salió y
+   todavía falta planificar el resto de la carga, el traslado tiene que
+   seguir visible. No lo trates como terminal.
+
+4. **No toques el resto del filtro.** Las condiciones `!mismoAlmacen`,
+   `almacenOrigen !== null`, `almacenDestino !== null`, `!progress?.hasComplete`
+   y `!(tripMode && progress?.partialCount)` se quedan tal cual están.
+
+5. **No cambies `buildDispatchProgress`.** La forma en que se cuentan los
+   despachos parciales es correcta; el problema está en el filtro de la
+   orden, no en el conteo.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Ventas — `artifacts/logistics/src/pages/pre-despacho.tsx`**
+
+Reemplazá el filtro de `allPendingSales` por:
+
+```ts
+const allPendingSales = (sales ?? []).filter((sale) => {
+  const progress = dispatchProgressBySaleId.get(sale.id);
+  // Solo una venta sin planificar, o una con reparto en curso, entra acá.
+  // Cualquier otro estado (entregado, cancelado) queda fuera por defecto.
+  const califica =
+    sale.estado === "pendiente"
+    || (sale.estado === "despachado" && Boolean(progress?.partialCount));
+  return califica && !progress?.hasComplete;
+});
+```
+
+**2. Traslados — `artifacts/logistics/src/components/pending-traslados-card.tsx`**
+
+Definí arriba del componente la lista blanca de estados que admiten seguir
+planificando carga:
+
+```ts
+// Estados en los que todavía tiene sentido sumarle otro camión a un traslado.
+// Los terminales (entregado, confirmado_odoo, cancelado) quedan fuera.
+const ESTADOS_PLANIFICABLES = new Set(["planificado", "en_carga", "en_transito"]);
+```
+
+Y ajustá el filtro:
+
+```ts
+const eligibleTraslados = (traslados ?? []).filter((traslado) => {
+  const progress = dispatchProgressByTrasladoId.get(traslado.id);
+  const califica =
+    traslado.estadoLogistico === "por_planificar"
+    || (Boolean(progress?.partialCount)
+        && ESTADOS_PLANIFICABLES.has(traslado.estadoLogistico));
+  return califica
+    && !traslado.mismoAlmacen
+    && traslado.almacenOrigen !== null
+    && traslado.almacenDestino !== null
+    && !progress?.hasComplete
+    && !(tripMode && progress?.partialCount);
+});
+```
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni nada dentro de
+  `generated/`.
+- No modifiques `buildDispatchProgress`, ni la interfaz `DispatchProgress`,
+  ni el badge de avance, ni el switch de carga parcial, ni el editor de
+  cuotas — todo eso está bien.
+- No cambies las llamadas a `useListSales` / `useListTraslados`. Sé que
+  ahora traen la tabla completa cada 30 segundos; eso es un tema aparte y
+  **no** entra en este prompt.
+- No agregues un filtro por estado del lado del servidor.
+- No unifiques los estados de ventas y traslados en una constante común.
+- No cambies el layout de Pre-Despacho.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm typecheck` (o el script equivalente) pasa sin errores.
+2. **El caso del bug**: tomá una orden repartida entre dos camiones, marcá
+   **los dos** despachos como entregados, y confirmá que la orden
+   **desaparece** de Pre-Despacho (antes de este arreglo se quedaba).
+3. **Con uno solo entregado**: marcá solo uno de los dos como entregado. La
+   orden tiene que **seguir visible** con su badge de avance — todavía
+   falta planificar el resto.
+4. **Traslado cancelado en Odoo**: un traslado con despachos parciales que
+   pase a `cancelado` o `confirmado_odoo` no debe aparecer más en
+   "Traslados por Planificar".
+5. **Traslado en tránsito**: un traslado con un camión ya en ruta y carga
+   sin asignar sigue apareciendo (no lo excluyas de más).
+6. **Regresión del camino normal**: una venta `pendiente` sin ningún
+   despacho sigue apareciendo como siempre, y una con un despacho completo
+   sigue desapareciendo como siempre.
