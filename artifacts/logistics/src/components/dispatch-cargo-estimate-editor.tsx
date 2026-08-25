@@ -16,6 +16,7 @@ interface DispatchCargoEstimateEditorProps {
   disabled?: boolean;
   zeroMeansMissing?: boolean;
   compact?: boolean;
+  partialMode?: boolean;
 }
 
 export function parsePositiveEstimate(value: string): number | null | undefined {
@@ -40,10 +41,28 @@ export function effectiveCargoMeasure(
   return parsePositiveEstimate(estimateValue) ?? null;
 }
 
+export function effectiveDispatchCargoMeasure(
+  partialMode: boolean,
+  odooValue: number | null | undefined,
+  draftValue: string,
+  zeroMeansMissing = false,
+) {
+  if (partialMode) return parsePositiveEstimate(draftValue) ?? null;
+  return effectiveCargoMeasure(odooValue, draftValue, zeroMeansMissing);
+}
+
 export function cargoEstimateDraftValid(draft: DispatchCargoEstimateDraft) {
   return (
     parsePositiveEstimate(draft.peso) !== undefined &&
     parsePositiveEstimate(draft.volumen) !== undefined
+  );
+}
+
+export function partialCargoDraftValid(draft: DispatchCargoEstimateDraft) {
+  if (!cargoEstimateDraftValid(draft)) return false;
+  return (
+    parsePositiveEstimate(draft.peso) != null
+    || parsePositiveEstimate(draft.volumen) != null
   );
 }
 
@@ -56,6 +75,7 @@ function EstimateField({
   disabled,
   zeroMeansMissing,
   testId,
+  partialMode,
 }: {
   label: string;
   unit: "kg" | "m³";
@@ -65,6 +85,7 @@ function EstimateField({
   disabled?: boolean;
   zeroMeansMissing: boolean;
   testId: string;
+  partialMode: boolean;
 }) {
   const fromOdoo = hasOdooMeasure(odooValue, zeroMeansMissing);
   const parsedEstimate = parsePositiveEstimate(estimateValue);
@@ -74,11 +95,11 @@ function EstimateField({
     <div className="space-y-1.5 rounded-md border bg-background p-3">
       <div className="flex items-center justify-between gap-2">
         <Label className="text-xs">{label}</Label>
-        <Badge variant={fromOdoo ? "outline" : parsedEstimate ? "secondary" : "outline"} className="text-[10px]">
-          {fromOdoo ? "Odoo" : parsedEstimate ? "Estimación del despacho" : "Sin dato"}
+        <Badge variant={!partialMode && fromOdoo ? "outline" : parsedEstimate ? "secondary" : "outline"} className="text-[10px]">
+          {partialMode ? "Cuota de este camión" : fromOdoo ? "Odoo" : parsedEstimate ? "Estimación del despacho" : "Sin dato"}
         </Badge>
       </div>
-      {fromOdoo ? (
+      {!partialMode && fromOdoo ? (
         <>
           <p className="font-semibold">{odooValue} {unit}</p>
           <p className="text-[11px] text-muted-foreground">
@@ -94,7 +115,7 @@ function EstimateField({
               step="any"
               value={estimateValue}
               onChange={(event) => onEstimateChange(event.target.value)}
-              placeholder={`Estimación en ${unit}`}
+              placeholder={partialMode ? `Cuota en ${unit}` : `Estimación en ${unit}`}
               disabled={disabled}
               data-testid={testId}
             />
@@ -112,8 +133,15 @@ function EstimateField({
           <p className={`text-[11px] ${invalid ? "text-destructive" : "text-muted-foreground"}`}>
             {invalid
               ? "Ingresa un valor mayor que cero o deja el campo vacío."
-              : "Se guardará únicamente en este despacho."}
+              : partialMode
+                ? "Esta cuota se aplicará únicamente a este camión."
+                : "Se guardará únicamente en este despacho."}
           </p>
+          {partialMode && fromOdoo && (
+            <p className="text-[11px] text-muted-foreground">
+              Total de Odoo como referencia: {odooValue} {unit}.
+            </p>
+          )}
         </>
       )}
     </div>
@@ -128,6 +156,7 @@ export function DispatchCargoEstimateEditor({
   disabled,
   zeroMeansMissing = false,
   compact = false,
+  partialMode = false,
 }: DispatchCargoEstimateEditorProps) {
   return (
     <div className="space-y-2" data-testid="dispatch-cargo-estimate-editor">
@@ -135,7 +164,9 @@ export function DispatchCargoEstimateEditor({
         <div>
           <p className="text-sm font-semibold">Peso y volumen de la carga</p>
           <p className="text-xs text-muted-foreground">
-            Si Odoo no tiene una medida, puedes estimarla para este despacho.
+            {partialMode
+              ? "Indica la cuota que transportará este camión. El total de Odoo se muestra solo como referencia."
+              : "Si Odoo no tiene una medida, puedes estimarla para este despacho."}
           </p>
         </div>
       )}
@@ -149,6 +180,7 @@ export function DispatchCargoEstimateEditor({
           disabled={disabled}
           zeroMeansMissing={zeroMeansMissing}
           testId="input-peso-estimado-despacho"
+          partialMode={partialMode}
         />
         <EstimateField
           label="Volumen"
@@ -159,6 +191,7 @@ export function DispatchCargoEstimateEditor({
           disabled={disabled}
           zeroMeansMissing={zeroMeansMissing}
           testId="input-volumen-estimado-despacho"
+          partialMode={partialMode}
         />
       </div>
     </div>

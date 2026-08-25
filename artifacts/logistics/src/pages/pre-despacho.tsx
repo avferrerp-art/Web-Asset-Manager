@@ -36,11 +36,15 @@ import { ViajeWizard, type ViajeSelectedOrder } from "@/components/viaje-wizard"
 import {
   cargoEstimateDraftValid,
   DispatchCargoEstimateEditor,
-  effectiveCargoMeasure,
+  effectiveDispatchCargoMeasure,
   parsePositiveEstimate,
+  partialCargoDraftValid,
   type DispatchCargoEstimateDraft,
 } from "@/components/dispatch-cargo-estimate-editor";
 import type { DispatchCargoEstimates } from "@/components/cargo-wizard";
+import { Switch } from "@/components/ui/switch";
+import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import type { DispatchProgress } from "@/components/pending-traslados-card";
 
 const dispatchSchema = z.object({
   vehiculoId: z.coerce.number().min(1, "Requerido"),
@@ -80,10 +84,11 @@ export default function PreDespacho() {
     peso: "",
     volumen: "",
   });
+  const [partialCargo, setPartialCargo] = useState(false);
 
   const { data: sales, isLoading: isLoadingSales } = useListSales(
-    { status: "pendiente" },
-    { query: { queryKey: getListSalesQueryKey({ status: "pendiente" }), refetchInterval: 30_000 } }
+    undefined,
+    { query: { queryKey: getListSalesQueryKey(), refetchInterval: 30_000 } }
   );
 
   const { data: vehicles } = useListVehicles({
@@ -153,12 +158,14 @@ export default function PreDespacho() {
   const selectedVolumenOdoo = selectedSale
     ? sinDatoCarga(selectedSale.volumenTotal) ? null : selectedSale.volumenTotal
     : selectedTraslado?.volumenCalculadoM3 ?? null;
-  const selectedPesoEfectivo = effectiveCargoMeasure(
+  const selectedPesoEfectivo = effectiveDispatchCargoMeasure(
+    partialCargo,
     selectedPesoOdoo,
     estimateDraft.peso,
     Boolean(selectedSale),
   );
-  const selectedVolumenEfectivo = effectiveCargoMeasure(
+  const selectedVolumenEfectivo = effectiveDispatchCargoMeasure(
+    partialCargo,
     selectedVolumenOdoo,
     estimateDraft.volumen,
     Boolean(selectedSale),
@@ -242,10 +249,18 @@ export default function PreDespacho() {
       });
       return;
     }
+    if (partialCargo && !partialCargoDraftValid(estimateDraft)) {
+      toast({
+        title: "Indica la cuota de este camión",
+        description: "Una carga parcial requiere una cuota positiva de peso o volumen.",
+        variant: "destructive",
+      });
+      return;
+    }
     if (selectedVehicleExceedsTraslado) {
       toast({
         title: "Vehículo incompatible",
-        description: "El vehículo seleccionado no tiene capacidad suficiente para las medidas conocidas del traslado.",
+        description: "El vehículo seleccionado no tiene capacidad suficiente para la carga efectiva de este camión.",
         variant: "destructive",
       });
       return;
@@ -253,6 +268,7 @@ export default function PreDespacho() {
     const payload: Record<string, unknown> = selectedTraslado
       ? { ...values, tipo: "traslado", trasladoId: selectedTraslado.id }
       : { ...values, tipo: "venta", ventaId: selectedSale.id };
+    payload.cargaParcial = partialCargo;
     const pesoEstimadoKg = parsePositiveEstimate(estimateDraft.peso);
     const volumenEstimadoM3 = parsePositiveEstimate(estimateDraft.volumen);
     if (pesoEstimadoKg) payload.pesoEstimadoKg = pesoEstimadoKg;
@@ -275,12 +291,18 @@ export default function PreDespacho() {
         setSelectedSale(null);
         setSelectedTraslado(null);
         setEstimateDraft({ peso: "", volumen: "" });
+        setPartialCargo(false);
         toast({ title: "¡Despacho creado y aprobado correctamente!" });
       },
       onError: (error) => {
+        const rawMessage = error instanceof Error ? error.message : "";
+        const partialQuotaRejected = rawMessage.includes("partial_cargo_quota_required")
+          || rawMessage.includes("requiere una cuota positiva");
         toast({
           title: "No se pudo crear el despacho",
-          description: error instanceof Error ? error.message : "El servidor rechazó la operación.",
+          description: partialQuotaRejected
+            ? "Activa una cuota positiva de peso o volumen para este camión e intenta de nuevo."
+            : rawMessage || "El servidor rechazó la operación.",
           variant: "destructive",
         });
       },
@@ -292,12 +314,14 @@ export default function PreDespacho() {
     overrideVehicleId?: number,
     estimates: DispatchCargoEstimates = {},
   ) => {
+    const progress = dispatchProgressBySaleId.get(sale.id);
     setSelectedTraslado(null);
     setSelectedSale(sale);
     setEstimateDraft({
       peso: estimates.pesoEstimadoKg?.toString() ?? "",
       volumen: estimates.volumenEstimadoM3?.toString() ?? "",
     });
+    setPartialCargo(Boolean(progress?.partialCount && !progress.hasComplete));
     // Sin peso en Odoo no hay compatibilidad confiable: no preseleccionar
     // vehículo por capacidad (un 0 silencioso sugeriría el más chico).
     const bestVehicle = overrideVehicleId
@@ -332,12 +356,14 @@ export default function PreDespacho() {
     overrideVehicleId?: number,
     estimates: DispatchCargoEstimates = {},
   ) => {
+    const progress = dispatchProgressByTrasladoId.get(traslado.id);
     setSelectedSale(null);
     setSelectedTraslado(traslado);
     setEstimateDraft({
       peso: estimates.pesoEstimadoKg?.toString() ?? "",
       volumen: estimates.volumenEstimadoM3?.toString() ?? "",
     });
+    setPartialCargo(Boolean(progress?.partialCount && !progress.hasComplete));
     const peso = traslado.pesoCalculadoKg ?? estimates.pesoEstimadoKg ?? 0;
     const volumen = traslado.volumenCalculadoM3 ?? estimates.volumenEstimadoM3 ?? 0;
     const bestVehicle = overrideVehicleId
@@ -368,27 +394,66 @@ export default function PreDespacho() {
     });
   };
 
-  // Ventas con despacho ya creado (en cualquier estado activo) no deben aparecer aquí,
-  // incluso si su estado quedara en "pendiente" por alguna inconsistencia.
-  const salesWithDispatch = new Set(
-    (allDispatches ?? [])
-      .filter(d => d.estado !== "cancelado")
-      .map(d => d.ventaId)
+  const activeDispatches = (allDispatches ?? []).filter((dispatch) => dispatch.estado !== "cancelado");
+  function buildDispatchProgress(
+    dispatches: typeof activeDispatches,
+    getOrderId: (dispatch: (typeof activeDispatches)[number]) => number | null | undefined,
+  ) {
+    const progress = new Map<number, DispatchProgress>();
+    for (const dispatch of dispatches) {
+      const orderId = getOrderId(dispatch);
+      if (orderId == null) continue;
+      const current = progress.get(orderId) ?? {
+        partialCount: 0,
+        assignedPesoKg: 0,
+        assignedVolumenM3: 0,
+        hasComplete: false,
+      };
+      if (dispatch.cargaParcial) {
+        current.partialCount += 1;
+        current.assignedPesoKg += dispatch.pesoEstimadoKg ?? 0;
+        current.assignedVolumenM3 += dispatch.volumenEstimadoM3 ?? 0;
+      } else {
+        current.hasComplete = true;
+      }
+      progress.set(orderId, current);
+    }
+    return progress;
+  }
+  const dispatchProgressBySaleId = buildDispatchProgress(
+    activeDispatches.filter((dispatch) => dispatch.tipo === "venta"),
+    (dispatch) => dispatch.ventaId,
+  );
+  const dispatchProgressByTrasladoId = buildDispatchProgress(
+    activeDispatches.filter((dispatch) => dispatch.tipo === "traslado"),
+    (dispatch) => dispatch.trasladoId,
   );
   const allPendingSales = (sales ?? []).filter(
-    s => s.estado === "pendiente" && !salesWithDispatch.has(s.id)
+    (sale) => {
+      const progress = dispatchProgressBySaleId.get(sale.id);
+      return (sale.estado === "pendiente" || Boolean(progress?.partialCount))
+        && !progress?.hasComplete;
+    }
   );
   const pendingSales = search.trim()
     ? allPendingSales.filter(s =>
         matchesSearch(search, [s.cliente, s.destino, s.odooRef, s.id, `#${s.id}`]))
     : allPendingSales;
-  const activeDispatchTrasladoIds = new Set<number>(
-    (allDispatches ?? [])
-      .filter((dispatch) =>
-        dispatch.tipo === "traslado"
-        && dispatch.estado !== "cancelado"
-        && dispatch.trasladoId != null)
-      .map((dispatch) => dispatch.trasladoId as number),
+  const displayedPendingSales = tripMode
+    ? pendingSales.filter((sale) => !dispatchProgressBySaleId.get(sale.id)?.partialCount)
+    : pendingSales;
+  const selectedOrderProgress = selectedSale
+    ? dispatchProgressBySaleId.get(selectedSale.id)
+    : selectedTraslado
+      ? dispatchProgressByTrasladoId.get(selectedTraslado.id)
+      : undefined;
+  const partialPesoTotal = selectedOrderProgress?.assignedPesoKg ?? 0;
+  const partialVolumenTotal = selectedOrderProgress?.assignedVolumenM3 ?? 0;
+  const currentPesoQuota = parsePositiveEstimate(estimateDraft.peso) ?? 0;
+  const currentVolumenQuota = parsePositiveEstimate(estimateDraft.volumen) ?? 0;
+  const exceedsKnownTotal = partialCargo && (
+    (selectedPesoOdoo != null && partialPesoTotal + currentPesoQuota > selectedPesoOdoo)
+    || (selectedVolumenOdoo != null && partialVolumenTotal + currentVolumenQuota > selectedVolumenOdoo)
   );
   const selectedSourceDestination = selectedSale?.destino ?? selectedTraslado?.almacenDestino?.nombre ?? null;
   const tripOrders = Object.values(tripOrdersByKey);
@@ -544,7 +609,7 @@ export default function PreDespacho() {
             <TableBody>
               {isLoadingSales ? (
                 <TableRow><TableCell colSpan={6} className="h-24 text-center">Cargando...</TableCell></TableRow>
-              ) : pendingSales.length === 0 ? (
+              ) : displayedPendingSales.length === 0 ? (
                 <TableRow><TableCell colSpan={6} className="h-32 text-center">
                   {search.trim() ? (
                     <span className="text-muted-foreground">Sin resultados para "{search.trim()}"</span>
@@ -558,7 +623,9 @@ export default function PreDespacho() {
                     </div>
                   )}
                 </TableCell></TableRow>
-              ) : pendingSales.map((sale) => (
+              ) : displayedPendingSales.map((sale) => {
+                const progress = dispatchProgressBySaleId.get(sale.id);
+                return (
                 <TableRow key={sale.id} data-testid={`row-pending-sale-${sale.id}`}>
                   <TableCell className="font-medium">
                     #{sale.id}
@@ -566,7 +633,21 @@ export default function PreDespacho() {
                   </TableCell>
                   <TableCell>{sale.cliente}</TableCell>
                   <TableCell>{sale.destino}</TableCell>
-                  <TableCell>{sinDatoCarga(sale.pesoTotal) ? <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span> : formatCarga(sale.pesoTotal, "kg")}</TableCell>
+                  <TableCell>
+                    {progress?.partialCount ? (
+                      <div className="text-xs" data-testid={`text-partial-progress-sale-${sale.id}`}>
+                        <div className="font-medium">
+                          {progress.assignedPesoKg} kg asignados
+                          {!sinDatoCarga(sale.pesoTotal) ? ` / ${formatCarga(sale.pesoTotal, "kg")}` : ""}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {progress.partialCount} {progress.partialCount === 1 ? "camión" : "camiones"}
+                        </div>
+                      </div>
+                    ) : sinDatoCarga(sale.pesoTotal)
+                      ? <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span>
+                      : formatCarga(sale.pesoTotal, "kg")}
+                  </TableCell>
                   <TableCell>{sinDatoCarga(sale.volumenTotal) ? <span className="text-muted-foreground italic text-xs">sin dato en Odoo</span> : formatCarga(sale.volumenTotal, "m³")}</TableCell>
                   <TableCell>
                     {tripMode ? (
@@ -609,7 +690,7 @@ export default function PreDespacho() {
                     )}
                   </TableCell>
                 </TableRow>
-              ))}
+              )})}
             </TableBody>
           </Table>
           </div>
@@ -617,7 +698,7 @@ export default function PreDespacho() {
       </Card>
 
       <PendingTrasladosCard
-        activeDispatchTrasladoIds={activeDispatchTrasladoIds}
+        dispatchProgressByTrasladoId={dispatchProgressByTrasladoId}
         isLoadingDispatches={isLoadingDispatches}
         dispatchesError={dispatchesError instanceof Error ? dispatchesError : null}
         onPlan={(traslado) => {
@@ -641,6 +722,7 @@ export default function PreDespacho() {
             setSelectedSale(null);
             setSelectedTraslado(null);
             setEstimateDraft({ peso: "", volumen: "" });
+            setPartialCargo(false);
           }
         }}
       >
@@ -675,12 +757,47 @@ export default function PreDespacho() {
             </div>
           )}
 
+          <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/30 p-3">
+            <div>
+              <label htmlFor="switch-partial-cargo" className="text-sm font-semibold">Carga parcial</label>
+              <p className="text-xs text-muted-foreground">Reparte esta orden entre varios camiones.</p>
+            </div>
+            <Switch
+              id="switch-partial-cargo"
+              checked={partialCargo}
+              onCheckedChange={(checked) => {
+                setPartialCargo(checked);
+                setEstimateDraft({ peso: "", volumen: "" });
+              }}
+              data-testid="switch-carga-parcial"
+            />
+          </div>
+
+          {partialCargo && (
+            <div className="grid grid-cols-3 gap-2 rounded-md border bg-muted/20 p-3 text-xs" data-testid="partial-cargo-context">
+              <div><span className="text-muted-foreground">Ya asignado</span><p className="font-semibold">{partialPesoTotal} kg / {partialVolumenTotal} m³</p></div>
+              <div><span className="text-muted-foreground">Cuota actual</span><p className="font-semibold">{currentPesoQuota || "—"} kg / {currentVolumenQuota || "—"} m³</p></div>
+              <div><span className="text-muted-foreground">Total conocido</span><p className="font-semibold">{selectedPesoOdoo ?? "—"} kg / {selectedVolumenOdoo ?? "—"} m³</p></div>
+            </div>
+          )}
+
+          {exceedsKnownTotal && (
+            <Alert data-testid="warning-partial-cargo-over-total">
+              <AlertTriangle className="h-4 w-4" />
+              <AlertTitle>Las cuotas superan el total conocido</AlertTitle>
+              <AlertDescription>
+                Puedes confirmar de todos modos. Revisa las cuotas si el total de Odoo sigue vigente.
+              </AlertDescription>
+            </Alert>
+          )}
+
           <DispatchCargoEstimateEditor
             pesoOdooKg={selectedPesoOdoo}
             volumenOdooM3={selectedVolumenOdoo}
             draft={estimateDraft}
             onChange={setEstimateDraft}
             zeroMeansMissing={Boolean(selectedSale)}
+            partialMode={partialCargo}
           />
 
           <Form {...form}>
@@ -776,7 +893,7 @@ export default function PreDespacho() {
                 )} />
               </div>
 
-              {selectedVehicleExceedsTraslado && selectedVehicle && selectedTraslado && (
+              {selectedVehicleExceedsTraslado && selectedVehicle && (selectedTraslado || selectedSale) && (
                 <div
                   className="flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
                   data-testid="warning-traslado-vehicle-capacity"
@@ -785,7 +902,7 @@ export default function PreDespacho() {
                   <span>
                     <strong>Vehículo incompatible:</strong> {selectedVehicle.modelo} admite{" "}
                     {selectedVehicle.capacidadPeso} kg / {selectedVehicle.capacidadVolumen} m³,
-                    menos que alguna de las medidas conocidas del traslado. Selecciona otro vehículo.
+                    menos que alguna de las medidas efectivas de este camión. Selecciona otro vehículo.
                   </span>
                 </div>
               )}

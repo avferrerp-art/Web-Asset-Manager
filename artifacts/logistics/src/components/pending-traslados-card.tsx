@@ -16,7 +16,7 @@ import { TrasladoStatusBadge } from "@/lib/traslado-status";
 import type { ViajeSelectedOrder } from "@/components/viaje-wizard";
 
 interface PendingTrasladosCardProps {
-  activeDispatchTrasladoIds: Set<number>;
+  dispatchProgressByTrasladoId: Map<number, DispatchProgress>;
   isLoadingDispatches: boolean;
   dispatchesError: Error | null;
   onPlan: (traslado: TrasladoSummary) => void;
@@ -26,10 +26,15 @@ interface PendingTrasladosCardProps {
   onToggleTripOrder?: (order: ViajeSelectedOrder) => void;
 }
 
-const PENDING_PARAMS = { estadoLogistico: "por_planificar" };
+export interface DispatchProgress {
+  partialCount: number;
+  assignedPesoKg: number;
+  assignedVolumenM3: number;
+  hasComplete: boolean;
+}
 
 export function PendingTrasladosCard({
-  activeDispatchTrasladoIds,
+  dispatchProgressByTrasladoId,
   isLoadingDispatches,
   dispatchesError,
   onPlan,
@@ -44,20 +49,22 @@ export function PendingTrasladosCard({
     isLoading,
     isError,
     error,
-  } = useListTraslados(PENDING_PARAMS, {
+  } = useListTraslados(undefined, {
     query: {
-      queryKey: getListTrasladosQueryKey(PENDING_PARAMS),
+      queryKey: getListTrasladosQueryKey(),
       refetchInterval: 30_000,
     },
   });
 
-  const eligibleTraslados = (traslados ?? []).filter((traslado) =>
-    traslado.estadoLogistico === "por_planificar"
+  const eligibleTraslados = (traslados ?? []).filter((traslado) => {
+    const progress = dispatchProgressByTrasladoId.get(traslado.id);
+    return (traslado.estadoLogistico === "por_planificar" || Boolean(progress?.partialCount))
     && !traslado.mismoAlmacen
     && traslado.almacenOrigen !== null
     && traslado.almacenDestino !== null
-    && !activeDispatchTrasladoIds.has(traslado.id)
-  );
+    && !progress?.hasComplete
+    && !(tripMode && progress?.partialCount);
+  });
   const pendingTraslados = search.trim()
     ? eligibleTraslados.filter((traslado) => matchesSearch(search, [
         traslado.referencia,
@@ -143,7 +150,9 @@ export function PendingTrasladosCard({
                   )}
                 </TableCell>
               </TableRow>
-            ) : pendingTraslados.map((traslado) => (
+            ) : pendingTraslados.map((traslado) => {
+              const progress = dispatchProgressByTrasladoId.get(traslado.id);
+              return (
               <TableRow key={traslado.id} data-testid={`row-pending-traslado-${traslado.id}`}>
                 <TableCell className="font-medium">
                   {traslado.referencia || `#${traslado.id}`}
@@ -170,10 +179,22 @@ export function PendingTrasladosCard({
                   />
                 </TableCell>
                 <TableCell>
-                  <span className={traslado.pesoEfectivoKg == null ? "text-xs italic text-muted-foreground" : ""}>
-                    {formatTrasladoMedida(traslado.pesoEfectivoKg, "kg")}
-                    {traslado.origenPeso === "estimado" ? " (estimado)" : ""}
-                  </span>
+                  {progress?.partialCount ? (
+                    <div className="text-xs" data-testid={`text-partial-progress-traslado-${traslado.id}`}>
+                      <div className="font-medium">
+                        {progress.assignedPesoKg} kg asignados
+                        {traslado.pesoCalculadoKg != null ? ` / ${traslado.pesoCalculadoKg} kg` : ""}
+                      </div>
+                      <div className="text-muted-foreground">
+                        {progress.partialCount} {progress.partialCount === 1 ? "camión" : "camiones"}
+                      </div>
+                    </div>
+                  ) : (
+                    <span className={traslado.pesoEfectivoKg == null ? "text-xs italic text-muted-foreground" : ""}>
+                      {formatTrasladoMedida(traslado.pesoEfectivoKg, "kg")}
+                      {traslado.origenPeso === "estimado" ? " (estimado)" : ""}
+                    </span>
+                  )}
                 </TableCell>
                 <TableCell>
                   <span className={traslado.volumenCalculadoM3 == null ? "text-xs italic text-muted-foreground" : ""}>
@@ -225,7 +246,7 @@ export function PendingTrasladosCard({
                     )}
                 </TableCell>
               </TableRow>
-            ))}
+            )})}
           </TableBody>
         </Table>
         </div>
