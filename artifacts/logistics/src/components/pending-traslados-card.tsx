@@ -33,6 +33,12 @@ export interface DispatchProgress {
   hasComplete: boolean;
 }
 
+const PARTIAL_DISPATCH_ELIGIBLE_STATES = new Set([
+  "planificado",
+  "en_carga",
+  "en_transito",
+]);
+
 export function PendingTrasladosCard({
   dispatchProgressByTrasladoId,
   isLoadingDispatches,
@@ -58,7 +64,13 @@ export function PendingTrasladosCard({
 
   const eligibleTraslados = (traslados ?? []).filter((traslado) => {
     const progress = dispatchProgressByTrasladoId.get(traslado.id);
-    return (traslado.estadoLogistico === "por_planificar" || Boolean(progress?.partialCount))
+    return (
+      traslado.estadoLogistico === "por_planificar"
+      || (
+        PARTIAL_DISPATCH_ELIGIBLE_STATES.has(traslado.estadoLogistico)
+        && Boolean(progress?.partialCount)
+      )
+    )
     && !traslado.mismoAlmacen
     && traslado.almacenOrigen !== null
     && traslado.almacenDestino !== null

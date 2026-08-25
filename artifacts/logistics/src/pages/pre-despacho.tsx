@@ -431,7 +431,10 @@ export default function PreDespacho() {
   const allPendingSales = (sales ?? []).filter(
     (sale) => {
       const progress = dispatchProgressBySaleId.get(sale.id);
-      return (sale.estado === "pendiente" || Boolean(progress?.partialCount))
+      return (
+        sale.estado === "pendiente"
+        || (sale.estado === "despachado" && Boolean(progress?.partialCount))
+      )
         && !progress?.hasComplete;
     }
   );
