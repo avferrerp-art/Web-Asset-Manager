@@ -1,0 +1,487 @@
+# Guía de pruebas de LogiFleet — camino feliz y formas de romperlo
+
+Cubre todo lo construido en las últimas fases: viajes compartidos, tarifa por
+km, importación histórica de traslados, y reparto de carga parcial.
+
+Está dividida en cuatro partes:
+
+- **Parte 0** — preparar los datos de prueba.
+- **Parte 1** — el camino feliz, de punta a punta.
+- **Parte 2** — ataques: formas deliberadas de hacerlo fallar.
+- **Parte 3** — agujeros que ya encontré leyendo el código. Estos **no son
+  hipótesis**: son huecos reales. Los listo aparte para que sepas cuáles vas
+  a encontrar sí o sí y decidas si vale la pena taparlos.
+
+Cuando algo se comporte distinto a lo descrito, copiame el paso, lo que
+esperabas y lo que pasó. Con eso lo reviso contra el código.
+
+---
+
+## Parte 0 — Preparar los datos
+
+Abrí el shell de Replit y entrá a `psql`.
+
+### 0.1 Mirá qué tenés
+
+```sql
+SELECT id, modelo, capacidad_peso, capacidad_volumen FROM vehicles ORDER BY capacidad_peso;
+SELECT id, nombre, rol, tarifa_por_km FROM personnel WHERE rol IN ('chofer','ayudante');
+SELECT id, codigo, nombre FROM almacenes WHERE activo ORDER BY id;
+```
+
+Anotá: la **capacidad del camión más grande** (la vas a necesitar), dos IDs
+de almacén distintos, y un chofer.
+
+### 0.2 Poné una tarifa por km real
+
+Sin esto, "Viáticos estimados" siempre da `$0,00` y no probás nada.
+
+```sql
+UPDATE personnel SET tarifa_por_km = 2 WHERE rol = 'chofer';
+UPDATE personnel SET tarifa_por_km = 1 WHERE rol = 'ayudante';
+```
+
+### 0.3 Creá las órdenes de prueba
+
+Reemplazá `<CAP_MAX>` por la capacidad del camión más grande.
+
+```sql
+-- A) Venta normal, entra en un camión
+INSERT INTO sales (cliente, destino, peso_total, volumen_total, estado)
+VALUES ('PRUEBA-A normal', 'Depósito Norte', 500, 2.5, 'pendiente') RETURNING id;
+
+-- B) Venta gigante: NO entra en ningún camión. Es la que motiva la carga parcial.
+--    Poné el triple de <CAP_MAX>.
+INSERT INTO sales (cliente, destino, peso_total, volumen_total, estado)
+VALUES ('PRUEBA-B gigante', 'Depósito Sur', <CAP_MAX*3>, 90, 'pendiente') RETURNING id;
+
+-- C) Venta SIN peso en Odoo (null = sin dato, nunca 0)
+INSERT INTO sales (cliente, destino, peso_total, volumen_total, estado)
+VALUES ('PRUEBA-C sin dato', 'Depósito Este', NULL, NULL, 'pendiente') RETURNING id;
+
+-- D) Venta con peso 0 (caso distinto de NULL — en ventas, 0 también es "sin dato")
+INSERT INTO sales (cliente, destino, peso_total, volumen_total, estado)
+VALUES ('PRUEBA-D cero', 'Depósito Oeste', 0, 0, 'pendiente') RETURNING id;
+
+-- E) Traslado normal (almacenes DISTINTOS)
+INSERT INTO traslados (almacen_origen_id, almacen_destino_id, estado_logistico, peso_calculado_kg, volumen_calculado_m3)
+VALUES (<ALM_1>, <ALM_2>, 'por_planificar', 300, 1.2) RETURNING id;
+
+-- F) Traslado gigante
+INSERT INTO traslados (almacen_origen_id, almacen_destino_id, estado_logistico, peso_calculado_kg, volumen_calculado_m3)
+VALUES (<ALM_1>, <ALM_2>, 'por_planificar', <CAP_MAX*3>, 90) RETURNING id;
+
+-- G) Traslado con mismo origen y destino (NO debe aparecer nunca en Pre-Despacho)
+INSERT INTO traslados (almacen_origen_id, almacen_destino_id, estado_logistico, peso_calculado_kg, volumen_calculado_m3)
+VALUES (<ALM_1>, <ALM_1>, 'por_planificar', 100, 1) RETURNING id;
+```
+
+Anotá todos los IDs. Los reconocés en pantalla por el nombre `PRUEBA-x`.
+
+### 0.4 Query de control
+
+Guardala, la vas a correr todo el tiempo:
+
+```sql
+SELECT d.id, d.tipo, d.estado, d.carga_parcial, d.peso_estimado_kg,
+       d.viaje_id, d.orden, d.venta_id, d.traslado_id,
+       s.estado AS venta_estado, t.estado_logistico AS traslado_estado
+FROM dispatches d
+LEFT JOIN sales s ON s.id = d.venta_id
+LEFT JOIN traslados t ON t.id = d.traslado_id
+ORDER BY d.id DESC LIMIT 20;
+```
+
+---
+
+## Parte 1 — Camino feliz
+
+### 1.1 Importar los traslados históricos
+
+En **Pre-Despacho**, en la tarjeta de Odoo, botón **"Importar traslados
+históricos"**.
+
+- Mientras corre: ícono girando, botón deshabilitado.
+- Al terminar: toast con cuántos se crearon/actualizaron.
+- Andá a **Traslados**: deberían aparecer muchos más que los 4 de antes.
+- **Corrélo una segunda vez**: no debe duplicar nada. Los mismos traslados se
+  actualizan.
+
+### 1.2 Despacho simple (el camino de siempre)
+
+Planificá la **venta A**. Sin tocar el switch de carga parcial:
+
+- El campo de peso debe estar en **solo lectura** (Odoo tiene el dato).
+- Confirmá → la venta **desaparece** de Pre-Despacho.
+- `venta_estado` pasa a `despachado`.
+
+### 1.3 Reparto de carga parcial
+
+La **venta B** (gigante):
+
+1. Intentá despacharla **sin** carga parcial → el sistema debe rechazarla
+   por capacidad.
+2. Activá **"Carga parcial"**. El campo de peso ahora es **editable**, y
+   debajo dice el total de Odoo como referencia.
+3. Cargá una cuota que sí entre en el camión. Confirmá.
+4. La venta **sigue apareciendo** en Pre-Despacho, con el badge
+   `X kg asignados / <total>` y `1 camión`.
+5. Abrila de nuevo: el switch tiene que venir **ya encendido**, y el bloque
+   de contexto muestra lo ya asignado.
+6. Cargá el resto en otro camión. Confirmá.
+7. Ahora **sí desaparece**.
+
+### 1.4 Estado "entregado" solo cuando llegan todos
+
+Con los dos despachos de la venta B:
+
+- Marcá **uno** como entregado → `venta_estado` sigue en `despachado`.
+- Marcá el **segundo** → recién ahí pasa a `entregado`.
+
+Este es el corazón de la Fase 4C. Si el primero ya la marca como
+`entregado`, algo se rompió.
+
+### 1.5 Viaje compartido
+
+1. En Pre-Despacho, **"Armar viaje"**.
+2. Tildá la **venta A** y el **traslado E**.
+3. **"Configurar viaje"**: elegí vehículo, chofer, distancia **100 km**.
+4. Confirmá.
+5. En `/viajes/<id>`: **Viáticos estimados** debe dar `$300,00`
+   (100 km × ($2 chofer + $1 ayudante)). Sin ayudante, `$200,00`.
+6. En **Despachos**, los dos despachos dicen "Viaje #N" y **no** dejan
+   editar vehículo/chofer/ayudante.
+7. Editá la distancia del viaje a **150** → los viáticos se recalculan a
+   `$450,00`.
+8. Borrá la distancia → Viáticos muestra `—` (no `$0,00`).
+
+### 1.6 Traslado parcial
+
+Repetí 1.3 con el **traslado F**. Tiene que comportarse igual: seguir
+visible en "Traslados por Planificar" mientras esté parcialmente cubierto.
+
+---
+
+## Parte 2 — Ataques
+
+Cada uno dice **qué hacer**, **qué debería pasar** y **cuándo es bug**.
+
+### A. Carga parcial
+
+**A1 — Parcial sin cuota.**
+Activá el switch, dejá los dos campos vacíos, confirmá.
+→ Debe avisar y **no** mandar el request. Bug si crea el despacho o si tira
+un error crudo del servidor.
+
+**A2 — Cuota en cero o negativa.**
+Poné `0`, luego `-5`, luego `abc`.
+→ Debe marcar el campo en rojo y bloquear. Bug si acepta `0` (violaría la
+regla `null` = sin dato, nunca `0`).
+
+**A3 — Cuota mayor que el total de la orden.**
+En la venta B, asigná una cuota mayor al total.
+→ Debe aparecer el aviso "las cuotas superan el total" **pero dejarte
+confirmar**. Bug si bloquea (es decisión de diseño que no bloquee) o si el
+aviso no aparece.
+
+**A4 — Cuota mayor que la capacidad del camión.**
+→ Debe bloquear por capacidad. Bug si deja pasar: el sentido de la fase es
+que cada camión valide **su cuota**, no el total.
+
+**A5 — Apagar el switch en una orden que ya tiene parciales.** ⚠️
+Abrí la venta B (que ya tiene un parcial), **apagá** el switch y confirmá un
+despacho completo.
+→ Ver **Parte 3, punto 3**. Esto hoy no lo bloquea nadie.
+
+**A6 — Orden sin peso en Odoo.**
+Usá la **venta C** (peso `NULL`). Activá carga parcial, asigná cuotas
+enormes.
+→ El aviso de suma **no va a aparecer nunca**, porque no hay total contra
+qué comparar. Ver **Parte 3, punto 5**.
+
+**A7 — Peso 0 vs NULL.**
+Compará la venta C (`NULL`) con la D (`0`). En ventas, ambas deben leerse
+como "sin dato en Odoo". Bug si la D muestra `0 kg` como si fuera un peso
+real.
+
+**A8 — Cancelar un despacho parcial.**
+Creá dos parciales, cancelá uno.
+→ El badge debe bajar a `1 camión` y restar sus kg. La orden sigue visible.
+Bug si el cancelado sigue contando.
+
+**A9 — Entregar todos los parciales y volver a Pre-Despacho.**
+→ La orden debe **desaparecer** (esto lo arregló el prompt 17B). Bug si
+sigue ahí.
+
+**A10 — Traslado cancelado en Odoo con parciales.**
+```sql
+UPDATE traslados SET estado_logistico = 'cancelado' WHERE id = <F>;
+```
+→ Debe salir de "Traslados por Planificar" inmediatamente.
+
+**A11 — Traslado en tránsito con carga sin asignar.**
+Un parcial del traslado F en estado `en-ruta`.
+→ El traslado **sigue visible** para sumarle otro camión. Bug si
+desaparece (sería pasarse de restrictivo).
+
+### B. Viajes compartidos
+
+**B1 — Mismo vehículo, horarios solapados.**
+Creá un viaje con el camión X de hoy 08:00 a mañana 08:00. Armá otro viaje
+con el mismo camión y horario solapado.
+→ Alerta roja bajo el selector y botón deshabilitado.
+
+**B2 — El mismo ataque, en dos pestañas.** ⚠️
+Abrí Pre-Despacho en dos pestañas. En ambas, armá un viaje con el mismo
+camión y horario solapado. Confirmá **las dos**.
+→ Ver **Parte 3, punto 1**. Los dos se van a crear.
+
+**B3 — Mismo chofer, dos viajes a la vez.** ⚠️
+→ Ver **Parte 3, punto 2**. No hay ninguna validación.
+
+**B4 — Capacidad consolidada.**
+Armá un viaje con dos órdenes cuya suma supere el camión.
+→ Debe bloquear. Ahora probá lo mismo pero con **dos despachos parciales**
+cuyas cuotas sí sumen menos que la capacidad → debe **permitirlo**. Si lo
+bloquea, está sumando totales de orden en vez de cuotas.
+
+**B5 — Retirar una parada del viaje.**
+→ Desaparece de las paradas, el contador baja, y ese despacho vuelve a
+dejar editar vehículo/chofer.
+
+**B6 — Retirar todas las paradas.**
+→ ¿Qué pasa con el viaje vacío? Anotá el comportamiento; no está
+especificado.
+
+**B7 — Editar un despacho que está en un viaje.**
+Intentá cambiarle el vehículo desde **Despachos**.
+→ Debe rechazarlo con un mensaje claro ("se administran desde el viaje #N").
+
+**B8 — Fallo a mitad de la creación.**
+Armá un viaje con 2 órdenes y, mientras el asistente corre, cancelá una de
+las órdenes por SQL.
+→ El asistente debe detenerse y decirte exactamente qué despacho se creó y
+cuál falló, sin reintentar solo.
+
+### C. Fechas y horarios
+
+**C1 — Regresión del bug de las +4 horas.** ⚠️
+Este bug existió y se arregló. Verificá que no volvió:
+Creá un despacho con salida **hoy 08:00**. Guardalo. Abrí el formulario de
+edición y **guardá sin cambiar nada**. Repetí **cinco veces**.
+→ La hora debe seguir en 08:00. Bug si va corriéndose (+4h por edición).
+Hacelo también en el detalle del viaje y en el acta de llegada.
+
+**C2 — Llegada anterior a la salida.**
+→ Debería rechazarlo. Anotá si lo acepta.
+
+**C3 — Fechas muy lejanas.**
+Salida en 2030. Ver que no rompa los cálculos de costo.
+
+### D. Estados y sincronización
+
+**D1 — Reconciliación vs. sync en vivo.**
+Después de todos los ataques, corré la reconciliación de estados y volvé a
+correr la query de control.
+→ Los estados no deben cambiar. Si cambian, la derivación en TypeScript y
+la de SQL discrepan.
+
+**D2 — Traslado terminal de Odoo.**
+```sql
+UPDATE traslados SET estado_logistico = 'confirmado_odoo' WHERE id = <E>;
+```
+Ahora marcá su despacho como entregado.
+→ El traslado debe **seguir** en `confirmado_odoo`. Es la regla de oro: los
+estados terminales de Odoo no se pisan nunca.
+
+**D3 — Orden sin despachos.**
+```sql
+DELETE FROM dispatches WHERE venta_id = <A>;
+```
+→ La venta debe volver a `pendiente`, **nunca** a `entregado`. (Este es el
+caso del `[].every()`; ya tiene test, pero verificalo con datos reales.)
+
+**D4 — Todos los despachos cancelados.**
+→ La orden vuelve a `pendiente` y reaparece en Pre-Despacho.
+
+### E. Sincronización con Odoo
+
+**E1 — Backfill mientras corre el polling.**
+El polling de albaranes corre cada 5 minutos. Disparale el backfill
+histórico justo encima.
+→ No debe duplicar traslados ni romper la marca de agua. Verificá después
+que la sincronización incremental normal sigue trayendo lo nuevo.
+
+**E2 — Backfill dos veces seguidas.**
+Sin esperar a que termine la primera.
+→ Anotá qué pasa. No hay protección contra doble clic más allá del
+`disabled` del botón.
+
+**E3 — Odoo caído.**
+Apagá las credenciales de Odoo y dale al botón.
+→ Mensaje de error claro, no un crash ni un toast vacío.
+
+### F. Interfaz
+
+**F1 — Tablas largas.**
+Con muchas órdenes pendientes: la tabla de Ventas debe cortarse a ~420px
+con scroll propio, el encabezado quedarse fijo, y la tarjeta de Traslados
+verse sin bajar una pantalla entera.
+
+**F2 — Pantalla angosta.**
+Achicá la ventana a ~800px. El modal de viaje compartido no debe desbordar
+horizontalmente ni cortar textos largos.
+
+**F3 — Cambiar de orden sin cerrar el diálogo.**
+Abrí la venta B (parcial, switch encendido), cerrá, abrí la venta A
+(normal).
+→ El switch debe estar **apagado** y los campos limpios. Bug si queda
+pegado el estado de la orden anterior.
+
+**F4 — Modo "Armar viaje" con órdenes parciales.**
+Activá "Armar viaje" con la venta B parcialmente cubierta.
+→ No debería poder seleccionarse (está excluida a propósito del modo
+viaje). Verificá que efectivamente no aparece seleccionable.
+
+### G. Permisos por almacén
+
+**G1 — Almacenista sin almacenes asignados.** ⚠️
+```sql
+UPDATE personnel SET rol = 'almacenista' WHERE id = <alguien>;
+DELETE FROM personal_almacenes WHERE personnel_id = <ese_id>;
+```
+Entrá con ese usuario.
+→ Ver **Parte 3, punto 4**. Va a tener acceso **total**.
+
+**G2 — Almacenista con un solo almacén.**
+Asignale solo el almacén 1 e intentá planificar un traslado del almacén 2.
+→ Debe rechazarlo.
+
+---
+
+## Parte 3 — Agujeros que ya encontré en el código
+
+Estos los verifiqué leyendo el código, no son sospechas. Los ordeno por
+gravedad. Ninguno rompe el camino feliz — todos aparecen cuando alguien
+hace algo fuera de lo previsto.
+
+### 1. No hay chequeo de conflicto de vehículo en el servidor
+
+**Qué pasa.** Las dos validaciones de "este camión ya está ocupado" viven
+**solo en el frontend**: una en el formulario de Pre-Despacho y otra en el
+asistente de viaje. El backend acepta cualquier cosa.
+
+**Cómo se rompe.** Tres formas: dos pestañas abiertas (ataque B2), una
+llamada directa a la API, o simplemente la ventana de 30 segundos en que la
+lista de despachos del navegador está desactualizada.
+
+**Consecuencia.** Un camión asignado a dos viajes solapados, sin ninguna
+alerta.
+
+**Arreglo.** Mover la validación al `POST /dispatches` y a la creación de
+viajes, dentro de la misma transacción que ya bloquea el viaje.
+
+### 2. No hay ningún chequeo de conflicto de chofer
+
+**Qué pasa.** El vehículo al menos se valida del lado del cliente. El chofer
+**no se valida en ningún lado** — ni cliente ni servidor.
+
+**Cómo se rompe.** Asignale el mismo chofer a dos despachos que se solapan.
+Se crean los dos sin decir nada.
+
+**Consecuencia.** Es más grave que el del vehículo en la práctica: dos
+camiones pueden existir, un chofer no puede estar en dos lugares. Además
+los viáticos se le cuentan dos veces.
+
+**Arreglo.** La misma validación del punto 1, extendida a `choferId` y
+`ayudanteId`.
+
+### 3. Nada impide mezclar un despacho parcial con uno completo
+
+**Qué pasa.** Una orden puede tener a la vez un despacho parcial (con
+cuota) y uno completo (con el total de la orden). No hay validación en
+ningún lado.
+
+**Cómo se rompe.** Es alcanzable desde la interfaz sin hacer nada raro: la
+orden con parciales sigue visible, el switch viene encendido por defecto
+**pero se puede apagar**, y ahí se crea un despacho completo.
+
+**Consecuencia.** La carga queda sobrecontada (cuota + total completo), y
+la orden desaparece de Pre-Despacho porque el despacho completo la marca
+como cubierta — dejando el parcial huérfano.
+
+**Arreglo.** Rechazar en `POST /dispatches` un despacho completo para una
+orden que ya tiene parciales activos, y viceversa. O bien deshabilitar el
+switch cuando la orden ya tiene parciales.
+
+### 4. Los permisos por almacén fallan en abierto
+
+**Qué pasa.** `resolveAlmacenAccess` devuelve acceso **total** salvo que la
+persona sea `rol = 'almacenista'` **y además** tenga almacenes asignados. Un
+almacenista sin asignaciones queda con acceso completo (se registra un
+warning en el log, pero se le concede).
+
+**Es intencional** — está comentado como "resguardo operativo" para no
+trabar a nadie durante la transición. Lo listo igual porque es fácil
+olvidarse de que la Fase 3B **no está protegiendo nada** hasta que cada
+almacenista tenga sus almacenes cargados.
+
+**Arreglo.** Ninguno técnico: cargá las asignaciones. Si querés que falle
+cerrado, hay que cambiar esa política a propósito.
+
+### 5. El aviso de suma solo funciona si Odoo tiene el total
+
+**Qué pasa.** El aviso "las cuotas superan el total" compara contra
+`selectedPesoOdoo`. Si la orden no tiene peso en Odoo (`null`), la
+condición nunca se cumple.
+
+**Consecuencia.** En las órdenes sin dato — que son justamente las que más
+necesitan control manual — podés asignar cualquier cantidad sin ningún
+aviso.
+
+**Arreglo.** Menor: cuando no hay total conocido, mostrar un texto neutro
+("sin total en Odoo: las cuotas no se pueden contrastar") en vez de nada.
+
+### 6. Apagar la carga parcial deja la cuota como estimación silenciosa
+
+**Qué pasa.** Si editás un despacho parcial y apagás `cargaParcial`, el
+valor de `pesoEstimadoKg` **queda guardado**. Como despacho normal, ese
+número pasa a interpretarse como "estimación de respaldo".
+
+**Consecuencia.** Si la orden tiene peso en Odoo, no pasa nada (Odoo
+gana). Si **no** lo tiene, la vieja cuota de un camión se convierte en el
+peso de la orden entera, sin que nada lo indique.
+
+**Arreglo.** Limpiar las cuotas cuando `cargaParcial` pasa de `true` a
+`false` en el `PATCH`.
+
+### 7. Dos números de viáticos distintos para el mismo viaje
+
+**Qué pasa.** El viaje calcula `costoViaticosEstimado` con **su** distancia
+total y **su** chofer. Cada despacho calcula su propio `costoViaticos` con
+**su** `distanciaKm`. Son cuentas distintas sobre los mismos datos.
+
+**Consecuencia.** Si mirás el viaje y después los despachos que lo componen,
+los números no van a cuadrar. No es un error de cálculo, es que miden cosas
+distintas — pero en pantalla no se explica.
+
+**Arreglo.** Etiquetar cada uno con claridad, o mostrar solo el del viaje
+cuando el despacho pertenece a uno.
+
+---
+
+## Cómo reportarme lo que encuentres
+
+Para cada falla, mandame:
+
+1. **Qué hiciste** (el número del ataque, ej. "A5").
+2. **Qué esperabas** y **qué pasó**.
+3. La salida de la **query de control** (Parte 0.4) justo después.
+4. Si es visual, una captura.
+
+Con eso lo reviso contra el código y, si es real, te armo el prompt del
+arreglo. Los siete puntos de la Parte 3 ya los tengo ubicados — decime
+cuáles querés atacar y en qué orden. Mi recomendación es **1, 2 y 3
+primero**: los tres se arreglan en el mismo lugar (`POST /dispatches` y la
+creación de viajes) y son los que producen datos incorrectos en
+producción.

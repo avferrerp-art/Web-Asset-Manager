@@ -1,0 +1,332 @@
+════════════════════════════════════════════════════════════
+PROMPT 18 — Validar conflictos de vehículo y chofer en el servidor,
+y evitar mezclar carga parcial con carga completa
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, Node 24, TypeScript 5.9.
+
+Piezas relevantes:
+- `artifacts/api-server` — Express 5.
+  - `src/routes/dispatches.ts` — `POST /dispatches`, `PATCH /dispatches/:id`.
+  - `src/services/viajeQueries.ts` — creación y edición transaccional de
+    viajes compartidos.
+  - `src/services/dispatchCapacity.ts` — validaciones de capacidad ya
+    existentes (buen ejemplo del estilo a seguir).
+- `e2e/tests/` — tests de API con Vitest.
+
+Reglas no negociables:
+1. **Reiniciar el api-server** después de tocar cualquier `lib/` (esbuild
+   bundlea al arrancar).
+2. `null` = "sin dato", nunca `0`.
+
+**Este prompt es solo backend.** No toques el frontend, ni las migraciones,
+ni nada dentro de `generated/`. **Tampoco hace falta tocar
+`openapi.yaml`**: hoy este API no documenta respuestas de error en ningún
+endpoint de despachos (solo el `201`), así que agregar una sola sería
+inconsistente. Seguimos esa convención.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Hay tres huecos que permiten guardar datos incorrectos. Los tres se
+resuelven en el mismo lugar.
+
+**(1) El conflicto de vehículo solo se valida en el navegador.**
+Existen dos chequeos de "este camión ya está ocupado": uno en
+`pre-despacho.tsx` y otro en `viaje-wizard.tsx`. Los dos son **del lado del
+cliente**. El backend acepta cualquier cosa. Se rompe con dos pestañas
+abiertas, con una llamada directa a la API, o simplemente por la ventana de
+30 segundos en la que la lista de despachos del navegador está
+desactualizada.
+
+**(2) El chofer no se valida en ningún lado.**
+Ni cliente ni servidor. El mismo chofer puede quedar asignado a dos
+despachos que se solapan. En la práctica es más grave que lo del vehículo:
+dos camiones pueden existir, un chofer no puede estar en dos lugares — y
+además se le cuentan los viáticos dos veces.
+
+**(3) Nada impide mezclar un despacho parcial con uno completo en la misma
+orden.** Es alcanzable desde la interfaz sin hacer nada raro: una orden con
+reparto en curso sigue visible en Pre-Despacho, el switch de carga parcial
+viene encendido por defecto **pero se puede apagar**, y ahí se crea un
+despacho por la orden entera. Resultado: la carga queda sobrecontada (cuota
++ total completo) y el despacho parcial queda huérfano.
+
+De paso cerramos un cuarto detalle chico, porque vive en el mismo `PATCH`:
+al apagar `cargaParcial` en un despacho existente, su cuota **queda
+guardada** y pasa a interpretarse como "estimación de respaldo". Si la orden
+no tiene peso en Odoo, la cuota de un camión se convierte en silencio en el
+peso de la orden entera.
+
+════════════════════════════════════════
+DECISIÓN DE DISEÑO YA TOMADA
+════════════════════════════════════════
+
+El conflicto de chofer **rechaza**, no advierte. Igual que el de vehículo.
+No implementes un modo "permitir igual".
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **⚠️ LA TRAMPA GRANDE: el asistente de viaje compartido crea los
+   despachos ANTES del viaje, todos con el mismo vehículo, el mismo chofer y
+   exactamente el mismo horario.**
+
+   Mirá `submit()` en `viaje-wizard.tsx`: recorre las órdenes y llama
+   `createDispatch.mutateAsync` una por una con el mismo objeto `common`
+   (vehículo, chofer, ayudante, salida, llegada), y **recién después** llama
+   a `createViaje` con los IDs resultantes.
+
+   Es decir: cuando se crea el segundo despacho del viaje, el primero ya
+   existe con **el mismo camión y el mismo rango horario**. Un chequeo de
+   conflicto ingenuo lo va a rechazar y **vas a romper por completo la
+   función de viajes compartidos**.
+
+   La solución es la **exención de mismo viaje** descrita en la tarea: un
+   despacho existente no cuenta como conflicto si tiene el mismo vehículo,
+   el mismo chofer y **exactamente** el mismo instante de salida y de
+   llegada que el candidato. Eso no es un parche: un mismo camión, con la
+   misma tripulación, en la misma ventana exacta, **es** un solo viaje
+   físico. El conflicto que nos importa es entre viajes que se **solapan
+   parcialmente**, no entre paradas del mismo viaje.
+
+   Verificá esto explícitamente antes de dar la tarea por terminada: armá un
+   viaje compartido con 3 órdenes y confirmá que se crea.
+
+2. **El solapamiento tiene que ser estricto.** Usá
+   `nuevoInicio < finExistente && nuevoFin > inicioExistente`. Con `<=` y
+   `>=`, dos viajes consecutivos (uno termina 08:00, el siguiente arranca
+   08:00) se rechazarían mutuamente, que es un uso legítimo y frecuente.
+
+3. **Solo los estados ocupados cuentan.** Replicá exactamente los que ya usa
+   el frontend: `["pre-despacho", "aprobado", "en-ruta"]`. Un despacho
+   `entregado` o `cancelado` **libera** el recurso y no debe generar
+   conflicto.
+
+4. **En el `PATCH`, excluí el propio despacho.** Si no, editar cualquier
+   campo de un despacho lo hace chocar consigo mismo y nada se puede
+   guardar nunca.
+
+5. **Las fechas son columnas `text`, no `timestamp`.** Parsealas con `new
+   Date(...)` antes de comparar rangos. Para la exención de mismo viaje,
+   compará los instantes parseados (`.getTime()`), no las cadenas crudas —
+   dos formatos distintos pueden representar el mismo momento.
+
+6. **El viaje propaga vehículo y tripulación a todos sus despachos.** Cuando
+   valides cambios a nivel de viaje, excluí del chequeo los despachos que
+   pertenecen a **ese mismo viaje**, o el viaje va a chocar contra sus
+   propias paradas.
+
+7. **Dentro de `viajeQueries.ts`, el chequeo va dentro de la transacción**,
+   usando el mismo `executor`/`tx` que ya se usa ahí. Si lo hacés fuera,
+   volvés a abrir exactamente la ventana de carrera que este prompt viene a
+   cerrar. Respetá el orden de bloqueo que ya documenta
+   `.agents/memory/viaje-membership-concurrency.md` (viajes primero, por ID
+   ascendente).
+
+8. **No intentes resolver esto con un índice UNIQUE.** Es un solapamiento
+   temporal, no una igualdad; un índice no lo expresa. La validación va en
+   código, dentro de la transacción.
+
+9. **El `message` del error se muestra tal cual al usuario.** El cliente
+   generado arma `error.message` a partir del campo `message` del cuerpo
+   (ver `buildErrorMessage` en `custom-fetch.ts`). Escribí frases completas
+   y en español, no códigos sueltos.
+
+10. **Para la coherencia parcial/completo, evaluá el candidato, no el
+    body.** En el `PATCH`, el estado final es el merge de lo existente con
+    lo que viene — igual que ya se hace para la validación de capacidad.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Servicio nuevo de conflictos**
+
+Creá `artifacts/api-server/src/services/resourceConflicts.ts`:
+
+```ts
+export const BUSY_DISPATCH_STATES = ["pre-despacho", "aprobado", "en-ruta"];
+
+export type ConflictCandidate = {
+  vehiculoId: number;
+  choferId: number;
+  ayudanteId: number | null;
+  fechaEstimadaSalida: string;
+  fechaEstimadaLlegada: string;
+};
+
+export type ResourceConflict = {
+  recurso: "vehiculo" | "chofer" | "ayudante";
+  despachoId: number;
+  fechaEstimadaSalida: string;
+  fechaEstimadaLlegada: string;
+};
+```
+
+Y una función `findResourceConflict(executor, candidate, options)` donde
+`options` acepta `excludeDispatchIds?: number[]` y `excludeViajeId?: number
+| null`. Devuelve el **primer** conflicto encontrado, o `null`.
+
+La lógica, por cada despacho existente en estado ocupado:
+
+- Saltarlo si su ID está en `excludeDispatchIds`, o si su `viajeId` coincide
+  con `excludeViajeId` (trampa 6).
+- Saltarlo si es **el mismo viaje físico** que el candidato: mismo
+  `vehiculoId`, mismo `choferId`, y mismos instantes exactos de salida y
+  llegada (trampa 1).
+- Saltarlo si los rangos **no** se solapan (trampa 2).
+- Si sobrevive a todo eso, reportar conflicto si comparte `vehiculoId`,
+  `choferId`, o si su chofer/ayudante coincide con el ayudante del
+  candidato. Una misma persona no puede ir de chofer en un despacho y de
+  ayudante en otro que se solapa.
+
+Agregá también un helper para armar el mensaje, que nombre el recurso y el
+despacho en conflicto. Por ejemplo:
+
+```
+El chofer ya está asignado al despacho #42, del 25/08 08:00 al 26/08 08:00.
+Cambia el chofer o ajusta el horario.
+```
+
+**2. Coherencia entre carga parcial y carga completa**
+
+En el mismo archivo (o en `dispatchCapacity.ts`, donde te parezca más
+natural), agregá una validación que, dado el candidato y los despachos
+activos de la misma orden, rechace estas dos combinaciones:
+
+- Candidato **no parcial** cuando la orden ya tiene al menos un despacho
+  parcial activo.
+- Candidato **parcial** cuando la orden ya tiene un despacho no parcial
+  activo.
+
+"Activo" = estado distinto de `cancelado`. Mensajes sugeridos:
+
+```
+Esta orden ya tiene un reparto en curso. El nuevo despacho también debe ser
+de carga parcial.
+```
+```
+Esta orden ya tiene un despacho por la carga completa. No se le puede sumar
+un reparto parcial.
+```
+
+**3. Conectar en `POST /dispatches`**
+
+Después de las validaciones que ya existen (venta/traslado/vehículo
+existen) y **antes** del `insert`:
+
+- Ejecutar `findResourceConflict`. Si devuelve algo, responder `409` con
+  `{ error: "resource_conflict", recurso, despachoId, message }`.
+- Ejecutar la validación de coherencia parcial/completo. Si falla, `409` con
+  `{ error: "partial_cargo_mismatch", message }`.
+
+**4. Conectar en `PATCH /dispatches/:id`**
+
+El bloque que ya recarga `existing` cuando cambian campos de capacidad es el
+lugar natural. Ampliá la condición que dispara esa recarga para que también
+incluya `vehiculoId`, `choferId`, `ayudanteId`, `fechaEstimadaSalida` y
+`fechaEstimadaLlegada` (algunos ya están).
+
+Sobre el **candidato** (`{ ...existing, ...parsed.data }`):
+- `findResourceConflict` con `excludeDispatchIds: [id]` (trampa 4).
+- La validación de coherencia parcial/completo, excluyendo también el propio
+  despacho de la lista de "despachos de la orden".
+
+**5. Limpiar la cuota al apagar la carga parcial**
+
+En el mismo `PATCH`: si `existing.cargaParcial === true` y el candidato
+queda con `cargaParcial === false`, poné `pesoEstimadoKg` y
+`volumenEstimadoM3` en `null` — salvo que el body los traiga explícitamente
+con un valor. Documentalo con un comentario corto explicando por qué (la
+cuota de un camión no es una estimación válida para la orden entera).
+
+**6. Conectar en los viajes**
+
+En `artifacts/api-server/src/services/viajeQueries.ts`, dentro de las
+transacciones ya existentes:
+
+- En `createViaje`, después de `validateOperationalReferences` y antes de
+  insertar: validar el conflicto de los recursos del viaje
+  (`vehiculoId`/`choferId`/`ayudanteId` + la ventana horaria que surge de
+  sus despachos), excluyendo los despachos que van a formar parte de este
+  viaje (`input.despachoIds`).
+- En la operación que cambia vehículo/chofer/ayudante de un viaje existente:
+  la misma validación, con `excludeViajeId` apuntando a ese viaje
+  (trampa 6).
+
+Los errores acá se lanzan como
+`new ViajeInputError(409, "resource_conflict", mensaje)` — esa clase ya
+lleva su propio `status` y el router de viajes ya la traduce.
+
+**7. Tests**
+
+En `e2e/tests/` (donde mejor encaje con lo que ya existe), cubrí:
+
+a. **Regresión crítica**: un viaje compartido con 3 órdenes se crea
+   correctamente (los 3 despachos comparten vehículo, chofer y horario
+   exacto). Éste es el test que protege contra la trampa 1.
+b. Dos despachos con el mismo vehículo y horarios solapados **pero
+   distintos** → el segundo da `409`.
+c. Lo mismo con el mismo chofer y distinto vehículo → `409`.
+d. Persona que va de chofer en uno y de ayudante en otro solapado → `409`.
+e. Horarios consecutivos exactos (uno termina cuando el otro empieza) → se
+   permite (trampa 2).
+f. Solapamiento contra un despacho `entregado` o `cancelado` → se permite
+   (trampa 3).
+g. `PATCH` de un despacho sin cambiarle nada → `200`, no choca consigo mismo
+   (trampa 4).
+h. Despacho completo sobre una orden que ya tiene un parcial activo → `409`.
+i. Despacho parcial sobre una orden que ya tiene uno completo → `409`.
+j. `PATCH` que apaga `cargaParcial` → las cuotas quedan en `null`.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el frontend. Los mensajes nuevos ya se muestran solos en los
+  toasts existentes, porque el cliente arma `error.message` desde el campo
+  `message` de la respuesta.
+- No toques `openapi.yaml`, las migraciones, ni nada en `generated/`.
+- No agregues índices UNIQUE ni constraints de base de datos.
+- No inventes un modo "permitir conflicto igual", ni un parámetro para
+  saltearse la validación.
+- No cambies `effectiveDispatchMeasure`,
+  `effectivePartialDispatchMeasure`, `exceedsDispatchCapacity` ni las
+  derivaciones de estado (`deriveSaleEstado`,
+  `deriveTrasladoEstadoFromDispatch`).
+- No amplíes ni recortes `BUSY_DISPATCH_STATES` respecto de lo que usa hoy
+  el frontend.
+- No toques los permisos por almacén.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm typecheck` (o el script equivalente) pasa sin errores.
+2. Todos los tests, nuevos y viejos, pasan.
+3. **Prueba manual obligatoria — la trampa 1**: desde Pre-Despacho, armá un
+   viaje compartido con **3 órdenes**. Tiene que crearse sin ningún error.
+   Si falla con `resource_conflict`, la exención de mismo viaje está mal y
+   rompiste la función principal de la Fase 4.
+4. **El ataque de las dos pestañas**: abrí Pre-Despacho en dos pestañas y
+   creá en ambas un despacho con el mismo camión y horarios solapados. La
+   primera pasa, la segunda debe fallar con `409` y un mensaje legible en el
+   toast — ya no depende de que el navegador tenga la lista fresca.
+5. **Chofer**: mismo chofer, distinto camión, horarios solapados → `409`.
+6. **Consecutivos**: un despacho de 08:00 a 12:00 y otro de 12:00 a 16:00
+   con el mismo camión → los dos se crean.
+7. **Recurso liberado**: marcá un despacho como `entregado` y creá otro con
+   el mismo camión en el mismo horario → se permite.
+8. **Mezcla parcial/completo**: sobre una orden con un reparto en curso,
+   apagá el switch de carga parcial e intentá confirmar → `409` con un
+   mensaje entendible.
+9. **Cuota limpiada**: creá un despacho parcial con cuota, editalo apagando
+   `cargaParcial`, y confirmá por SQL que `peso_estimado_kg` y
+   `volumen_estimado_m3` quedaron en `NULL`.
