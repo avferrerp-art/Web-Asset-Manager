@@ -1141,6 +1141,7 @@ export const ListDispatchesResponseItem = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(listDispatchesResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(listDispatchesResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -1158,11 +1159,13 @@ export const ListDispatchesResponse = zod.array(ListDispatchesResponseItem)
 /**
  * @summary Create a dispatch
  */
+export const createDispatchBodyOneOneCargaParcialDefault = false;
 export const createDispatchBodyOneOnePesoEstimadoKgExclusiveMin = 0;
 
 export const createDispatchBodyOneOneVolumenEstimadoM3ExclusiveMin = 0;
 
 export const createDispatchBodyOneTwoTipoDefault = `venta`;
+export const createDispatchBodyTwoOneCargaParcialDefault = false;
 export const createDispatchBodyTwoOnePesoEstimadoKgExclusiveMin = 0;
 
 export const createDispatchBodyTwoOneVolumenEstimadoM3ExclusiveMin = 0;
@@ -1180,6 +1183,7 @@ export const CreateDispatchBody = zod.union([zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().optional(),
   "totalPeajes": zod.number().optional(),
+  "cargaParcial": zod.boolean().default(createDispatchBodyOneOneCargaParcialDefault),
   "pesoEstimadoKg": zod.number().gt(createDispatchBodyOneOnePesoEstimadoKgExclusiveMin).nullish(),
   "volumenEstimadoM3": zod.number().gt(createDispatchBodyOneOneVolumenEstimadoM3ExclusiveMin).nullish(),
   "routePoints": zod.array(zod.object({
@@ -1202,6 +1206,7 @@ export const CreateDispatchBody = zod.union([zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().optional(),
   "totalPeajes": zod.number().optional(),
+  "cargaParcial": zod.boolean().default(createDispatchBodyTwoOneCargaParcialDefault),
   "pesoEstimadoKg": zod.number().gt(createDispatchBodyTwoOnePesoEstimadoKgExclusiveMin).nullish(),
   "volumenEstimadoM3": zod.number().gt(createDispatchBodyTwoOneVolumenEstimadoM3ExclusiveMin).nullish(),
   "routePoints": zod.array(zod.object({
@@ -1239,6 +1244,7 @@ export const CreateDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(createDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(createDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -1283,6 +1289,7 @@ export const GetDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(getDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(getDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -1359,6 +1366,7 @@ export const UpdateDispatchBody = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().optional(),
   "totalPeajes": zod.number().optional(),
+  "cargaParcial": zod.boolean().optional(),
   "pesoEstimadoKg": zod.number().gt(updateDispatchBodyPesoEstimadoKgExclusiveMin).nullish(),
   "volumenEstimadoM3": zod.number().gt(updateDispatchBodyVolumenEstimadoM3ExclusiveMin).nullish(),
   "viajeId": zod.number().nullish()
@@ -1388,6 +1396,7 @@ export const UpdateDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(updateDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(updateDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -1493,6 +1502,7 @@ export const CreateViajeResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(createViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(createViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -1559,6 +1569,7 @@ export const GetViajeResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(getViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(getViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -1635,6 +1646,7 @@ export const UpdateViajeResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(updateViajeResponseTwoDespachosItemPesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(updateViajeResponseTwoDespachosItemVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -1758,6 +1770,7 @@ export const ApproveDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(approveDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(approveDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -1962,6 +1975,7 @@ export const ListDriverDispatchesResponseItem = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(listDriverDispatchesResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(listDriverDispatchesResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -2007,6 +2021,7 @@ export const GetDriverDispatchResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(getDriverDispatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(getDriverDispatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),
@@ -2118,6 +2133,7 @@ export const UpdateDriverDispatchStatusResponse = zod.object({
   "distanciaManual": zod.boolean().optional(),
   "routeId": zod.number().nullish(),
   "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
   "pesoEstimadoKg": zod.number().gt(updateDriverDispatchStatusResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
   "volumenEstimadoM3": zod.number().gt(updateDriverDispatchStatusResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
   "createdAt": zod.string(),

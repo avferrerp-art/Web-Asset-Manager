@@ -24,6 +24,7 @@ import { sql as dispatchesMigrationSql } from "../../lib/db/src/migrations/0010_
 import { sql as actasMigrationSql } from "../../lib/db/src/migrations/0011_actas_llegada";
 import { sql as dispatchEstimatesMigrationSql } from "../../lib/db/src/migrations/0016_dispatch_cargo_estimates";
 import { sql as dispatchEstimatesBackfillSql } from "../../lib/db/src/migrations/0017_backfill_dispatch_cargo_estimates";
+import { sql as dispatchPartialCargoSql } from "../../lib/db/src/migrations/0018_dispatch_partial_cargo";
 import {
   buildDispatchDetail,
   buildDispatchRow,
@@ -347,6 +348,40 @@ describe("migración de estimaciones por despacho", () => {
       client.release();
     }
   });
+
+  it("añade carga parcial con false por defecto y es idempotente", async () => {
+    const client = await pool.connect();
+    const schemaName = `dispatch_partial_${process.pid}`;
+    try {
+      await client.query("BEGIN");
+      await client.query(`CREATE SCHEMA "${schemaName}"`);
+      await client.query(`SET LOCAL search_path TO "${schemaName}"`);
+      await client.query(`
+        CREATE TABLE dispatches (id serial PRIMARY KEY);
+        INSERT INTO dispatches DEFAULT VALUES;
+      `);
+      await client.query(dispatchPartialCargoSql);
+      await client.query(dispatchPartialCargoSql);
+      const result = await client.query(`
+        SELECT carga_parcial, is_nullable, column_default
+        FROM dispatches
+        JOIN information_schema.columns
+          ON table_schema = current_schema()
+         AND table_name = 'dispatches'
+         AND column_name = 'carga_parcial'
+      `);
+      expect(result.rows).toEqual([
+        {
+          carga_parcial: false,
+          is_nullable: "NO",
+          column_default: "false",
+        },
+      ]);
+    } finally {
+      await client.query("ROLLBACK").catch(() => {});
+      client.release();
+    }
+  });
 });
 
 
@@ -488,6 +523,9 @@ describe("despachos de venta y traslado", () => {
     ).toBe("en_transito");
     expect(
       deriveTrasladoEstadoFromDispatch(["entregado", "en-ruta", "aprobado"]),
+    ).toBe("en_transito");
+    expect(
+      deriveTrasladoEstadoFromDispatch(["entregado", "cancelado"]),
     ).toBe("entregado");
 
     await syncTrasladoEstadoFromDispatch(trasladoId);
@@ -527,6 +565,14 @@ describe("despachos de venta y traslado", () => {
 
     await syncTrasladoEstadoFromDispatch(trasladoId);
     traslado = await getTraslado(trasladoId);
+    expect(traslado!.estadoLogistico).toBe("en_transito");
+
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "entregado" })
+      .where(eq(dispatchesTable.id, originalDispatchId));
+    await syncTrasladoEstadoFromDispatch(trasladoId);
+    traslado = await getTraslado(trasladoId);
     expect(traslado!.estadoLogistico).toBe("entregado");
 
     await db
@@ -535,7 +581,7 @@ describe("despachos de venta y traslado", () => {
       .where(eq(dispatchesTable.id, deliveredDispatch!.id));
     await syncTrasladoEstadoFromDispatch(trasladoId);
     traslado = await getTraslado(trasladoId);
-    expect(traslado!.estadoLogistico).toBe("en_transito");
+    expect(traslado!.estadoLogistico).toBe("entregado");
 
     await db
       .update(dispatchesTable)

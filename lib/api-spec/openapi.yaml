@@ -2836,7 +2836,7 @@ components:
     # --- DISPATCHES ---
     Dispatch:
       type: object
-      required: [id, tipo, ventaId, trasladoId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, createdAt]
+      required: [id, tipo, ventaId, trasladoId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, cargaParcial, createdAt]
       properties:
         id:
           type: integer
@@ -2874,6 +2874,9 @@ components:
           type: ["integer", "null"]
         totalPeajes:
           type: ["number", "null"]
+        cargaParcial:
+          type: boolean
+          description: When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals
         pesoEstimadoKg:
           type: ["number", "null"]
           exclusiveMinimum: 0
@@ -2902,7 +2905,7 @@ components:
 
     DispatchDetail:
       type: object
-      required: [id, tipo, ventaId, trasladoId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, createdAt, pesoTotal, volumenTotal, saleItems, cargoItems, routePoints]
+      required: [id, tipo, ventaId, trasladoId, vehiculoId, choferId, fechaEstimadaSalida, fechaEstimadaLlegada, estado, cargaParcial, createdAt, pesoTotal, volumenTotal, saleItems, cargoItems, routePoints]
       properties:
         id:
           type: integer
@@ -2939,6 +2942,9 @@ components:
           type: ["integer", "null"]
         totalPeajes:
           type: ["number", "null"]
+        cargaParcial:
+          type: boolean
+          description: When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals
         pesoEstimadoKg:
           type: ["number", "null"]
           exclusiveMinimum: 0
@@ -3031,6 +3037,9 @@ components:
           type: integer
         totalPeajes:
           type: number
+        cargaParcial:
+          type: boolean
+          default: false
         pesoEstimadoKg:
           type: ["number", "null"]
           exclusiveMinimum: 0
@@ -3111,6 +3120,8 @@ components:
           type: integer
         totalPeajes:
           type: number
+        cargaParcial:
+          type: boolean
         pesoEstimadoKg:
           type: ["number", "null"]
           exclusiveMinimum: 0

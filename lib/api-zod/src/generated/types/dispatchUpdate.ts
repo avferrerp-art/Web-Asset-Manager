@@ -18,6 +18,7 @@ export interface DispatchUpdate {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  cargaParcial?: boolean;
   /**
      * @exclusiveMinimum 0
      * @nullable

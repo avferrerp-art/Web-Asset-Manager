@@ -714,6 +714,8 @@ export interface Dispatch {
   routeId?: number | null;
   /** @nullable */
   totalPeajes?: number | null;
+  /** When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals */
+  cargaParcial: boolean;
   /**
      * Manual dispatch estimate used only when Odoo has no weight
      * @exclusiveMinimum 0
@@ -835,6 +837,8 @@ export interface DispatchDetail {
   routeId?: number | null;
   /** @nullable */
   totalPeajes?: number | null;
+  /** When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals */
+  cargaParcial: boolean;
   /**
      * Manual dispatch estimate used only when Odoo has no weight
      * @exclusiveMinimum 0
@@ -918,6 +922,7 @@ export interface DispatchInputBase {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  cargaParcial?: boolean;
   /**
      * @exclusiveMinimum 0
      * @nullable
@@ -979,6 +984,7 @@ export interface DispatchUpdate {
   distanciaManual?: boolean;
   routeId?: number;
   totalPeajes?: number;
+  cargaParcial?: boolean;
   /**
      * @exclusiveMinimum 0
      * @nullable

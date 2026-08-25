@@ -5,7 +5,7 @@ import { logger } from "../lib/logger";
 /**
  * Deriva el estado que debería tener una venta a partir de los estados de
  * TODOS sus despachos:
- * - algún despacho "entregado"            -> "entregado"
+ * - todos los despachos activos entregados -> "entregado"
  * - algún despacho activo (no cancelado)  -> "despachado"
  * - sin despachos o todos cancelados      -> "pendiente"
  *
@@ -14,8 +14,9 @@ import { logger } from "../lib/logger";
 export function deriveSaleEstado(
   dispatchEstados: string[],
 ): "pendiente" | "despachado" | "entregado" {
-  if (dispatchEstados.includes("entregado")) return "entregado";
-  if (dispatchEstados.some((e) => e !== "cancelado")) return "despachado";
+  const active = dispatchEstados.filter((estado) => estado !== "cancelado");
+  if (active.length > 0 && active.every((estado) => estado === "entregado")) return "entregado";
+  if (active.length > 0) return "despachado";
   return "pendiente";
 }
 
@@ -32,7 +33,9 @@ export async function syncSaleEstadoFromDispatch(
   // con lecturas obsoletas.
   await db.execute(sql`
     UPDATE sales SET estado = CASE
-      WHEN EXISTS (SELECT 1 FROM dispatches WHERE venta_id = ${ventaId} AND estado = 'entregado') THEN 'entregado'
+      WHEN EXISTS (SELECT 1 FROM dispatches WHERE venta_id = ${ventaId} AND estado <> 'cancelado')
+        AND NOT EXISTS (SELECT 1 FROM dispatches WHERE venta_id = ${ventaId} AND estado <> 'cancelado' AND estado <> 'entregado')
+        THEN 'entregado'
       WHEN EXISTS (SELECT 1 FROM dispatches WHERE venta_id = ${ventaId} AND estado <> 'cancelado') THEN 'despachado'
       ELSE 'pendiente'
     END

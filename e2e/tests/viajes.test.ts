@@ -25,6 +25,11 @@ import {
   deriveViajeEstado,
   syncViajeEstadoFromDispatch,
 } from "../../artifacts/api-server/src/services/viajeEstadoSync";
+import {
+  deriveSaleEstado,
+  reconcileSaleEstados,
+  syncSaleEstadoFromDispatch,
+} from "../../artifacts/api-server/src/services/saleEstadoSync";
 
 vi.mock("../../artifacts/api-server/src/middlewares/requireAuth", () => ({
   requireAuth: (
@@ -80,6 +85,7 @@ async function createSaleDispatch(options: {
   volumenEstimadoM3?: number | null;
   estado?: string;
   vehicleId?: number;
+  cargaParcial?: boolean;
 }) {
   const [sale] = await db
     .insert(salesTable)
@@ -106,6 +112,7 @@ async function createSaleDispatch(options: {
       estado: options.estado ?? "pre-despacho",
       pesoEstimadoKg: options.pesoEstimadoKg ?? null,
       volumenEstimadoM3: options.volumenEstimadoM3 ?? null,
+      cargaParcial: options.cargaParcial ?? false,
     })
     .returning();
   dispatchIds.push(dispatch!.id);
@@ -549,6 +556,114 @@ describe.sequential("viajes compartidos", () => {
     });
   });
 
+  it("usa cuotas parciales al crear, editar y consolidar aunque Odoo tenga un total mayor", async () => {
+    const [sale] = await db
+      .insert(salesTable)
+      .values({
+        cliente: `Cliente parcial ${suffix}`,
+        destino: "Destino QA",
+        almacenOrigen: "Origen QA",
+        odooRef: `PARCIAL-${suffix}-${Math.random()}`,
+        pesoTotal: 2_000,
+        volumenTotal: 20,
+      })
+      .returning();
+    saleIds.push(sale!.id);
+
+    const missingQuota = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: sale!.id,
+        vehiculoId: vehicleIds[1],
+        choferId: personnelIds[0],
+        fechaEstimadaSalida: "2035-08-01T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-08-01T18:00:00.000Z",
+        cargaParcial: true,
+      }),
+    });
+    expect(missingQuota.status).toBe(400);
+    expect(await missingQuota.json()).toMatchObject({
+      error: "partial_cargo_quota_required",
+    });
+
+    const createdResponse = await api("/dispatches", {
+      method: "POST",
+      body: JSON.stringify({
+        tipo: "venta",
+        ventaId: sale!.id,
+        vehiculoId: vehicleIds[1],
+        choferId: personnelIds[0],
+        fechaEstimadaSalida: "2035-08-01T08:00:00.000Z",
+        fechaEstimadaLlegada: "2035-08-01T18:00:00.000Z",
+        cargaParcial: true,
+        pesoEstimadoKg: 200,
+        volumenEstimadoM3: 2,
+      }),
+    });
+    expect(createdResponse.status).toBe(201);
+    const created = await createdResponse.json();
+    dispatchIds.push(created.id);
+    expect(created).toMatchObject({ cargaParcial: true, pesoEstimadoKg: 200 });
+
+    const second = await createSaleDispatch({
+      peso: 4_000,
+      volumen: 40,
+      cargaParcial: true,
+      pesoEstimadoKg: 250,
+      volumenEstimadoM3: 2,
+      vehicleId: vehicleIds[1],
+    });
+    const trip = await postViaje({
+      vehiculoId: vehicleIds[1],
+      choferId: personnelIds[0],
+      fecha: "2035-08-11",
+      despachoIds: [created.id, second.id],
+    });
+    expect(trip.response.status).toBe(201);
+    expect(trip.json).toMatchObject({
+      pesoTotalKg: 450,
+      volumenTotalM3: 4,
+    });
+
+    const invalidEdit = await api(`/dispatches/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ pesoEstimadoKg: null, volumenEstimadoM3: null }),
+    });
+    expect(invalidEdit.status).toBe(400);
+    expect(await invalidEdit.json()).toMatchObject({
+      error: "partial_cargo_quota_required",
+    });
+
+    const invalidDetach = await api(`/dispatches/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        viajeId: null,
+        pesoEstimadoKg: null,
+        volumenEstimadoM3: null,
+      }),
+    });
+    expect(invalidDetach.status).toBe(400);
+    expect(await invalidDetach.json()).toMatchObject({
+      error: "partial_cargo_quota_required",
+    });
+    const [stillGrouped] = await db
+      .select({ viajeId: dispatchesTable.viajeId })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.id, created.id));
+    expect(stillGrouped!.viajeId).toBe(trip.json.id);
+
+    const validEdit = await api(`/dispatches/${created.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({ pesoEstimadoKg: 240 }),
+    });
+    expect(validEdit.status).toBe(200);
+    expect(await validEdit.json()).toMatchObject({
+      cargaParcial: true,
+      pesoEstimadoKg: 240,
+    });
+  });
+
   it("no guarda una estimación si la nueva carga rebasa el vehículo", async () => {
     const dispatch = await createSaleDispatch({
       peso: null,
@@ -694,6 +809,57 @@ describe.sequential("viajes compartidos", () => {
     });
     expect(manual.status).toBe(400);
     expect((await manual.json()).error).toBe("derived_state_readonly");
+  });
+
+  it("entrega una venta solo cuando todos sus despachos activos están entregados", async () => {
+    expect(deriveSaleEstado([])).toBe("pendiente");
+    expect(deriveSaleEstado(["cancelado"])).toBe("pendiente");
+    expect(deriveSaleEstado(["entregado"])).toBe("entregado");
+    expect(deriveSaleEstado(["entregado", "cancelado"])).toBe("entregado");
+    expect(deriveSaleEstado(["entregado", "en-ruta"])).toBe("despachado");
+
+    const first = await createSaleDispatch({ estado: "entregado" });
+    const [second] = await db
+      .insert(dispatchesTable)
+      .values({
+        ...first,
+        id: undefined,
+        estado: "en-ruta",
+        viajeId: null,
+        orden: null,
+        createdAt: undefined,
+      })
+      .returning();
+    dispatchIds.push(second!.id);
+
+    await syncSaleEstadoFromDispatch(first.ventaId!);
+    let [sale] = await db
+      .select({ estado: salesTable.estado })
+      .from(salesTable)
+      .where(eq(salesTable.id, first.ventaId!));
+    expect(sale!.estado).toBe("despachado");
+
+    await db
+      .update(dispatchesTable)
+      .set({ estado: "entregado" })
+      .where(eq(dispatchesTable.id, second!.id));
+    await syncSaleEstadoFromDispatch(first.ventaId!);
+    [sale] = await db
+      .select({ estado: salesTable.estado })
+      .from(salesTable)
+      .where(eq(salesTable.id, first.ventaId!));
+    expect(sale!.estado).toBe("entregado");
+
+    await db
+      .update(salesTable)
+      .set({ estado: "pendiente" })
+      .where(eq(salesTable.id, first.ventaId!));
+    expect(await reconcileSaleEstados()).toBeGreaterThanOrEqual(1);
+    [sale] = await db
+      .select({ estado: salesTable.estado })
+      .from(salesTable)
+      .where(eq(salesTable.id, first.ventaId!));
+    expect(sale!.estado).toBe("entregado");
   });
 
   it("recalcula ambos viajes al mover y retirar una parada", async () => {

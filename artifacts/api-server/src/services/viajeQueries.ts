@@ -18,7 +18,7 @@ import {
   vehiclesTable,
   viajesTable,
 } from "@workspace/db";
-import { effectiveDispatchMeasure, exceedsDispatchCapacity } from "./dispatchCapacity";
+import { effectivePartialDispatchMeasure, exceedsDispatchCapacity } from "./dispatchCapacity";
 import { deriveViajeEstado, viajeEstadoUpdateSql } from "./viajeEstadoSync";
 
 export class ViajeInputError extends Error {
@@ -61,8 +61,8 @@ async function loadDispatchCargoWith(
       .from(salesTable)
       .where(eq(salesTable.id, dispatch.ventaId));
     return {
-      pesoKg: effectiveDispatchMeasure(sale?.pesoKg, dispatch.pesoEstimadoKg, true),
-      volumenM3: effectiveDispatchMeasure(sale?.volumenM3, dispatch.volumenEstimadoM3, true),
+      pesoKg: effectivePartialDispatchMeasure(dispatch.cargaParcial, sale?.pesoKg, dispatch.pesoEstimadoKg, true),
+      volumenM3: effectivePartialDispatchMeasure(dispatch.cargaParcial, sale?.volumenM3, dispatch.volumenEstimadoM3, true),
     };
   }
   if (dispatch.tipo === "traslado" && dispatch.trasladoId !== null) {
@@ -75,8 +75,8 @@ async function loadDispatchCargoWith(
       .from(trasladosTable)
       .where(eq(trasladosTable.id, dispatch.trasladoId));
     return {
-      pesoKg: effectiveDispatchMeasure(traslado?.pesoCalculadoKg, dispatch.pesoEstimadoKg),
-      volumenM3: effectiveDispatchMeasure(traslado?.volumenM3, dispatch.volumenEstimadoM3),
+      pesoKg: effectivePartialDispatchMeasure(dispatch.cargaParcial, traslado?.pesoCalculadoKg, dispatch.pesoEstimadoKg),
+      volumenM3: effectivePartialDispatchMeasure(dispatch.cargaParcial, traslado?.volumenM3, dispatch.volumenEstimadoM3),
     };
   }
   return { pesoKg: null, volumenM3: null };

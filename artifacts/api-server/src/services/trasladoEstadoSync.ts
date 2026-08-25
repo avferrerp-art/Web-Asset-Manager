@@ -13,7 +13,7 @@ const ODOO_TERMINAL_STATES = ["confirmado_odoo", "cancelado"] as const;
 
 /**
  * Deriva el estado logístico de un traslado a partir de TODOS sus despachos:
- * - algún despacho entregado             -> entregado
+ * - todos los despachos activos entregados -> entregado
  * - algún despacho en ruta               -> en_transito
  * - algún despacho activo (no cancelado) -> conserva en_carga o planificado
  * - sin despachos o todos cancelados     -> por_planificar
@@ -22,7 +22,8 @@ export function deriveTrasladoEstadoFromDispatch(
   dispatchEstados: string[],
   estadoActual?: string,
 ): TrasladoEstadoFromDispatch {
-  if (dispatchEstados.includes("entregado")) return "entregado";
+  const active = dispatchEstados.filter((estado) => estado !== "cancelado");
+  if (active.length > 0 && active.every((estado) => estado === "entregado")) return "entregado";
   if (dispatchEstados.includes("en-ruta")) return "en_transito";
   if (dispatchEstados.some((estado) => estado !== "cancelado")) {
     return estadoActual === "en_carga" ? "en_carga" : "planificado";
@@ -39,11 +40,17 @@ export async function syncTrasladoEstadoFromDispatch(
 ): Promise<void> {
   await db.execute(sql`
     UPDATE traslados SET estado_logistico = CASE
-      WHEN EXISTS (
+       WHEN EXISTS (
         SELECT 1 FROM dispatches
         WHERE traslado_id = ${trasladoId}
           AND tipo = 'traslado'
-          AND estado = 'entregado'
+           AND estado <> 'cancelado'
+       ) AND NOT EXISTS (
+         SELECT 1 FROM dispatches
+         WHERE traslado_id = ${trasladoId}
+           AND tipo = 'traslado'
+           AND estado <> 'cancelado'
+           AND estado <> 'entregado'
       ) THEN 'entregado'
       WHEN EXISTS (
         SELECT 1 FROM dispatches

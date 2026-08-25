@@ -29,6 +29,7 @@ export const dispatchesTable = pgTable(
     totalPeajes: real("total_peajes"),
     pesoEstimadoKg: real("peso_estimado_kg"),
     volumenEstimadoM3: real("volumen_estimado_m3"),
+    cargaParcial: boolean("carga_parcial").notNull().default(false),
     viajeId: integer("viaje_id").references(() => viajesTable.id, { onDelete: "set null" }),
     orden: integer("orden"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

@@ -4,7 +4,11 @@ import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePo
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
 import { syncLinkedDispatchEntity } from "../services/dispatchEstadoSync";
 import { getTraslado, getTrasladoSummary } from "../services/trasladoQueries";
-import { effectiveDispatchMeasure, exceedsDispatchCapacity } from "../services/dispatchCapacity";
+import {
+  effectivePartialDispatchMeasure,
+  exceedsDispatchCapacity,
+  hasPositivePartialCargoQuota,
+} from "../services/dispatchCapacity";
 import {
   reassignDispatchViaje,
   updateDispatchPreservingViaje,
@@ -162,10 +166,10 @@ export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect
       ...row,
       pesoOdooKg,
       volumenOdooM3,
-      pesoTotal: effectiveDispatchMeasure(pesoOdooKg, d.pesoEstimadoKg),
-      volumenTotal: effectiveDispatchMeasure(volumenOdooM3, d.volumenEstimadoM3),
-      pesoOrigen: pesoOdooKg !== null ? "odoo" : d.pesoEstimadoKg !== null ? "estimado" : null,
-      volumenOrigen: volumenOdooM3 !== null ? "odoo" : d.volumenEstimadoM3 !== null ? "estimado" : null,
+      pesoTotal: effectivePartialDispatchMeasure(d.cargaParcial, pesoOdooKg, d.pesoEstimadoKg),
+      volumenTotal: effectivePartialDispatchMeasure(d.cargaParcial, volumenOdooM3, d.volumenEstimadoM3),
+      pesoOrigen: d.cargaParcial && d.pesoEstimadoKg != null ? "estimado" : pesoOdooKg !== null ? "odoo" : d.pesoEstimadoKg !== null ? "estimado" : null,
+      volumenOrigen: d.cargaParcial && d.volumenEstimadoM3 != null ? "estimado" : volumenOdooM3 !== null ? "odoo" : d.volumenEstimadoM3 !== null ? "estimado" : null,
       pesoEstimadoKg: d.pesoEstimadoKg,
       volumenEstimadoM3: d.volumenEstimadoM3,
       saleItems: [],
@@ -194,10 +198,10 @@ export async function buildDispatchDetail(d: typeof dispatchesTable.$inferSelect
     ...row,
     pesoOdooKg,
     volumenOdooM3,
-    pesoTotal: effectiveDispatchMeasure(pesoOdooKg, d.pesoEstimadoKg, true),
-    volumenTotal: effectiveDispatchMeasure(volumenOdooM3, d.volumenEstimadoM3, true),
-    pesoOrigen: pesoOdooKg != null && pesoOdooKg > 0 ? "odoo" : d.pesoEstimadoKg !== null ? "estimado" : null,
-    volumenOrigen: volumenOdooM3 != null && volumenOdooM3 > 0 ? "odoo" : d.volumenEstimadoM3 !== null ? "estimado" : null,
+    pesoTotal: effectivePartialDispatchMeasure(d.cargaParcial, pesoOdooKg, d.pesoEstimadoKg, true),
+    volumenTotal: effectivePartialDispatchMeasure(d.cargaParcial, volumenOdooM3, d.volumenEstimadoM3, true),
+    pesoOrigen: d.cargaParcial && d.pesoEstimadoKg != null ? "estimado" : pesoOdooKg != null && pesoOdooKg > 0 ? "odoo" : d.pesoEstimadoKg !== null ? "estimado" : null,
+    volumenOrigen: d.cargaParcial && d.volumenEstimadoM3 != null ? "estimado" : volumenOdooM3 != null && volumenOdooM3 > 0 ? "odoo" : d.volumenEstimadoM3 !== null ? "estimado" : null,
     pesoEstimadoKg: d.pesoEstimadoKg,
     volumenEstimadoM3: d.volumenEstimadoM3,
     saleItems: saleItemsResult,
@@ -229,6 +233,13 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     return;
   }
   const { routePoints, ...dispatchData } = parsed.data;
+  if (!hasPositivePartialCargoQuota(dispatchData)) {
+    res.status(400).json({
+      error: "partial_cargo_quota_required",
+      message: "Un despacho de carga parcial requiere una cuota positiva de peso o volumen.",
+    });
+    return;
+  }
 
   const sale =
     dispatchData.tipo === "venta"
@@ -252,12 +263,14 @@ router.post("/dispatches", async (req, res): Promise<void> => {
     return;
   }
   // null = sin dato en Odoo → no bloquea el despacho (no se puede comparar lo que no se conoce)
-  const pesoCarga = effectiveDispatchMeasure(
+  const pesoCarga = effectivePartialDispatchMeasure(
+    dispatchData.cargaParcial ?? false,
     dispatchData.tipo === "venta" ? sale?.pesoTotal : traslado?.pesoCalculadoKg,
     dispatchData.pesoEstimadoKg,
     dispatchData.tipo === "venta",
   );
-  const volumenCarga = effectiveDispatchMeasure(
+  const volumenCarga = effectivePartialDispatchMeasure(
+    dispatchData.cargaParcial ?? false,
     dispatchData.tipo === "venta" ? sale?.volumenTotal : traslado?.volumenCalculadoM3,
     dispatchData.volumenEstimadoM3,
     dispatchData.tipo === "venta",
@@ -341,7 +354,8 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     "choferId" in parsed.data ||
     "ayudanteId" in parsed.data ||
     "pesoEstimadoKg" in parsed.data ||
-    "volumenEstimadoM3" in parsed.data;
+    "volumenEstimadoM3" in parsed.data ||
+    "cargaParcial" in parsed.data;
   if (capacityFieldsChanged) {
     [existing] = await db.select().from(dispatchesTable).where(eq(dispatchesTable.id, params.data.id));
     if (!existing) {
@@ -360,7 +374,7 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     "viajeId" in parsed.data &&
     targetViajeId !== undefined;
   const updatesCargo =
-    "pesoEstimadoKg" in parsed.data || "volumenEstimadoM3" in parsed.data;
+    "pesoEstimadoKg" in parsed.data || "volumenEstimadoM3" in parsed.data || "cargaParcial" in parsed.data;
   const changesViajeAssignments =
     "vehiculoId" in parsed.data ||
     "choferId" in parsed.data ||
@@ -368,6 +382,13 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
   const willBelongToViaje = hasViajePatch
     ? targetViajeId !== null
     : existing?.viajeId !== null && existing?.viajeId !== undefined;
+  if (existing && !hasPositivePartialCargoQuota({ ...existing, ...parsed.data })) {
+    res.status(400).json({
+      error: "partial_cargo_quota_required",
+      message: "Un despacho de carga parcial requiere una cuota positiva de peso o volumen.",
+    });
+    return;
+  }
   if (changesViajeAssignments && willBelongToViaje) {
     res.status(400).json({
       error: "dispatch_assignments_owned_by_viaje",
@@ -381,7 +402,8 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
     !hasViajePatch &&
     ("vehiculoId" in parsed.data ||
       "pesoEstimadoKg" in parsed.data ||
-      "volumenEstimadoM3" in parsed.data)
+      "volumenEstimadoM3" in parsed.data ||
+      "cargaParcial" in parsed.data)
   ) {
     const candidate = { ...existing, ...parsed.data };
     const [vehicle] = await db
@@ -400,12 +422,14 @@ router.patch("/dispatches/:id", async (req, res): Promise<void> => {
       candidate.tipo === "traslado" && candidate.trasladoId !== null
         ? await getTraslado(candidate.trasladoId)
         : null;
-    const pesoCarga = effectiveDispatchMeasure(
+    const pesoCarga = effectivePartialDispatchMeasure(
+      candidate.cargaParcial,
       candidate.tipo === "venta" ? sale?.pesoTotal : traslado?.pesoCalculadoKg,
       candidate.pesoEstimadoKg,
       candidate.tipo === "venta",
     );
-    const volumenCarga = effectiveDispatchMeasure(
+    const volumenCarga = effectivePartialDispatchMeasure(
+      candidate.cargaParcial,
       candidate.tipo === "venta" ? sale?.volumenTotal : traslado?.volumenCalculadoM3,
       candidate.volumenEstimadoM3,
       candidate.tipo === "venta",

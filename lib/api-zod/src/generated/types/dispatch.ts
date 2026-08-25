@@ -35,6 +35,8 @@ export interface Dispatch {
   routeId?: number | null;
   /** @nullable */
   totalPeajes?: number | null;
+  /** When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals */
+  cargaParcial: boolean;
   /**
      * Manual dispatch estimate used only when Odoo has no weight
      * @exclusiveMinimum 0
