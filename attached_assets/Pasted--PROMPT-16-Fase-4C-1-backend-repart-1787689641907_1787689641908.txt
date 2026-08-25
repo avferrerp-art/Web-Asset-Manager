@@ -1,0 +1,358 @@
+════════════════════════════════════════════════════════════
+PROMPT 16 — Fase 4C-1 (backend): repartir la carga de una orden
+entre varios despachos
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, Node 24, TypeScript 5.9.
+
+Piezas relevantes para esta tarea:
+- `lib/db` — schema Drizzle + migraciones idempotentes numeradas (fuente de
+  verdad del modelo de datos).
+- `lib/api-spec/openapi.yaml` — contrato de la API (fuente de verdad).
+  `lib/api-zod` y `lib/api-client-react` se **generan** desde ahí con Orval;
+  nunca se editan a mano.
+- `artifacts/api-server` — Express 5.
+- `e2e/tests/` — tests de API con Vitest.
+
+Reglas no negociables del proyecto:
+1. **Contract-first**: cambio de contrato = editar `openapi.yaml` y luego
+   correr el codegen. Jamás editar archivos dentro de `generated/`.
+2. **Schema + migración van juntos**: todo cambio en `lib/db/src/schema/`
+   necesita su migración idempotente numerada en `lib/db/src/migrations/`,
+   registrada en el array `migrations` de `lib/db/src/migrations/index.ts`.
+3. **Reiniciar el api-server** después de tocar cualquier `lib/` (esbuild
+   bundlea al arrancar, no hay hot-reload para libs).
+4. **`null` = "sin dato", nunca `0`** — convención de todo el proyecto.
+
+Este prompt es **solo backend + contrato**. La UI para armar el reparto va
+en un prompt aparte (4C-2), que voy a escribir después de revisar el código
+que salga de éste.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Hoy una orden (venta o traslado) que no entra en ningún vehículo
+simplemente **no se puede despachar**. En `POST /dispatches` la validación
+compara el peso/volumen completo de la orden contra la capacidad de UN
+vehículo y devuelve `vehicle_capacity_exceeded`. Si tenés 10.000 kg y el
+camión más grande carga 6.000, la orden queda trabada.
+
+La buena noticia es que la mitad del camino ya está hecho:
+
+- `dispatches.venta_id` y `dispatches.traslado_id` **no tienen constraint de
+  unicidad**, así que a nivel de base ya se pueden crear varios despachos
+  para la misma orden.
+- `POST /dispatches` **no bloquea** un segundo despacho de la misma orden.
+  El filtro que hace que una orden ya despachada desaparezca de
+  Pre-Despacho vive en el frontend (`salesWithDispatch` en
+  `pre-despacho.tsx`), no en el backend.
+- `deriveSaleEstado` y `deriveTrasladoEstadoFromDispatch` ya reciben el
+  arreglo de estados de **todos** los despachos de la orden.
+- Los campos por despacho `peso_estimado_kg` / `volumen_estimado_m3` (que
+  agregaste en el commit `0d706a6`) ya existen, ya están en el contrato y
+  ya se usan en el cálculo de capacidad.
+
+Faltan exactamente dos cosas, y son las dos que resuelve este prompt:
+
+**(1) Que la cuota de cada camión pueda mandar sobre el total de la orden.**
+Hoy `effectiveDispatchMeasure()` trata `pesoEstimadoKg` como un *fallback*:
+solo se usa cuando Odoo no tiene peso. Para un reparto necesitamos lo
+contrario — que ese número sea *la parte que lleva este camión*, aunque
+Odoo sí tenga el total.
+
+**(2) Que "entregado" signifique "llegaron todos", no "llegó alguno".**
+Éste es el punto delicado de toda la fase. Hoy:
+
+```ts
+if (dispatchEstados.includes("entregado")) return "entregado";
+```
+
+Con la carga repartida en dos camiones, **el primero que llega marcaría la
+orden entera como entregada**, con el segundo todavía en la ruta. Eso
+contamina `sales.estado`, el dashboard y los filtros de Ventas. Hay que
+cambiarlo a "todos los despachos activos están entregados".
+
+════════════════════════════════════════
+DECISIONES DE DISEÑO YA TOMADAS
+════════════════════════════════════════
+
+No las re-evalúes, ya están acordadas:
+
+- **Sin tablas nuevas.** El reparto se modela como varios despachos de la
+  misma orden, cada uno con su cuota. No crees una entidad `reparto`,
+  `dispatch_cargo_splits` ni nada equivalente.
+- **Sin estados nuevos.** No agregues `parcial` ni
+  `entregado_parcial` al enum de `sales.estado` ni al de
+  `traslados.estado_logistico`. Mientras falte un camión por llegar, la
+  orden sigue en `despachado` / `en_transito` como hasta ahora.
+- **Reparto por kilos/m³, no por partidas.** No toques `sale_items` ni
+  intentes asignar partidas concretas a cada camión.
+- **La suma de las cuotas no se valida contra el total en el backend.** Si
+  las partes no cuadran con el total de la orden, el backend **no bloquea**
+  — mermas, redondeos y órdenes sin peso en Odoo son normales. El aviso
+  visual va en el frontend (4C-2).
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **`[].every()` devuelve `true`.** Ésta es LA trampa de este prompt. Si
+   escribís la regla nueva como `estados.every(e => e === "entregado")`,
+   una orden **sin ningún despacho** pasa a "entregado" instantáneamente.
+   La condición correcta tiene dos partes: *existe al menos un despacho
+   activo* **Y** *ninguno de los activos está sin entregar*. Lo mismo
+   aplica a la versión SQL.
+
+2. **Los despachos cancelados no cuentan.** "Todos entregados" significa
+   todos los despachos **con estado distinto de `cancelado`**. Un despacho
+   cancelado no puede impedir que la orden se marque entregada, ni
+   alcanzarla por sí solo.
+
+3. **No cambies la regla de `en_transito` en traslados.** En
+   `deriveTrasladoEstadoFromDispatch`, la regla "algún despacho en-ruta →
+   `en_transito`" se queda como está (es correcta: si un camión ya salió,
+   el traslado está en tránsito). **Solo** cambia la regla de `entregado`.
+   Igual en ventas: "algún despacho activo → `despachado`" no se toca.
+
+4. **La regla de oro de `estadoLogistico` sigue vigente.** Los estados
+   terminales de Odoo (`confirmado_odoo`, `cancelado`) nunca se pisan.
+   `syncTrasladoEstadoFromDispatch` ya tiene ese guard en el `WHERE` — no
+   lo saques.
+
+5. **Hay dos implementaciones de cada derivación y las dos hay que
+   cambiarlas**: la función TypeScript pura (`deriveSaleEstado`,
+   `deriveTrasladoEstadoFromDispatch`, usadas por los `reconcile*`) y la
+   sentencia SQL equivalente dentro de `syncSaleEstadoFromDispatch` /
+   `syncTrasladoEstadoFromDispatch`. Si cambiás solo una, la reconciliación
+   y el sync en vivo van a discrepar. Verificá que las dos queden con la
+   misma semántica.
+
+6. **No unifiques los helpers de medidas de ventas y traslados.** Ventas
+   trata cualquier valor `<= 0` como ausencia (`zeroMeansMissing = true`);
+   traslados reservan `null` para ausencia. Está documentado en
+   `.agents/memory/measurement-domain-semantics.md` y romperlo afecta
+   silenciosamente Pre-Despacho y los wizards. El parámetro
+   `zeroMeansMissing` de `effectiveDispatchMeasure` se respeta tal cual.
+
+7. **Compatibilidad hacia atrás.** La enorme mayoría de las órdenes tiene
+   un solo despacho. Con un único despacho activo, "alguno entregado" y
+   "todos entregados" dan el mismo resultado — pero verificá que sea así y
+   no rompas ese caso. Con datos ya existentes puede haber órdenes marcadas
+   `entregado` que, bajo la regla nueva, corresponda devolver a
+   `despachado`: eso es el comportamiento correcto, no un bug.
+
+8. **No agregues un bloqueo de "esta orden ya tiene despacho".** Hoy no
+   existe en el backend y no debe existir — es justamente lo que permite el
+   reparto. No lo "arregles".
+
+9. **`carga_parcial` sin cuota no tiene sentido.** Si un despacho se marca
+   como parcial, tiene que traer su `pesoEstimadoKg` (y/o
+   `volumenEstimadoM3`). Validalo en el request, no dejes que entre un
+   parcial sin cuota — quedaría con carga efectiva `null` y se saltearía
+   toda validación de capacidad.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Modelo de datos**
+
+En `lib/db/src/schema/dispatches.ts`, agregá al lado de
+`pesoEstimadoKg` / `volumenEstimadoM3`:
+
+```ts
+cargaParcial: boolean("carga_parcial").notNull().default(false),
+```
+
+Creá `lib/db/src/migrations/0018_dispatch_carga_parcial.ts` siguiendo
+exactamente el patrón de `0016_dispatch_cargo_estimates.ts`:
+
+```ts
+export const name = "0018_dispatch_carga_parcial";
+
+export const sql = `
+ALTER TABLE dispatches
+  ADD COLUMN IF NOT EXISTS carga_parcial boolean NOT NULL DEFAULT false;
+`;
+```
+
+Registrala en el array `migrations` de `lib/db/src/migrations/index.ts`,
+al final, respetando el orden.
+
+**2. Carga efectiva con cuota**
+
+En `artifacts/api-server/src/services/dispatchCapacity.ts`, agregá una
+función nueva **sin modificar** `effectiveDispatchMeasure` (que se sigue
+usando tal cual para los despachos no parciales):
+
+```ts
+/**
+ * Carga real que transporta ESTE despacho.
+ * - Despacho parcial: manda la cuota asignada al despacho, aunque Odoo
+ *   tenga el total de la orden (el camión lleva solo su parte).
+ * - Despacho normal: comportamiento de siempre — Odoo tiene prioridad y la
+ *   estimación es solo un fallback cuando falta el dato.
+ */
+export function dispatchCargaEfectiva(
+  odooValue: number | null | undefined,
+  estimate: number | null | undefined,
+  cargaParcial: boolean,
+  zeroMeansMissing = false,
+): number | null {
+  if (cargaParcial) {
+    return estimate != null && estimate > 0 ? estimate : null;
+  }
+  return effectiveDispatchMeasure(odooValue, estimate, zeroMeansMissing);
+}
+```
+
+Reemplazá los usos de `effectiveDispatchMeasure` por `dispatchCargaEfectiva`
+(pasándole el `cargaParcial` del despacho correspondiente) en:
+- `artifacts/api-server/src/routes/dispatches.ts` — el cálculo de
+  `pesoCarga` / `volumenCarga` en `POST /dispatches` y el equivalente en el
+  `PATCH`.
+- `artifacts/api-server/src/services/viajeQueries.ts` — las cuatro
+  llamadas (líneas ~64, ~65, ~78, ~79). Esto es importante: la validación
+  de capacidad consolidada de un viaje tiene que sumar **las cuotas** de
+  sus despachos parciales, no el total de cada orden, o un viaje con dos
+  medias cargas se rechazaría sin motivo.
+
+**3. Validación en el request**
+
+En `POST /dispatches` y `PATCH /dispatches/:id`, si el despacho resultante
+queda con `cargaParcial === true`, exigí que tenga al menos
+`pesoEstimadoKg` o `volumenEstimadoM3` con valor positivo. Si no, respondé
+`400` con un mensaje claro, en el mismo estilo que los errores que ya
+devuelve ese router (ej. `"Un despacho con carga parcial necesita indicar
+la cuota de peso o volumen que transporta"`).
+
+Ojo con el `PATCH`: la validación va contra el **candidato** (el merge de
+lo existente con lo que viene en el body), igual que ya se hace para la
+verificación de capacidad — no solo contra el body.
+
+**4. "Entregado" = llegaron todos**
+
+En `artifacts/api-server/src/services/saleEstadoSync.ts`:
+
+- `deriveSaleEstado`: cambiá la primera regla. La orden queda `entregado`
+  solo si hay al menos un despacho activo y **todos** los activos están
+  `entregado`. Las otras dos reglas no se tocan.
+
+  ```ts
+  const activos = dispatchEstados.filter((e) => e !== "cancelado");
+  if (activos.length > 0 && activos.every((e) => e === "entregado")) {
+    return "entregado";
+  }
+  if (activos.length > 0) return "despachado";
+  return "pendiente";
+  ```
+
+- `syncSaleEstadoFromDispatch`: la sentencia SQL tiene que quedar con la
+  misma semántica. La forma correcta es "existe activo Y no existe activo
+  sin entregar":
+
+  ```sql
+  UPDATE sales SET estado = CASE
+    WHEN EXISTS (SELECT 1 FROM dispatches WHERE venta_id = ${ventaId} AND estado <> 'cancelado')
+     AND NOT EXISTS (SELECT 1 FROM dispatches WHERE venta_id = ${ventaId} AND estado <> 'cancelado' AND estado <> 'entregado')
+      THEN 'entregado'
+    WHEN EXISTS (SELECT 1 FROM dispatches WHERE venta_id = ${ventaId} AND estado <> 'cancelado')
+      THEN 'despachado'
+    ELSE 'pendiente'
+  END
+  WHERE id = ${ventaId}
+  ```
+
+En `artifacts/api-server/src/services/trasladoEstadoSync.ts`, aplicá el
+mismo cambio a `deriveTrasladoEstadoFromDispatch` y a la sentencia SQL de
+`syncTrasladoEstadoFromDispatch`, con estas dos precisiones:
+- la regla de `en_transito` (algún despacho `en-ruta`) queda **igual** y
+  sigue evaluándose **después** de la de `entregado`;
+- el `WHERE ... estado_logistico NOT IN ('confirmado_odoo','cancelado')`
+  se mantiene intacto.
+
+**5. Contrato**
+
+En `lib/api-spec/openapi.yaml`, agregá `cargaParcial` (boolean, default
+`false`) a los mismos cuatro schemas que hoy declaran `pesoEstimadoKg`:
+`Dispatch`, `DispatchDetail`, `DispatchInputBase` y `DispatchUpdate`.
+Descripción sugerida: `"El despacho transporta solo una parte de la orden;
+la cuota se indica en pesoEstimadoKg/volumenEstimadoM3"`.
+
+Después corré el codegen de Orval para regenerar `lib/api-zod` y
+`lib/api-client-react`. No edites nada dentro de `generated/` a mano.
+
+**6. Tests**
+
+Agregá tests en `e2e/tests/` (el archivo que corresponda según lo que ya
+existe — probablemente `dispatches-traslados.test.ts` y/o `viajes.test.ts`)
+que cubran específicamente:
+
+a. Una orden con **dos** despachos activos donde solo uno está `entregado`
+   → la orden queda `despachado` (NO `entregado`). Éste es el test que
+   justifica toda la fase.
+b. Esa misma orden con los dos despachos `entregado` → la orden pasa a
+   `entregado`.
+c. Una orden con un despacho `entregado` y otro `cancelado` → la orden
+   queda `entregado` (el cancelado no cuenta).
+d. Una orden **sin** despachos → queda `pendiente` / `por_planificar`,
+   nunca `entregado` (el caso de `[].every()`).
+e. Un despacho con `cargaParcial: true` y cuota menor a la capacidad del
+   vehículo se crea **aunque el total de la orden supere esa capacidad**.
+f. Un despacho con `cargaParcial: true` sin cuota → `400`.
+g. Regresión: una orden con un solo despacho `entregado` sigue quedando
+   `entregado` igual que antes.
+
+Cubrí (a)–(d) tanto para ventas como para traslados.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No crees tablas ni entidades nuevas.
+- No agregues estados nuevos a `sales.estado` ni a
+  `traslados.estado_logistico`.
+- No toques `sale_items`, `deliveries`, `delivery_items` ni nada del sync
+  con Odoo — esta fase es puramente interna de LogiFleet.
+- No modifiques `effectiveDispatchMeasure` ni los helpers `sinDatoCarga` /
+  `formatCarga` / `trasladoSinMedida` / `formatTrasladoMedida`.
+- No toques nada del frontend (`artifacts/logistics`, `artifacts/chofer`).
+  Ni la UI de Pre-Despacho, ni el wizard de despacho, ni el de viajes. Eso
+  es 4C-2.
+- No agregues validación que bloquee crear un segundo despacho para una
+  orden, ni que exija que las cuotas sumen el total.
+- No edites archivos dentro de `generated/`.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm typecheck` (o el script equivalente del repo) pasa sin errores.
+2. Los tests nuevos y los existentes de `e2e/tests/` pasan. Prestá especial
+   atención a que **ningún test existente de estados haya tenido que
+   cambiarse de expectativa** — si alguno falla, revisá si es la trampa
+   nº 7 (compatibilidad hacia atrás) antes de tocar el test.
+3. Reiniciá el api-server y confirmá en los logs que la migración
+   `0018_dispatch_carga_parcial` se aplicó, y que correrla dos veces no
+   falla (idempotencia).
+4. Con la API arriba, prueba manual del caso que motiva la fase:
+   - Tomá una orden cuyo peso supere la capacidad de todos los vehículos.
+   - Creá dos despachos para esa misma orden, cada uno con
+     `cargaParcial: true` y una cuota que sí entre en su vehículo.
+     Los dos deben crearse con `201`.
+   - Marcá **uno** como `entregado` → consultá la orden: debe seguir en
+     `despachado` / `en_transito`.
+   - Marcá el **segundo** como `entregado` → la orden ahora sí pasa a
+     `entregado`.
+5. Confirmá que un despacho normal (sin `cargaParcial`) sigue comportándose
+   exactamente igual que antes: la estimación solo se usa cuando Odoo no
+   tiene el dato.
+6. Corré la reconciliación de estados (`reconcileSaleEstados` /
+   `reconcileTrasladoEstados`) y confirmá que deja los estados iguales a
+   los que produce el sync en vivo — si difieren, la trampa nº 5 quedó
+   abierta.
