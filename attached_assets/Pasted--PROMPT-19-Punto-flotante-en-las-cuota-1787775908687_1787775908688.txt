@@ -1,0 +1,230 @@
+════════════════════════════════════════════════════════════
+PROMPT 19 — Punto flotante en las cuotas de carga parcial:
+falso aviso de "superan el total" y cifras con cola de decimales
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Validar conflictos operativos de despachos y
+viajes` (o posterior).
+
+Es un cambio **chico y contenido**: un helper nuevo de dos líneas y tres
+lugares que lo usan. No hay migraciones, no hay contrato, no hay backend,
+no hay cambios de UI ni de layout.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9.
+App web: `artifacts/logistics` (React + Vite + shadcn/ui).
+
+Archivos afectados:
+- `artifacts/logistics/src/pages/pre-despacho.tsx`
+- `artifacts/logistics/src/components/pending-traslados-card.tsx`
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Detectado probando el flujo de carga parcial en la app real.
+
+Orden #776, total de Odoo **3698.7 kg / 10.79 m³**. Se repartió en dos
+camiones con cuotas que suman **exactamente** el total:
+
+- Camión 1: 900 kg / 1.9 m³
+- Camión 2: 2798.7 kg / 8.89 m³
+
+Al cargar la segunda cuota apareció el aviso **"Las cuotas superan el
+total conocido"**, aunque no lo superan: son idénticas al total.
+
+La causa es aritmética de punto flotante IEEE-754. En JavaScript:
+
+```js
+1.9 + 8.89        // 10.790000000000001  ← mayor que 10.79
+900 + 2798.7      // 3698.7              ← este da exacto, por suerte
+```
+
+La comparación en `pre-despacho.tsx` (líneas ~457-460) no tiene ninguna
+tolerancia:
+
+```ts
+const exceedsKnownTotal = partialCargo && (
+  (selectedPesoOdoo != null && partialPesoTotal + currentPesoQuota > selectedPesoOdoo)
+  || (selectedVolumenOdoo != null && partialVolumenTotal + currentVolumenQuota > selectedVolumenOdoo)
+);
+```
+
+Entonces `10.790000000000001 > 10.79` da `true` y dispara el aviso. Es un
+**falso positivo**: no bloquea nada (el aviso dice "puedes confirmar de
+todos modos" y efectivamente deja crear el despacho), pero le miente al
+usuario justo en el caso más común y más correcto — el reparto que cierra
+exacto. Eso desgasta la confianza en el aviso, y un aviso en el que no se
+confía deja de servir cuando la cuota *sí* se pasa de verdad.
+
+El mismo origen tiene un segundo síntoma, todavía no visto en producción
+pero perfectamente alcanzable. Los totales se acumulan crudos en
+`buildDispatchProgress`:
+
+```ts
+current.assignedPesoKg += dispatch.pesoEstimadoKg ?? 0;
+```
+
+y se imprimen crudos en el badge de avance:
+
+```tsx
+{progress.assignedPesoKg} kg asignados
+```
+
+Un reparto en tres camiones de 10.1 + 20.2 + 30.3 kg da
+`60.599999999999994`, y el badge mostraría literalmente
+**"60.599999999999994 kg asignados"**. Con las cuotas de #776 no pasó
+porque 900 + 2798.7 cierra exacto, pero es cuestión de qué números toquen.
+
+**Nota importante sobre el alcance**: ya verifiqué que la validación de
+capacidad del vehículo (`selectedVehicleExceedsTraslado` en el front y
+`exceedsDispatchCapacity` en el backend) **no** tiene este problema,
+porque compara una sola medida parseada contra la capacidad, sin sumar
+nada. Ahí no hay acumulación y no hay nada que arreglar. Este prompt es
+solo para las sumas de cuotas.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **Redondear al acumular NO alcanza para arreglar la comparación.**
+   Es tentador redondear solo dentro de `buildDispatchProgress` y darlo
+   por resuelto, pero la comparación suma *otra vez* después:
+   `partialPesoTotal + currentPesoQuota`. Aunque `partialPesoTotal` venga
+   redondeado, esa última suma vuelve a introducir el error. Hay que
+   tocar **los dos** lugares: el acumulador (para lo que se muestra) y la
+   comparación (para el aviso).
+
+2. **La tolerancia tiene que ser chica de verdad.** El error de punto
+   flotante en estos órdenes de magnitud es de ~1e-12. Cualquier exceso
+   que a un operador le importe es de al menos 0.01 kg / 0.01 m³. No
+   inventes una tolerancia "generosa" tipo 1 kg o un porcentaje del
+   total: eso taparía excesos reales. Redondear ambos lados a 3 decimales
+   antes de comparar es suficiente y se explica solo.
+
+3. **No toques `formatCarga` ni `sinDatoCarga`** (`@/lib/carga`), ni
+   `formatTrasladoMedida` / `trasladoSinMedida`
+   (`@/lib/traslado-medidas`). Esos helpers formatean valores que vienen
+   directo de Odoo o de la base, que no se acumulan y por lo tanto no
+   tienen este problema. Además son dos dominios de medida deliberadamente
+   separados (ver `.agents/memory/measurement-domain-semantics.md`): no los
+   unifiques ni les metas redondeo "de paso".
+
+4. **El redondeo va solo sobre sumas, nunca sobre un valor de Odoo.** El
+   total de Odoo (`selectedPesoOdoo`, `selectedVolumenOdoo`) se compara
+   tal cual llega; redondearlo sería alterar el dato de origen.
+
+5. **`0` sigue siendo un total válido de acumulación, no "sin dato".**
+   `assignedPesoKg` arranca en 0 y eso significa "todavía no se asignó
+   nada", no "sin dato". No le apliques la convención `null = sin dato`
+   ni conviertas 0 a `null`.
+
+6. **No cambies la semántica del aviso.** Sigue siendo no bloqueante: se
+   puede confirmar igual. Este prompt corrige *cuándo* aparece, no *qué*
+   hace.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Helper de redondeo — `artifacts/logistics/src/pages/pre-despacho.tsx`**
+
+Definí arriba del componente:
+
+```ts
+// Las cuotas de carga parcial se suman entre sí, y sumar decimales en
+// IEEE-754 arrastra cola: 1.9 + 8.89 === 10.790000000000001.
+// Redondeamos a 3 decimales, muy por debajo de la precisión que le
+// importa a un operador (0.01) y muy por encima del error de la suma (~1e-12).
+function redondearMedida(value: number): number {
+  return Math.round(value * 1000) / 1000;
+}
+```
+
+**2. Acumulación limpia — mismo archivo, `buildDispatchProgress`**
+
+Redondeá al acumular, para que lo que se guarda en el mapa (y por lo tanto
+lo que se muestra en los badges) ya venga sin cola:
+
+```ts
+if (dispatch.cargaParcial) {
+  current.partialCount += 1;
+  current.assignedPesoKg = redondearMedida(
+    current.assignedPesoKg + (dispatch.pesoEstimadoKg ?? 0),
+  );
+  current.assignedVolumenM3 = redondearMedida(
+    current.assignedVolumenM3 + (dispatch.volumenEstimadoM3 ?? 0),
+  );
+} else {
+  current.hasComplete = true;
+}
+```
+
+**3. Comparación con tolerancia — mismo archivo, `exceedsKnownTotal`**
+
+```ts
+const exceedsKnownTotal = partialCargo && (
+  (selectedPesoOdoo != null
+    && redondearMedida(partialPesoTotal + currentPesoQuota) > selectedPesoOdoo)
+  || (selectedVolumenOdoo != null
+    && redondearMedida(partialVolumenTotal + currentVolumenQuota) > selectedVolumenOdoo)
+);
+```
+
+**4. Traslados — `artifacts/logistics/src/components/pending-traslados-card.tsx`**
+
+Este archivo solo *consume* el `DispatchProgress` que arma
+`pre-despacho.tsx`, así que con el punto 2 ya recibe los valores
+redondeados y el badge de la línea ~197 queda bien sin tocar nada.
+**Verificalo y no cambies nada acá si efectivamente es así.** Si al leerlo
+encontrás que arma sus propios totales por separado, aplicá el mismo
+redondeo, pero no dupliques el helper: exportalo desde donde ya vive e
+importalo.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni nada dentro de
+  `generated/`.
+- No toques `exceedsDispatchCapacity` ni `selectedVehicleExceedsTraslado`
+  — ya verifiqué que no tienen este problema.
+- No toques `effectiveDispatchMeasure`, `effectivePartialDispatchMeasure`,
+  `effectiveCargoMeasure` ni `effectiveDispatchCargoMeasure`.
+- No metas una librería de decimales (decimal.js, big.js). Para este caso
+  es sobreingeniería.
+- No cambies el texto, el color ni la ubicación del aviso.
+- No cambies el switch de carga parcial, el panel de contexto
+  (Ya asignado / Cuota actual / Total conocido), ni el layout.
+- No toques las llamadas a `useListSales` / `useListTraslados`.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm typecheck` (o el script equivalente) pasa sin errores.
+
+2. **El caso del bug**: una orden con total 3698.7 kg / 10.79 m³,
+   repartida en 900 kg / 1.9 m³ y luego 2798.7 kg / 8.89 m³. Al cargar la
+   segunda cuota, el aviso "Las cuotas superan el total conocido"
+   **no** debe aparecer.
+
+3. **El aviso sigue funcionando cuando corresponde**: en esa misma orden,
+   poné la segunda cuota en 2799 kg (0.3 kg de más). El aviso **sí** tiene
+   que aparecer. Probá también con 10.8 m³ de volumen.
+
+4. **Badge sin cola de decimales**: repartí una orden en tres cuotas de
+   10.1, 20.2 y 30.3 kg. El badge tiene que decir "60.6 kg asignados",
+   no "60.599999999999994 kg asignados".
+
+5. **Regresión del camino normal**: una venta pendiente sin despachos
+   sigue apareciendo igual; una con despacho completo sigue
+   desapareciendo; el reparto parcial sigue creándose y sigue mostrando
+   el badge de avance con la cantidad de camiones correcta.
