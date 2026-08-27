@@ -64,6 +64,12 @@ function fmtDateShort(s: string) {
   });
 }
 
+// Redondea exclusivamente acumulaciones de cuotas parciales; los totales fuente
+// de Odoo conservan su precisión y semántica originales.
+function roundPartialQuotaSum(value: number) {
+  return Math.round((value + Number.EPSILON) * 1_000) / 1_000;
+}
+
 export default function PreDespacho() {
   const queryClient = useQueryClient();
   const { toast } = useToast();
@@ -411,8 +417,12 @@ export default function PreDespacho() {
       };
       if (dispatch.cargaParcial) {
         current.partialCount += 1;
-        current.assignedPesoKg += dispatch.pesoEstimadoKg ?? 0;
-        current.assignedVolumenM3 += dispatch.volumenEstimadoM3 ?? 0;
+        current.assignedPesoKg = roundPartialQuotaSum(
+          current.assignedPesoKg + (dispatch.pesoEstimadoKg ?? 0),
+        );
+        current.assignedVolumenM3 = roundPartialQuotaSum(
+          current.assignedVolumenM3 + (dispatch.volumenEstimadoM3 ?? 0),
+        );
       } else {
         current.hasComplete = true;
       }
@@ -455,8 +465,14 @@ export default function PreDespacho() {
   const currentPesoQuota = parsePositiveEstimate(estimateDraft.peso) ?? 0;
   const currentVolumenQuota = parsePositiveEstimate(estimateDraft.volumen) ?? 0;
   const exceedsKnownTotal = partialCargo && (
-    (selectedPesoOdoo != null && partialPesoTotal + currentPesoQuota > selectedPesoOdoo)
-    || (selectedVolumenOdoo != null && partialVolumenTotal + currentVolumenQuota > selectedVolumenOdoo)
+    (
+      selectedPesoOdoo != null
+      && roundPartialQuotaSum(partialPesoTotal + currentPesoQuota) > selectedPesoOdoo
+    )
+    || (
+      selectedVolumenOdoo != null
+      && roundPartialQuotaSum(partialVolumenTotal + currentVolumenQuota) > selectedVolumenOdoo
+    )
   );
   const selectedSourceDestination = selectedSale?.destino ?? selectedTraslado?.almacenDestino?.nombre ?? null;
   const tripOrders = Object.values(tripOrdersByKey);
