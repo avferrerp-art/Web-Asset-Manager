@@ -1,0 +1,146 @@
+════════════════════════════════════════════════════════════ PROMPT 23A — El reparto pasa de sugerencia cerrada a plan editable ════════════════════════════════════════════════════════════
+
+════════════════════════════════════════ REQUISITO PREVIO ════════════════════════════════════════
+
+Aplicalo sobre el commit Normalizar fechas locales del reparto y cubrir conflictos (40ad916) o posterior.
+
+Frontend puro, un solo archivo de producción: artifacts/logistics/src/components/cargo-wizard.tsx.
+
+Las fechas quedan fuera de esta tarea. Se siguen calculando solas, exactamente como hoy. Hacerlas editables es el PROMPT 23B.
+
+No hay backend, contrato, migraciones ni cambios en el motor de reparto.
+
+════════════════════════════════════════ CONTEXTO DEL PROYECTO ════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9. App web: artifacts/logistics (React + Vite + shadcn/ui + React Query).
+
+Leé replit.md y .agents/memory/. Para esta tarea importa .agents/memory/measurement-domain-semantics.md.
+
+REGLAS DEL REPO: los generated/ no se editan a mano; null = "sin dato", nunca 0.
+
+════════════════════════════════════════ POR QUÉ ESTA TAREA ════════════════════════════════════════
+
+Hoy el panel de reparto muestra dos planes cerrados: lo que el motor calculó, sin posibilidad de tocar nada salvo el chofer. Si el operador quiere mandar tres camiones en vez de cuatro, usar otro vehículo, o despachar solo una parte de la orden hoy y el resto la semana que viene, no puede.
+
+La causa es de arquitectura: el plan no es un dato, es un cálculo. planFlotaSimultanea(...) y planViajesSucesivos(...) se ejecutan en cada render y lo que se ve es su resultado. Lo único que es estado editable son los choferes (driverAssignments, sembrado por un useEffect).
+
+Esta tarea extiende ese mismo patrón a todo el plan: los dos escenarios dejan de ser planes cerrados y pasan a ser plantillas que siembran una lista editable.
+
+El modelo mental nuevo:
+
+[ Sugerir: Flota simultánea ] [ Sugerir: Viajes sucesivos ]
+                    ↓ siembran
+              Tu plan (lista editable)
+                    ↓
+            [ Crear N despachos ]
+
+Nada de esto necesita backend. El endpoint POST /dispatches/batch ya acepta cualquier lista de tramos: no le importa si salieron del motor o los escribió una persona.
+
+════════════════════════════════════════ UN DETALLE IMPORTANTE DEL DOMINIO ════════════════════════════════════════
+
+El plan NO tiene que cubrir el 100% de la orden. Despachar una parte hoy y el resto después ya está soportado de punta a punta desde la Fase 4C, y está probado en producción: una orden de 3698.7 kg con un solo despacho parcial de 900 kg queda en despachado, sigue apareciendo en Pre-Despacho con el badge "900 kg asignados / 3698.7 kg — 1 camión", y se completa más tarde.
+
+O sea que un plan que suma menos que el total es un caso de uso válido, no un error. Se muestra el saldo pendiente y se deja crear igual.
+
+════════════════════════════════════════ TRAMPAS ════════════════════════════════════════
+
+La key de React tiene que ser un id estable, NO el índice del array. Las filas se agregan y se borran; con key={index} React reusa el nodo equivocado y el texto que escribiste en una cuota salta a otra fila cuando borrás una de arriba. Generá un id al crear cada fila y usalo como key.
+Las cuotas viven como texto mientras se escriben, no como número. Si parseás a número en cada tecla, el usuario no puede escribir "12." ni dejar el campo vacío para volver a empezar. El wizard ya hace esto bien con estimateDraft: guardá el string crudo y parsealo con parsePositiveEstimate (ya existe en components/dispatch-cargo-estimate-editor.tsx) al validar y al enviar.
+Redondeá las cuotas escritas a mano antes de mandarlas. Usá roundPartialQuotaSum de @/lib/medidas. Si no, volvemos a la cola de decimales que se arregló en PROMPT 20B — solo que ahora la mete el usuario en vez del motor.
+null no es 0. Una cuota vacía se manda null, nunca 0. Cada tramo necesita al menos una de las dos dimensiones en positivo (hasPositivePartialCargoQuota del backend lo exige y devuelve 400).
+No cambies el comportamiento de las fechas. Hoy tramoWindow deriva las ventanas de la estrategia: simultáneas en "flota-simultanea", consecutivas en "viajes-sucesivos". Como ahora hay una sola lista, esa información hay que conservarla en el estado (ver punto 1 de la tarea), o el escenario de viajes sucesivos pierde sus ventanas consecutivas y el backend empieza a rechazar con 409.
+El aviso de choferes cambia de significado. Hoy compara cantidad de tramos contra cantidad de choferes. Lo que de verdad rompe es el mismo chofer en dos tramos simultáneos (da 409 person_schedule_conflict). El bloqueo tiene que ser por chofer repetido; el conteo se queda como explicación amable.
+No toques fleet-split.ts. Sigue igual y se sigue usando, pero solo para sembrar la lista. Sus garantías (suma exacta, tope de capacidad, cuota mínima) valen para lo que él genera; a partir de que el usuario edita, las validaciones son responsabilidad de la UI.
+No toques el camino normal. Cuando algún vehículo sí soporta la carga, el paso "Flota" se sigue viendo igual: lista rankeada, badge "⭐ SUGERIDO", botón "Asignar este vehículo".
+
+════════════════════════════════════════ TAREA ════════════════════════════════════════
+
+1. El borrador como estado
+
+Reemplazá los dos planes derivados por un único borrador editable:
+
+ts
+interface TramoDraft {
+  id: string;              // id estable para la key de React (trampa 1)
+  vehiculoId: number;
+  choferId: number;
+  peso: string;            // texto crudo del input (trampa 2)
+  volumen: string;
+}
+
+Más dos piezas de estado sueltas:
+
+planDraft: TramoDraft[]
+modoFechas: "juntos" | "sucesivos" — lo fija la plantilla que sembró y gobierna tramoWindow (trampa 5). No lleva control visible en esta tarea; es el 23B el que lo expone.
+
+2. Las dos plantillas
+
+Dos botones arriba del panel: "Sugerir flota simultánea" y "Sugerir viajes sucesivos". Cada uno llama al motor como hoy y siembra planDraft con sus tramos (vehículo, cuotas ya formateadas como texto, chofer autoasignado igual que ahora: distintos por tramo en simultánea, el mismo en sucesivos) y fija modoFechas.
+
+Al abrir el panel, sembrá automáticamente con la que sea viable (preferí flota simultánea si las dos lo son), así el usuario ve un plan de arranque sin tener que apretar nada — como hoy.
+
+Si un plan no es viable, su botón queda deshabilitado con su motivoNoViable como tooltip o texto al lado.
+
+3. La lista editable
+
+Una sola lista de filas. Cada fila:
+
+Vehículo — <Select> con toda la flota.
+Peso y Volumen — dos <Input> de texto para la cuota.
+Chofer — <Select>, como hoy.
+Botón de borrar la fila.
+
+Debajo de la lista, un botón "Agregar camión" que suma una fila vacía (vehículo y chofer sin elegir, cuotas vacías).
+
+4. El saldo en vivo
+
+Arriba o abajo de la lista, el resumen de cobertura por dimensión:
+
+Peso:    asignado 40.5 de 50 kg · faltan 9.5
+Volumen: asignado 50 de 50 m³ · completo
+
+Usá roundPartialQuotaSum para la suma. Si una dimensión no tiene dato en la orden, mostrá "sin dato en Odoo" en vez de un número.
+
+5. Validaciones
+
+Bloqueantes (deshabilitan "Crear N despachos" y se marcan en la fila):
+
+fila sin vehículo o sin chofer
+fila sin ninguna cuota positiva
+cuota que excede la capacidad de su propio vehículo
+el mismo chofer en dos filas, cuando modoFechas es "juntos" (trampa 6)
+lista vacía
+
+No bloqueantes (solo aviso):
+
+el plan no cubre el total → mostrá el saldo, dejá crear
+el plan supera el total → avisá, dejá crear igual (es como ya se comporta el resto del sistema)
+más filas simultáneas que choferes disponibles
+
+6. Crear
+
+Un único botón "Crear N despachos" que arma el body desde planDraft (no desde el motor) y llama a useCreateDispatchBatch igual que hoy: cargaParcial: true en todos, misma orden, fechas de tramoWindow, cuotas parseadas y redondeadas.
+
+El manejo del error se queda como está: el tramoIndex que devuelve el backend resalta la fila que falló.
+
+════════════════════════════════════════ NO HAGAS ════════════════════════════════════════
+
+No toques el backend, openapi.yaml, las migraciones ni generated/.
+No modifiques fleet-split.ts, medidas.ts, fleet.ts ni datetime-local.ts.
+No hagas editables las fechas ni agregues el interruptor de juntos/sucesivos. Eso es el 23B. tramoWindow se queda como está.
+No toques pre-despacho.tsx, nuevo-despacho-wizard.tsx, viaje-wizard.tsx ni carga.tsx.
+No saques el aviso de densidad implausible ni el camino de la lista rankeada.
+No cambies los pasos del wizard ni el layout general.
+No agregues librerías nuevas.
+
+════════════════════════════════════════ VERIFICACIÓN ════════════════════════════════════════
+
+pnpm run typecheck limpio y pnpm --filter @workspace/e2e run test:api pasando entero.
+Regresión del camino normal: una orden que entra en un camión muestra la lista rankeada con su badge "⭐ SUGERIDO", sin nada nuevo.
+Las plantillas reproducen los números de hoy: con la orden de 50 kg / 50 m³ y la flota real, "Flota simultánea" siembra 28 / 12.5 / 7 / 2.5 y "Viajes sucesivos" siembra 28 + 22.
+La trampa de la key: sembrá 4 filas, escribí una cuota distinta y reconocible en cada una, borrá la primera, y confirmá que las cuotas que quedan siguen en su fila y no se corrieron. Este es el chequeo que atrapa el bug de key={index}.
+Edición libre: agregá un camión, cambiá el vehículo de una fila y editá una cuota; el saldo se actualiza en vivo.
+Cobertura parcial: dejá el plan cubriendo menos del total, creá, y confirmá que se crean los despachos, la orden queda en despachado y aparece en Pre-Despacho con su badge de avance.
+Validación de capacidad: poné en una fila una cuota mayor a la capacidad de su camión y confirmá que el botón se deshabilita antes de mandar nada.
+Ventanas consecutivas intactas: sembrá con "Viajes sucesivos", creá, y confirmá que los despachos quedaron con ventanas pegadas (la salida del segundo igual a la llegada del primero) y sin 409.
+Mandame una captura del panel nuevo con la lista sembrada y editada.
