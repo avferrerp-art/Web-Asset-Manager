@@ -1,0 +1,160 @@
+════════════════════════════════════════════════════════════
+PROMPT 21B — Faltan los tests del reparto con el MISMO camión
+en varios viajes (Escenario B)
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Add atomic batch dispatch endpoint` (743d841).
+
+Tarea **solo de tests**. No se toca ni una línea de código de producción: ni
+el router, ni el contrato, ni el motor de reparto. Si al terminar el diff
+muestra cambios fuera de `e2e/`, algo se hizo de más.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9. Tests con Vitest en
+`e2e/`, se corren con `pnpm --filter @workspace/e2e run test:api`.
+
+Archivo a tocar: `e2e/tests/viajes.test.ts` — ahí viven hoy los tests de
+`POST /dispatches/batch`, junto con todo el andamiaje que necesitan
+(`api()`, `createSale()`, `vehicleIds`, `personnelIds`, la limpieza en
+`afterEach`).
+
+**Los tests nuevos van en ese mismo archivo.** No lo dividas ni muevas los
+que ya están: el andamiaje son ~316 líneas compartidas y extraerlo tocaría
+una suite de 1742 líneas que hoy pasa entera. La prolijidad no vale ese
+riesgo en el medio de una fase.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+El endpoint `POST /dispatches/batch` existe para dos escenarios de reparto:
+
+- **Escenario A** — varios camiones distintos saliendo a la vez.
+- **Escenario B** — **el mismo camión haciendo varios viajes** en ventanas
+  sucesivas.
+
+Revisé qué vehículo usa cada tramo en cada test del lote, y **ningún test
+crea un lote con el mismo vehículo en dos tramos con ventanas distintas.**
+Todos usan vehículos diferentes por tramo. El único que repite vehículo es
+el de ventana idéntica, que se rechaza con 400.
+
+O sea: **el Escenario B entero no está probado.**
+
+Y no es un hueco cosmético. La mecánica que hace funcionar todo el endpoint
+es que **el tramo 2 vea el INSERT del tramo 1 dentro de la misma
+transacción**. Si esa visibilidad no funcionara, un lote del Escenario B con
+ventanas solapadas se aceptaría en silencio y quedaría un camión reservado
+dos veces al mismo tiempo. Hoy nada verifica ese mecanismo: los tests que
+existen usan vehículos distintos, así que nunca hacen que un tramo choque
+contra otro del mismo lote.
+
+El test de ventanas solapadas es, literalmente, el que prueba que el
+endpoint hace lo que promete.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **Los bordes de tiempo son estrictos y hay que respetarlos.** La
+   comparación de solape usa `<` y `>`, no `<=` / `>=`. Entonces:
+   - Un tramo que **arranca exactamente** cuando termina el anterior **NO**
+     es conflicto: se permite. Los viajes pegados son válidos.
+   - Un minuto de solape **sí** es conflicto.
+   Verifiqué los dos bordes en vivo contra la API real. Si tu test de
+   consecutivos da 409, el problema es el test, no el código: revisá que la
+   salida del segundo tramo sea idéntica a la llegada del primero.
+
+2. **No uses ventanas idénticas para probar el solape.** Dos tramos con el
+   mismo vehículo, chofer, ayudante y las MISMAS dos fechas caen en la
+   exención `isSamePhysicalTrip` (el sistema los lee como un único viaje
+   físico compartido) y además el handler ya los rechaza antes con
+   `batch_duplicate_vehicle_window` (400). Para probar el solape las
+   ventanas tienen que **superponerse sin ser iguales**.
+
+3. **Elegí bien el vehículo.** El andamiaje siembra tres:
+   `vehicleIds[0]` "Grande A" (10.000 kg / 100 m³), `vehicleIds[1]`
+   "Pequeño" (500 kg / 5 m³) y `vehicleIds[2]` "Grande B" (20.000 kg /
+   200 m³). Usá el **Pequeño**: es el que hace creíble el Escenario B, y
+   asegurate de que la cuota de **cada tramo** entre en sus 500 kg — no la
+   suma, cada uno por separado. Una cuota que se pase daría
+   `vehicle_capacity_exceeded` (400) y estarías probando otra cosa.
+
+4. **Los dos tramos van con `cargaParcial: true` y la MISMA venta.** Si
+   cambiás de orden entre tramos salta `batch_mixed_orders`; si alguno va
+   completo salta `batch_partial_load_required`. En ambos casos el test
+   pasaría por el motivo equivocado.
+
+5. **Registrá los despachos creados para la limpieza.** El `afterEach` borra
+   por `dispatchIds`; el test de camino feliz tiene que hacer
+   `dispatchIds.push(...)` con los ids devueltos, igual que los tests que ya
+   están.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+Agregá **dos** tests en `e2e/tests/viajes.test.ts`, al lado de los otros de
+`/dispatches/batch`, siguiendo su mismo estilo.
+
+**Test 1 — Escenario B válido: mismo camión, ventanas consecutivas**
+
+Una venta repartida en dos tramos, los dos con `vehicleIds[1]` (el Pequeño)
+y el mismo chofer, donde **la salida del segundo es exactamente la llegada
+del primero** (por ejemplo `08:00→10:00` y `10:00→12:00`).
+
+Verificá:
+- responde `201`
+- se crearon **dos** despachos
+- los dos tienen el **mismo** `vehiculoId`
+- los dos quedaron con `cargaParcial: true`
+
+**Test 2 — Escenario B inválido: mismo camión, ventanas solapadas**
+
+El mismo caso pero con el segundo tramo arrancando **antes** de que termine
+el primero (por ejemplo `08:00→10:00` y `09:00→11:00`).
+
+Verificá:
+- responde `409`
+- el cuerpo trae `error: "vehicle_schedule_conflict"` y `tramoIndex: 1`
+- **y esto es lo importante**: consultá la base y confirmá que **no quedó
+  ningún despacho creado para esa venta**. El primer tramo llegó a
+  insertarse antes de que fallara el segundo, así que este chequeo prueba
+  dos cosas a la vez: que la transacción revierte, y que el tramo 2 vio al
+  tramo 1 (si no lo hubiera visto, la respuesta sería 201 y habría dos
+  despachos).
+
+Tomá como modelo el test `revierte el lote completo e identifica el tramo
+inválido`, que ya hace exactamente ese patrón de contar despachos antes y
+después.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques `artifacts/api-server/`, `lib/`, ni nada fuera de `e2e/`.
+- No modifiques los tests que ya existen, ni el andamiaje compartido
+  (`beforeAll`, `afterEach`, `createSale`, `api`, etc.).
+- No muevas los tests de batch a otro archivo ni dividas `viajes.test.ts`.
+- No cambies el comportamiento del endpoint para que un test pase. Si alguno
+  de los dos falla, **paralo y reportámelo**: sería un bug real del endpoint
+  y quiero verlo antes de que se toque nada.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm --filter @workspace/e2e run test:api` pasa entero, con los dos
+   tests nuevos en verde y sin romper ninguno de los que ya estaban.
+2. `pnpm run typecheck` limpio.
+3. Confirmá que el diff toca **un solo archivo**: `e2e/tests/viajes.test.ts`.
+4. Reportá el resultado de los dos tests. Si el de ventanas solapadas
+   devolvió `201` en vez de `409`, no lo "arregles": copiame la respuesta
+   completa del endpoint, porque significa que el reparto del Escenario B
+   está creando despachos que se pisan.
