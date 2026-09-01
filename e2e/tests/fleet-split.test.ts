@@ -86,10 +86,76 @@ describe("Fleet load distribution", () => {
     expect(fraccionQueEntra(foton, 1_000, null)).toBe(1);
   });
 
-  it("closes rounded partial quotas by assigning the last remainder", () => {
-    const thirds = { id: 6, capacidadPeso: 0.3334, capacidadVolumen: 1 };
+  it("closes rounded partial quotas with capacities representable at three decimals", () => {
+    const thirds = { id: 6, capacidadPeso: 0.334, capacidadVolumen: 1 };
     const plan = planViajesSucesivos([thirds], 1, null);
-    expect(plan.tramos.map((tramo) => tramo.pesoKg)).toEqual([0.333, 0.333, 0.334]);
+    expect(plan.tramos.map((tramo) => tramo.pesoKg)).toEqual([0.334, 0.334, 0.332]);
+    expect(plan.tramos.every((tramo) => (tramo.pesoKg ?? 0) <= tramo.vehiculo.capacidadPeso)).toBe(true);
+    expect(roundPartialQuotaSum(
+      plan.tramos.reduce((total, tramo) => total + (tramo.pesoKg ?? 0), 0),
+    )).toBe(1);
+  });
+
+  it("keeps a real final quota positive without exceeding either vehicle capacity", () => {
+    const plan = planFlotaSimultanea(flotaReal, 11_000.74, 4.9289);
+    expect(plan.viable).toBe(true);
+    expect(plan.tramos.map(({ pesoKg, volumenM3 }) => [pesoKg, volumenM3])).toEqual([
+      [11_000, 4.928],
+      [0.74, 0.001],
+    ]);
+    for (const tramo of plan.tramos) {
+      expect(tramo.pesoKg).toBeGreaterThan(0);
+      expect(tramo.volumenM3).toBeGreaterThan(0);
+      expect(tramo.pesoKg).toBeLessThanOrEqual(tramo.vehiculo.capacidadPeso);
+      expect(tramo.volumenM3).toBeLessThanOrEqual(tramo.vehiculo.capacidadVolumen);
+    }
+  });
+
+  it("rounds known dimensions independently and preserves unknown dimensions", () => {
+    const onlyWeight = planFlotaSimultanea(flotaReal, 11_000.74, null);
+    expect(onlyWeight.tramos.map(({ pesoKg, volumenM3 }) => [pesoKg, volumenM3])).toEqual([
+      [11_000, null],
+      [0.74, null],
+    ]);
+
+    const onlyVolume = planFlotaSimultanea(flotaReal, null, 28.0004);
+    expect(onlyVolume.tramos.every((tramo) => tramo.pesoKg === null)).toBe(true);
+    expect(onlyVolume.tramos.every((tramo) => (
+      tramo.volumenM3 != null
+      && tramo.volumenM3 > 0
+      && tramo.volumenM3 <= tramo.vehiculo.capacidadVolumen
+    ))).toBe(true);
+  });
+
+  it("leaves an unabsorbable rounding residue unassigned rather than exceeding capacity", () => {
+    const capacidadNoRepresentable = { id: 20, capacidadPeso: 0.3335, capacidadVolumen: 1 };
+    const plan = planViajesSucesivos([capacidadNoRepresentable], 1, null);
+    expect(plan.viable).toBe(true);
+    expect(plan.tramos.every((tramo) => (
+      tramo.pesoKg != null && tramo.pesoKg > 0 && tramo.pesoKg <= tramo.vehiculo.capacidadPeso
+    ))).toBe(true);
+    expect(roundPartialQuotaSum(
+      plan.tramos.reduce((total, tramo) => total + (tramo.pesoKg ?? 0), 0),
+    )).toBe(0.999);
+  });
+
+  it("rejects a split when positive minimum quotas would create load", () => {
+    const minimos = [
+      { id: 21, capacidadPeso: 0.001, capacidadVolumen: 1 },
+      { id: 22, capacidadPeso: 0.001, capacidadVolumen: 1 },
+    ];
+    expect(planFlotaSimultanea(minimos, 0.0014, null)).toMatchObject({
+      viable: false,
+      tramos: [],
+      motivoNoViable: "La precisión mínima no permite repartir esta carga",
+    });
+
+    const dosViajes = { id: 23, capacidadPeso: 1, capacidadVolumen: 1 };
+    expect(planViajesSucesivos([dosViajes], 2, 0.001)).toMatchObject({
+      viable: false,
+      tramos: [],
+      motivoNoViable: "La precisión mínima no permite repartir esta carga",
+    });
   });
 
   it("accepts exactly ten decimal fractions despite floating-point accumulation", () => {

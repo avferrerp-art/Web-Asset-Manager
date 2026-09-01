@@ -24,6 +24,11 @@ export interface PlanDeReparto<V extends SplitVehicle> {
 
 const MAX_TRAMOS = 10;
 const FRACTION_EPSILON = 1e-12;
+const MIN_QUOTA = 0.001;
+
+function capacidadRepresentable(capacidad: number): number {
+  return Math.floor((capacidad + Number.EPSILON) * 1_000) / 1_000;
+}
 
 function planNoViable<V extends SplitVehicle>(
   estrategia: EstrategiaReparto,
@@ -61,27 +66,64 @@ function construirTramos<V extends SplitVehicle>(
   asignaciones: Array<{ vehiculo: V; fraccion: number }>,
   pesoTotal: number | null,
   volumenTotal: number | null,
-): TramoReparto<V>[] {
-  let pesoAsignado = 0;
-  let volumenAsignado = 0;
+): TramoReparto<V>[] | null {
+  const repartirDimension = (
+    total: number | null,
+    capacidad: (vehiculo: V) => number,
+  ): Array<number | null> | null => {
+    if (total == null) return asignaciones.map(() => null);
 
-  return asignaciones.map(({ vehiculo, fraccion }, index) => {
-    const ultimo = index === asignaciones.length - 1;
-    const pesoKg = pesoTotal == null
-      ? null
-      : ultimo
-        ? roundPartialQuotaSum(pesoTotal - pesoAsignado)
-        : roundPartialQuotaSum(pesoTotal * fraccion);
-    const volumenM3 = volumenTotal == null
-      ? null
-      : ultimo
-        ? roundPartialQuotaSum(volumenTotal - volumenAsignado)
-        : roundPartialQuotaSum(volumenTotal * fraccion);
+    const cuotas = asignaciones.map(({ vehiculo, fraccion }) => Math.min(
+      roundPartialQuotaSum(total * fraccion),
+      capacidadRepresentable(capacidad(vehiculo)),
+    ));
+    const suma = roundPartialQuotaSum(cuotas.reduce((acumulado, cuota) => acumulado + cuota, 0));
+    const residuo = roundPartialQuotaSum(total - suma);
 
-    if (pesoKg != null) pesoAsignado = roundPartialQuotaSum(pesoAsignado + pesoKg);
-    if (volumenM3 != null) volumenAsignado = roundPartialQuotaSum(volumenAsignado + volumenM3);
-    return { orden: index + 1, vehiculo, pesoKg, volumenM3 };
-  });
+    if (residuo !== 0) {
+      const receptor = cuotas
+        .map((cuota, index) => ({
+          index,
+          holgura: roundPartialQuotaSum(capacidad(asignaciones[index].vehiculo) - cuota),
+          cuotaAjustada: roundPartialQuotaSum(cuota + residuo),
+        }))
+        .filter(({ index, cuotaAjustada }) => (
+          cuotaAjustada > 0
+          && cuotaAjustada <= capacidad(asignaciones[index].vehiculo)
+        ))
+        .sort((a, b) => b.holgura - a.holgura || b.index - a.index)[0];
+
+      if (receptor) cuotas[receptor.index] = receptor.cuotaAjustada;
+      if (!receptor && residuo < 0) return null;
+    }
+
+    for (let index = 0; index < cuotas.length; index += 1) {
+      if (cuotas[index] > 0) continue;
+
+      const incremento = roundPartialQuotaSum(MIN_QUOTA - cuotas[index]);
+      const donante = cuotas
+        .map((cuota, donorIndex) => ({ donorIndex, cuota }))
+        .filter(({ donorIndex, cuota }) => donorIndex !== index && cuota - incremento > 0)
+        .sort((a, b) => b.cuota - a.cuota || b.donorIndex - a.donorIndex)[0];
+
+      if (capacidad(asignaciones[index].vehiculo) < MIN_QUOTA || !donante) return null;
+      cuotas[index] = MIN_QUOTA;
+      cuotas[donante.donorIndex] = roundPartialQuotaSum(donante.cuota - incremento);
+    }
+
+    return cuotas;
+  };
+
+  const pesos = repartirDimension(pesoTotal, (vehiculo) => vehiculo.capacidadPeso);
+  const volumenes = repartirDimension(volumenTotal, (vehiculo) => vehiculo.capacidadVolumen);
+  if (pesos == null || volumenes == null) return null;
+
+  return asignaciones.map(({ vehiculo }, index) => ({
+    orden: index + 1,
+    vehiculo,
+    pesoKg: pesos[index],
+    volumenM3: volumenes[index],
+  }));
 }
 
 /** Escenario A: varios camiones distintos, cada uno una sola vez. */
@@ -117,9 +159,13 @@ export function planFlotaSimultanea<V extends SplitVehicle>(
   if (asignaciones.length > MAX_TRAMOS) {
     return planNoViable(estrategia, "El plan requiere más de 10 tramos");
   }
+  const tramos = construirTramos(asignaciones, pesoTotal, volumenTotal);
+  if (tramos == null) {
+    return planNoViable(estrategia, "La precisión mínima no permite repartir esta carga");
+  }
   return {
     estrategia,
-    tramos: construirTramos(asignaciones, pesoTotal, volumenTotal),
+    tramos,
     viable: true,
     motivoNoViable: null,
   };
@@ -157,9 +203,13 @@ export function planViajesSucesivos<V extends SplitVehicle>(
       ? 1 - elegido.fraccion * index
       : elegido.fraccion,
   }));
+  const tramos = construirTramos(asignaciones, pesoTotal, volumenTotal);
+  if (tramos == null) {
+    return planNoViable(estrategia, "La precisión mínima no permite repartir esta carga");
+  }
   return {
     estrategia,
-    tramos: construirTramos(asignaciones, pesoTotal, volumenTotal),
+    tramos,
     viable: true,
     motivoNoViable: null,
   };
