@@ -1259,6 +1259,113 @@ export const CreateDispatchResponse = zod.object({
 
 
 /**
+ * @summary Create all partial dispatches for one order atomically
+ */
+export const createDispatchBatchBodyTramosItemOneOneCargaParcialDefault = false;
+export const createDispatchBatchBodyTramosItemOneOnePesoEstimadoKgExclusiveMin = 0;
+
+export const createDispatchBatchBodyTramosItemOneOneVolumenEstimadoM3ExclusiveMin = 0;
+
+export const createDispatchBatchBodyTramosItemOneTwoTipoDefault = `venta`;
+export const createDispatchBatchBodyTramosItemTwoOneCargaParcialDefault = false;
+export const createDispatchBatchBodyTramosItemTwoOnePesoEstimadoKgExclusiveMin = 0;
+
+export const createDispatchBatchBodyTramosItemTwoOneVolumenEstimadoM3ExclusiveMin = 0;
+
+export const createDispatchBatchBodyTramosMax = 10;
+
+
+
+export const CreateDispatchBatchBody = zod.object({
+  "tramos": zod.array(zod.union([zod.object({
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().optional(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().optional(),
+  "distanciaKm": zod.number().optional(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().optional(),
+  "totalPeajes": zod.number().optional(),
+  "cargaParcial": zod.boolean().default(createDispatchBatchBodyTramosItemOneOneCargaParcialDefault),
+  "pesoEstimadoKg": zod.number().gt(createDispatchBatchBodyTramosItemOneOnePesoEstimadoKgExclusiveMin).nullish(),
+  "volumenEstimadoM3": zod.number().gt(createDispatchBatchBodyTramosItemOneOneVolumenEstimadoM3ExclusiveMin).nullish(),
+  "routePoints": zod.array(zod.object({
+  "ubicacion": zod.string(),
+  "orden": zod.number(),
+  "latitud": zod.number().optional(),
+  "longitud": zod.number().optional()
+})).optional()
+}).and(zod.object({
+  "tipo": zod.enum(['venta']).default(createDispatchBatchBodyTramosItemOneTwoTipoDefault),
+  "ventaId": zod.number()
+})),zod.object({
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().optional(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().optional(),
+  "distanciaKm": zod.number().optional(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().optional(),
+  "totalPeajes": zod.number().optional(),
+  "cargaParcial": zod.boolean().default(createDispatchBatchBodyTramosItemTwoOneCargaParcialDefault),
+  "pesoEstimadoKg": zod.number().gt(createDispatchBatchBodyTramosItemTwoOnePesoEstimadoKgExclusiveMin).nullish(),
+  "volumenEstimadoM3": zod.number().gt(createDispatchBatchBodyTramosItemTwoOneVolumenEstimadoM3ExclusiveMin).nullish(),
+  "routePoints": zod.array(zod.object({
+  "ubicacion": zod.string(),
+  "orden": zod.number(),
+  "latitud": zod.number().optional(),
+  "longitud": zod.number().optional()
+})).optional()
+}).and(zod.object({
+  "tipo": zod.enum(['traslado']),
+  "trasladoId": zod.number()
+}))])).min(1).max(createDispatchBatchBodyTramosMax)
+})
+
+export const createDispatchBatchResponsePesoEstimadoKgExclusiveMin = 0;
+
+export const createDispatchBatchResponseVolumenEstimadoM3ExclusiveMin = 0;
+
+
+
+export const CreateDispatchBatchResponseItem = zod.object({
+  "id": zod.number(),
+  "tipo": zod.enum(['venta', 'traslado']),
+  "ventaId": zod.number().nullable(),
+  "trasladoId": zod.number().nullable(),
+  "viajeId": zod.number().nullish(),
+  "orden": zod.number().nullish(),
+  "vehiculoId": zod.number(),
+  "choferId": zod.number(),
+  "ayudanteId": zod.number().nullish(),
+  "fechaEstimadaSalida": zod.string(),
+  "fechaEstimadaLlegada": zod.string(),
+  "ruta": zod.string().nullish(),
+  "estado": zod.string().describe('pre-despacho | aprobado | en-ruta | entregado | cancelado'),
+  "distanciaKm": zod.number().nullish(),
+  "distanciaManual": zod.boolean().optional(),
+  "routeId": zod.number().nullish(),
+  "totalPeajes": zod.number().nullish(),
+  "cargaParcial": zod.boolean().describe('When true, the positive dispatch estimates are cargo quotas and override the linked Odoo totals'),
+  "pesoEstimadoKg": zod.number().gt(createDispatchBatchResponsePesoEstimadoKgExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no weight'),
+  "volumenEstimadoM3": zod.number().gt(createDispatchBatchResponseVolumenEstimadoM3ExclusiveMin).nullish().describe('Manual dispatch estimate used only when Odoo has no volume'),
+  "createdAt": zod.string(),
+  "vehiculoModelo": zod.string().nullish(),
+  "choferNombre": zod.string().nullish(),
+  "ayudanteNombre": zod.string().nullish(),
+  "clienteNombre": zod.string().nullish(),
+  "referencia": zod.string().nullish(),
+  "origen": zod.string().nullish(),
+  "destino": zod.string().nullish()
+})
+export const CreateDispatchBatchResponse = zod.array(CreateDispatchBatchResponseItem)
+
+
+/**
  * @summary Get a dispatch by ID
  */
 export const GetDispatchParams = zod.object({

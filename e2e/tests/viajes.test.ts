@@ -8,8 +8,10 @@ import {
   fuelPricesTable,
   personnelTable,
   pool,
+  routePointsTable,
   runMigrations,
   salesTable,
+  travelCostsTable,
   trasladosTable,
   vehiclesTable,
   viajesTable,
@@ -535,6 +537,307 @@ describe.sequential("viajes compartidos", () => {
       if (response.status === 201) dispatchIds.push(body.id);
       else expect(body.error).toBe("order_load_mode_conflict");
     }
+  });
+
+  it("crea un reparto completo en orden con costos y puntos dentro de una sola transacción", async () => {
+    const sale = await createSale({ peso: 2_000, volumen: 20 });
+    const response = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [
+          {
+            tipo: "venta",
+            ventaId: sale.id,
+            vehiculoId: vehicleIds[0],
+            choferId: personnelIds[0],
+            fechaEstimadaSalida: "2035-10-01T08:00:00.000Z",
+            fechaEstimadaLlegada: "2035-10-01T10:00:00.000Z",
+            cargaParcial: true,
+            pesoEstimadoKg: 1_000,
+            routePoints: [{ ubicacion: "Primera parada", orden: 1 }],
+          },
+          {
+            tipo: "venta",
+            ventaId: sale.id,
+            vehiculoId: vehicleIds[1],
+            choferId: personnelIds[1],
+            fechaEstimadaSalida: "2035-10-01T10:00:00.000Z",
+            fechaEstimadaLlegada: "2035-10-01T12:00:00.000Z",
+            cargaParcial: true,
+            pesoEstimadoKg: 500,
+            routePoints: [{ ubicacion: "Segunda parada", orden: 1 }],
+          },
+        ],
+      }),
+    });
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toHaveLength(2);
+    expect(body.map((dispatch: { vehiculoId: number }) => dispatch.vehiculoId)).toEqual([
+      vehicleIds[0],
+      vehicleIds[1],
+    ]);
+    dispatchIds.push(...body.map((dispatch: { id: number }) => dispatch.id));
+    const costs = await db
+      .select()
+      .from(travelCostsTable)
+      .where(inArray(travelCostsTable.despachoId, dispatchIds));
+    const points = await db
+      .select()
+      .from(routePointsTable)
+      .where(inArray(routePointsTable.despachoId, dispatchIds));
+    expect(costs).toHaveLength(2);
+    expect(points.map(({ ubicacion }) => ubicacion).sort()).toEqual([
+      "Primera parada",
+      "Segunda parada",
+    ]);
+  });
+
+  it("revierte el lote completo e identifica el tramo inválido", async () => {
+    const sale = await createSale({ peso: 2_000, volumen: 20 });
+    const before = await db
+      .select({ id: dispatchesTable.id })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.ventaId, sale.id));
+    const response = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [
+          {
+            tipo: "venta",
+            ventaId: sale.id,
+            vehiculoId: vehicleIds[0],
+            choferId: personnelIds[0],
+            fechaEstimadaSalida: "2035-10-02T08:00:00.000Z",
+            fechaEstimadaLlegada: "2035-10-02T10:00:00.000Z",
+            cargaParcial: true,
+            pesoEstimadoKg: 1_000,
+          },
+          {
+            tipo: "venta",
+            ventaId: sale.id,
+            vehiculoId: vehicleIds[1],
+            choferId: personnelIds[1],
+            fechaEstimadaSalida: "2035-10-02T10:00:00.000Z",
+            fechaEstimadaLlegada: "2035-10-02T12:00:00.000Z",
+            cargaParcial: true,
+            pesoEstimadoKg: 501,
+          },
+        ],
+      }),
+    });
+    expect(response.status).toBe(400);
+    expect(await response.json()).toMatchObject({
+      error: "vehicle_capacity_exceeded",
+      tramoIndex: 1,
+    });
+    const after = await db
+      .select({ id: dispatchesTable.id })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.ventaId, sale.id));
+    expect(after).toHaveLength(before.length);
+  });
+
+  it("rechaza reglas inválidas del lote antes de escribir", async () => {
+    const firstSale = await createSale();
+    const secondSale = await createSale();
+    const base = {
+      tipo: "venta",
+      vehiculoId: vehicleIds[0],
+      choferId: personnelIds[0],
+      fechaEstimadaSalida: "2035-10-03T08:00:00.000Z",
+      fechaEstimadaLlegada: "2035-10-03T10:00:00.000Z",
+      cargaParcial: true,
+      pesoEstimadoKg: 50,
+    };
+    const mixed = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [
+          { ...base, ventaId: firstSale.id },
+          { ...base, ventaId: secondSale.id, vehiculoId: vehicleIds[1] },
+        ],
+      }),
+    });
+    expect(mixed.status).toBe(400);
+    expect(await mixed.json()).toMatchObject({
+      error: "batch_mixed_orders",
+      tramoIndex: 1,
+    });
+
+    const duplicate = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [
+          { ...base, ventaId: firstSale.id },
+          { ...base, ventaId: firstSale.id, choferId: personnelIds[1] },
+        ],
+      }),
+    });
+    expect(duplicate.status).toBe(400);
+    expect(await duplicate.json()).toMatchObject({
+      error: "batch_duplicate_vehicle_window",
+      tramoIndex: 1,
+    });
+
+    const complete = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [{ ...base, ventaId: firstSale.id, cargaParcial: false }],
+      }),
+    });
+    expect(complete.status).toBe(400);
+    expect(await complete.json()).toMatchObject({
+      error: "batch_partial_load_required",
+      tramoIndex: 0,
+    });
+
+    const missingQuota = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [{
+          ...base,
+          ventaId: firstSale.id,
+          pesoEstimadoKg: null,
+        }],
+      }),
+    });
+    expect(missingQuota.status).toBe(400);
+    expect(await missingQuota.json()).toMatchObject({
+      error: "partial_cargo_quota_required",
+      tramoIndex: 0,
+    });
+
+    const missingSale = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [{ ...base, ventaId: 2_000_000_000 }],
+      }),
+    });
+    expect(missingSale.status).toBe(400);
+    expect(await missingSale.json()).toMatchObject({
+      error: "sale_not_found",
+      tramoIndex: 0,
+    });
+
+    const malformedSecondLeg = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [
+          { ...base, ventaId: firstSale.id },
+          {
+            ...base,
+            ventaId: firstSale.id,
+            vehiculoId: undefined,
+            choferId: personnelIds[1],
+          },
+        ],
+      }),
+    });
+    expect(malformedSecondLeg.status).toBe(400);
+    expect(await malformedSecondLeg.json()).toMatchObject({
+      error: "invalid_dispatch_batch",
+      tramoIndex: 1,
+    });
+  });
+
+  it("acepta tramos de traslado y devuelve el lote ordenado", async () => {
+    const [delivery] = await db
+      .insert(deliveriesTable)
+      .values({
+        ventaId: null,
+        odooId: -1_600_000_000 - Math.floor(Math.random() * 100_000_000),
+        tipo: "traslado",
+        nombre: `QA/BATCH/${suffix}/${Math.random()}`,
+        estado: "assigned",
+      })
+      .returning();
+    deliveryIds.push(delivery!.id);
+    const [traslado] = await db
+      .insert(trasladosTable)
+      .values({
+        deliveryId: delivery!.id,
+        odooPickingId: delivery!.odooId,
+        almacenOrigenId: warehouseIds[0]!,
+        almacenDestinoId: warehouseIds[1]!,
+        pesoCalculadoKg: 200,
+        volumenCalculadoM3: 2,
+      })
+      .returning();
+    trasladoIds.push(traslado!.id);
+
+    const response = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [{
+          tipo: "traslado",
+          trasladoId: traslado!.id,
+          vehiculoId: vehicleIds[0],
+          choferId: personnelIds[0],
+          fechaEstimadaSalida: "2035-10-03T12:00:00.000Z",
+          fechaEstimadaLlegada: "2035-10-03T14:00:00.000Z",
+          cargaParcial: true,
+          pesoEstimadoKg: 200,
+        }],
+      }),
+    });
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toMatchObject([{ tipo: "traslado", trasladoId: traslado!.id }]);
+    dispatchIds.push(body[0].id);
+  });
+
+  it("serializa lotes competidores y no deja escrituras parciales", async () => {
+    const firstSale = await createSale();
+    const secondSale = await createSale();
+    const makeBody = (ventaId: number, choferId: number) => ({
+      tramos: [
+        {
+          tipo: "venta",
+          ventaId,
+          vehiculoId: vehicleIds[0],
+          choferId,
+          fechaEstimadaSalida: "2035-10-04T08:00:00.000Z",
+          fechaEstimadaLlegada: "2035-10-04T10:00:00.000Z",
+          cargaParcial: true,
+          pesoEstimadoKg: 50,
+        },
+        {
+          tipo: "venta",
+          ventaId,
+          vehiculoId: vehicleIds[2],
+          choferId,
+          fechaEstimadaSalida: "2035-10-04T10:00:00.000Z",
+          fechaEstimadaLlegada: "2035-10-04T12:00:00.000Z",
+          cargaParcial: true,
+          pesoEstimadoKg: 50,
+        },
+      ],
+    });
+    const responses = await Promise.all(
+      [
+        makeBody(firstSale.id, personnelIds[0]!),
+        makeBody(secondSale.id, personnelIds[1]!),
+      ].map((body) =>
+        api("/dispatches/batch", {
+          method: "POST",
+          body: JSON.stringify(body),
+        }),
+      ),
+    );
+    for (const response of responses) {
+      const body = await response.json();
+      if (response.status === 201) {
+        expect(body).toHaveLength(2);
+        dispatchIds.push(...body.map((dispatch: { id: number }) => dispatch.id));
+      } else {
+        expect(body).toMatchObject({
+          error: "vehicle_schedule_conflict",
+          tramoIndex: 0,
+        });
+      }
+    }
+    expect(responses.map(({ status }) => status).sort()).toEqual([201, 409]);
   });
 
   it("impide mezclar cargas parciales y completas y limpia cuotas heredadas", async () => {

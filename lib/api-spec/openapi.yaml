@@ -985,6 +985,39 @@ paths:
               schema:
                 $ref: "#/components/schemas/Dispatch"
 
+  /dispatches/batch:
+    post:
+      operationId: createDispatchBatch
+      tags: [dispatches]
+      summary: Create all partial dispatches for one order atomically
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchBatchInput"
+      responses:
+        "201":
+          description: Dispatches created in the same order as the input legs
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Dispatch"
+        "400":
+          description: Invalid batch or leg
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DispatchBatchError"
+        "409":
+          description: Operational conflict
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DispatchBatchError"
+
   /dispatches/{id}:
     get:
       operationId: getDispatch
@@ -3012,6 +3045,29 @@ components:
       oneOf:
         - $ref: "#/components/schemas/DispatchSaleInput"
         - $ref: "#/components/schemas/DispatchTransferInput"
+
+    DispatchBatchInput:
+      type: object
+      required: [tramos]
+      properties:
+        tramos:
+          type: array
+          minItems: 1
+          maxItems: 10
+          items:
+            $ref: "#/components/schemas/DispatchInput"
+
+    DispatchBatchError:
+      type: object
+      required: [error, message]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        tramoIndex:
+          type: integer
+          minimum: 0
 
     DispatchInputBase:
       type: object

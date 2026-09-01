@@ -962,6 +962,21 @@ export type DispatchTransferInput = DispatchInputBase & {
 
 export type DispatchInput = DispatchSaleInput | DispatchTransferInput;
 
+export interface DispatchBatchInput {
+  /**
+     * @minItems 1
+     * @maxItems 10
+     */
+  tramos: DispatchInput[];
+}
+
+export interface DispatchBatchError {
+  error: string;
+  message: string;
+  /** @minimum 0 */
+  tramoIndex?: number;
+}
+
 export interface DispatchCostEstimateInput {
   vehiculoId: number;
   choferId: number;

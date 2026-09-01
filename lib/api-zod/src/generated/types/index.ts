@@ -20,6 +20,8 @@ export * from './deliveryItem';
 export * from './deliverySyncResult';
 export * from './deliverySyncResultTransfersByOdooState';
 export * from './dispatch';
+export * from './dispatchBatchError';
+export * from './dispatchBatchInput';
 export * from './dispatchCargoItem';
 export * from './dispatchCostEstimateInput';
 export * from './dispatchDetail';

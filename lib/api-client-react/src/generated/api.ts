@@ -31,6 +31,8 @@ import type {
   DeliveryBackfillResult,
   DeliverySyncResult,
   Dispatch,
+  DispatchBatchError,
+  DispatchBatchInput,
   DispatchCostEstimateInput,
   DispatchDetail,
   DispatchInput,
@@ -3467,6 +3469,76 @@ export const useCreateDispatch = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateDispatchMutationOptions(options));
+    }
+
+export const getCreateDispatchBatchUrl = () => {
+
+
+
+
+  return `/api/dispatches/batch`
+}
+
+/**
+ * @summary Create all partial dispatches for one order atomically
+ */
+export const createDispatchBatch = async (dispatchBatchInput: DispatchBatchInput, options?: RequestInit): Promise<Dispatch[]> => {
+
+  return customFetch<Dispatch[]>(getCreateDispatchBatchUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(dispatchBatchInput)
+  }
+);}
+
+
+
+
+export const getCreateDispatchBatchMutationOptions = <TError = ErrorType<DispatchBatchError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createDispatchBatch>>, TError,{data: BodyType<DispatchBatchInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createDispatchBatch>>, TError,{data: BodyType<DispatchBatchInput>}, TContext> => {
+
+const mutationKey = ['createDispatchBatch'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createDispatchBatch>>, {data: BodyType<DispatchBatchInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createDispatchBatch(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateDispatchBatchMutationResult = NonNullable<Awaited<ReturnType<typeof createDispatchBatch>>>
+    export type CreateDispatchBatchMutationBody = BodyType<DispatchBatchInput>
+    export type CreateDispatchBatchMutationError = ErrorType<DispatchBatchError>
+
+    /**
+ * @summary Create all partial dispatches for one order atomically
+ */
+export const useCreateDispatchBatch = <TError = ErrorType<DispatchBatchError>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createDispatchBatch>>, TError,{data: BodyType<DispatchBatchInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createDispatchBatch>>,
+        TError,
+        {data: BodyType<DispatchBatchInput>},
+        TContext
+      > => {
+      return useMutation(getCreateDispatchBatchMutationOptions(options));
     }
 
 export const getGetDispatchUrl = (id: number,) => {

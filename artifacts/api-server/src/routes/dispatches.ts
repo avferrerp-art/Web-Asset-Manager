@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq, and, asc, desc } from "drizzle-orm";
-import { db, dispatchesTable, salesTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable, saleItemsTable } from "@workspace/db";
+import { db, dispatchesTable, salesTable, trasladosTable, vehiclesTable, personnelTable, routePointsTable, travelCostsTable, tollRoutesTable, routeTollsTable, routeWaypointsTable, fuelPricesTable, saleItemsTable } from "@workspace/db";
 import { computeRouteCostBreakdown, type RouteCostBreakdown, type RouteTramo } from "../lib/routeCost";
 import { syncLinkedDispatchEntity } from "../services/dispatchEstadoSync";
 import { getTraslado, getTrasladoSummary } from "../services/trasladoQueries";
@@ -16,11 +16,15 @@ import {
 } from "../services/viajeQueries";
 import {
   DispatchConflictError,
+  lockDispatchConflictScopes,
+  validateOperationalConflicts,
+  validateOrderLoadCoherence,
   validateDispatchCandidate,
 } from "../services/dispatchConflicts";
 import {
   ListDispatchesQueryParams,
   CreateDispatchBody,
+  CreateDispatchBatchBody,
   GetDispatchParams,
   UpdateDispatchParams,
   UpdateDispatchBody,
@@ -38,6 +42,17 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+class DispatchBatchInputError extends Error {
+  constructor(
+    public readonly code: string,
+    message: string,
+    public readonly tramoIndex?: number,
+  ) {
+    super(message);
+    this.name = "DispatchBatchInputError";
+  }
+}
 
 interface CostEstimateInputs {
   vehiculoId: number;
@@ -340,6 +355,191 @@ router.post("/dispatches", async (req, res): Promise<void> => {
 
   const row = await buildDispatchRow(dispatch);
   res.status(201).json(row);
+});
+
+router.post("/dispatches/batch", async (req, res): Promise<void> => {
+  const parsed = CreateDispatchBatchBody.safeParse(req.body);
+  if (!parsed.success) {
+    const indexedIssue = parsed.error.issues.find(
+      (issue) => issue.path[0] === "tramos" && typeof issue.path[1] === "number",
+    );
+    res.status(400).json({
+      error: "invalid_dispatch_batch",
+      message: parsed.error.message,
+      ...(indexedIssue ? { tramoIndex: indexedIssue.path[1] as number } : {}),
+    });
+    return;
+  }
+
+  const tramos = parsed.data.tramos;
+  const orderKey = (tramo: (typeof tramos)[number]) =>
+    tramo.tipo === "venta" ? `venta:${tramo.ventaId}` : `traslado:${tramo.trasladoId}`;
+  const firstOrderKey = orderKey(tramos[0]!);
+  const mixedOrderIndex = tramos.findIndex((tramo) => orderKey(tramo) !== firstOrderKey);
+  if (mixedOrderIndex !== -1) {
+    res.status(400).json({
+      error: "batch_mixed_orders",
+      message: "Todos los tramos del lote deben pertenecer a la misma orden.",
+      tramoIndex: mixedOrderIndex,
+    });
+    return;
+  }
+  const completeLoadIndex = tramos.findIndex((tramo) => !tramo.cargaParcial);
+  if (completeLoadIndex !== -1) {
+    res.status(400).json({
+      error: "batch_partial_load_required",
+      message: "Todos los tramos del lote deben ser despachos de carga parcial.",
+      tramoIndex: completeLoadIndex,
+    });
+    return;
+  }
+  const duplicateIndex = tramos.findIndex((tramo, index) =>
+    tramos.slice(0, index).some((previous) =>
+      previous.vehiculoId === tramo.vehiculoId &&
+      new Date(previous.fechaEstimadaSalida).getTime() === new Date(tramo.fechaEstimadaSalida).getTime() &&
+      new Date(previous.fechaEstimadaLlegada).getTime() === new Date(tramo.fechaEstimadaLlegada).getTime(),
+    ),
+  );
+  if (duplicateIndex !== -1) {
+    res.status(400).json({
+      error: "batch_duplicate_vehicle_window",
+      message: "Un vehículo no puede repetirse con la misma ventana dentro del lote.",
+      tramoIndex: duplicateIndex,
+    });
+    return;
+  }
+
+  const resolvedDistances = await Promise.all(tramos.map(resolveDistancia));
+  let createdDispatches: Array<typeof dispatchesTable.$inferSelect>;
+  try {
+    createdDispatches = await db.transaction(async (tx) => {
+      const candidates = tramos.map((tramo) => ({
+        ...tramo,
+        id: 0,
+        ventaId: tramo.tipo === "venta" ? tramo.ventaId : null,
+        trasladoId: tramo.tipo === "traslado" ? tramo.trasladoId : null,
+        ayudanteId: tramo.ayudanteId ?? null,
+        estado: "pre-despacho",
+        cargaParcial: true,
+        viajeId: null,
+      }));
+      await lockDispatchConflictScopes(tx, candidates);
+
+      const created: Array<typeof dispatchesTable.$inferSelect> = [];
+      for (const [tramoIndex, tramo] of tramos.entries()) {
+        try {
+          if (!hasPositivePartialCargoQuota(tramo)) {
+            throw new DispatchBatchInputError(
+              "partial_cargo_quota_required",
+              "Un despacho de carga parcial requiere una cuota positiva de peso o volumen.",
+              tramoIndex,
+            );
+          }
+          const [linkedOrder] = tramo.tipo === "venta"
+            ? await tx.select().from(salesTable).where(eq(salesTable.id, tramo.ventaId))
+            : await tx.select().from(trasladosTable).where(eq(trasladosTable.id, tramo.trasladoId));
+          if (!linkedOrder) {
+            throw new DispatchBatchInputError(
+              tramo.tipo === "venta" ? "sale_not_found" : "transfer_not_found",
+              tramo.tipo === "venta" ? "La venta indicada no existe." : "El traslado indicado no existe.",
+              tramoIndex,
+            );
+          }
+          const [vehicle] = await tx.select().from(vehiclesTable).where(eq(vehiclesTable.id, tramo.vehiculoId));
+          if (!vehicle) {
+            throw new DispatchBatchInputError(
+              "vehicle_not_found",
+              "El vehículo indicado no existe.",
+              tramoIndex,
+            );
+          }
+          const linkedMeasures = tramo.tipo === "venta"
+            ? {
+                peso: (linkedOrder as typeof salesTable.$inferSelect).pesoTotal,
+                volumen: (linkedOrder as typeof salesTable.$inferSelect).volumenTotal,
+                zeroMeansMissing: true,
+              }
+            : {
+                peso: (linkedOrder as typeof trasladosTable.$inferSelect).pesoCalculadoKg,
+                volumen: (linkedOrder as typeof trasladosTable.$inferSelect).volumenCalculadoM3,
+                zeroMeansMissing: false,
+              };
+          const pesoCarga = effectivePartialDispatchMeasure(
+            true,
+            linkedMeasures.peso,
+            tramo.pesoEstimadoKg,
+            linkedMeasures.zeroMeansMissing,
+          );
+          const volumenCarga = effectivePartialDispatchMeasure(
+            true,
+            linkedMeasures.volumen,
+            tramo.volumenEstimadoM3,
+            linkedMeasures.zeroMeansMissing,
+          );
+          if (exceedsDispatchCapacity(vehicle, { pesoKg: pesoCarga, volumenM3: volumenCarga })) {
+            throw new DispatchBatchInputError(
+              "vehicle_capacity_exceeded",
+              `El vehículo ${vehicle.modelo} no alcanza para la cuota del tramo.`,
+              tramoIndex,
+            );
+          }
+
+          const candidate = candidates[tramoIndex]!;
+          await validateOperationalConflicts(tx, candidate);
+          await validateOrderLoadCoherence(tx, candidate);
+          const { routePoints, ...dispatchData } = tramo;
+          const [dispatch] = await tx.insert(dispatchesTable).values({
+            ...dispatchData,
+            ventaId: candidate.ventaId,
+            trasladoId: candidate.trasladoId,
+            ayudanteId: candidate.ayudanteId,
+            distanciaKm: resolvedDistances[tramoIndex],
+          }).returning();
+          await tx.insert(travelCostsTable).values({
+            despachoId: dispatch!.id,
+            costoPeajes: dispatch!.totalPeajes ?? 0,
+            costoCombustible: 0,
+            costoViaticos: 0,
+            total: dispatch!.totalPeajes ?? 0,
+          });
+          if (routePoints && routePoints.length > 0) {
+            await tx.insert(routePointsTable).values(
+              routePoints.map((point) => ({ ...point, despachoId: dispatch!.id })),
+            );
+          }
+          created.push(dispatch!);
+        } catch (error) {
+          if (error instanceof DispatchConflictError) {
+            (error as DispatchConflictError & { tramoIndex?: number }).tramoIndex = tramoIndex;
+          }
+          throw error;
+        }
+      }
+      return created;
+    });
+  } catch (error) {
+    if (error instanceof DispatchBatchInputError) {
+      res.status(400).json({
+        error: error.code,
+        message: error.message,
+        ...(error.tramoIndex === undefined ? {} : { tramoIndex: error.tramoIndex }),
+      });
+      return;
+    }
+    if (error instanceof DispatchConflictError) {
+      res.status(409).json({
+        error: error.code,
+        message: error.message,
+        tramoIndex: (error as DispatchConflictError & { tramoIndex?: number }).tramoIndex,
+      });
+      return;
+    }
+    throw error;
+  }
+
+  await syncLinkedDispatchEntity(createdDispatches[0]!);
+  const rows = await Promise.all(createdDispatches.map(buildDispatchRow));
+  res.status(201).json(rows);
 });
 
 router.get("/dispatches/:id", async (req, res): Promise<void> => {
