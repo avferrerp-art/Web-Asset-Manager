@@ -1,0 +1,282 @@
+════════════════════════════════════════════════════════════
+PROMPT 21 (Fase 4E-2) — Endpoint transaccional para crear el
+reparto completo de una orden. Backend solo, sin UI.
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Corrige las cuotas redondeadas del último tramo`
+(381e07d) o posterior.
+
+Backend puro: contrato + router + tests. **No hay UI en esta tarea** y
+`fleet-split.ts` sigue sin consumidores. No hay migraciones ni cambios de
+schema: la tabla `dispatches` ya tiene todo lo necesario desde la Fase 4C.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, Node 24, TypeScript 5.9.
+
+  lib/api-spec/         openapi.yaml — contrato + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO — NO editar
+  artifacts/api-server/ API Express 5 (routers en src/routes/, servicios en src/services/)
+  e2e/                  Vitest
+
+Leé `replit.md` y `.agents/memory/`. Para esta tarea importan:
+  - `.agents/memory/operational-conflict-serialization.md`
+  - `.agents/memory/viaje-membership-concurrency.md`
+  - `.agents/memory/api-server-restart-after-codegen.md`
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: se edita `lib/api-spec/openapi.yaml` y después se
+     corre `pnpm --filter @workspace/api-spec run codegen`. Los `generated/`
+     NUNCA se editan a mano.
+  2. Routers nuevos y rutas nuevas van DESPUÉS de `requireAuth`.
+  3. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  4. `null` = "sin dato". NUNCA `0`.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+La Fase 4E va a proponer repartir una orden entre varios camiones. Cuando el
+usuario acepte el plan, hay que crear los N despachos parciales.
+
+**El frontend no puede hacer eso con N llamadas sueltas a `POST /dispatches`.**
+Si el tercero falla por conflicto de recursos, los dos primeros ya quedaron
+creados y la orden queda a medio planificar sin que nadie lo haya pedido —
+con la mitad de los camiones comprometidos y sin forma limpia de deshacerlo.
+Además los locks de conflicto de PROMPT 18 son **por transacción**: N
+requests separadas son N transacciones, así que dos usuarios repartiendo a la
+vez pueden colarse entre medio.
+
+Esta tarea agrega un endpoint que crea el reparto completo **en una sola
+transacción**: o se crean todos los tramos, o no se crea ninguno.
+
+════════════════════════════════════════
+QUÉ YA EXISTE Y HAY QUE REUSAR
+════════════════════════════════════════
+
+No escribas validaciones nuevas de conflicto. Ya están, probadas en
+producción, en `artifacts/api-server/src/services/dispatchConflicts.ts`:
+
+- `lockDispatchConflictScopes(executor, candidatos[])` — toma un **array** y
+  bloquea con `pg_advisory_xact_lock` todas las claves de recurso
+  (vehículo, personas, orden) **ordenadas**. Está hecho para lotes.
+- `validateOperationalConflicts(executor, candidato, options)` — choques de
+  agenda de vehículo y de personas.
+- `validateOrderLoadCoherence(executor, candidato)` — impide mezclar carga
+  parcial y completa en la misma orden.
+- `DispatchConflictError` con `.code` y `.message`.
+
+El precedente exacto de cómo combinarlas en lote es
+`validateViajeCandidates()` en `services/viajeQueries.ts` (líneas ~48-67):
+**bloquea todo primero, valida después, uno por uno.** Copiá ese orden.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **NO uses `validateDispatchCandidate()` en un bucle.** Esa función hace
+   `lockDispatchConflictScopes(executor, [candidate])` adentro — o sea toma
+   los locks **de a uno**. Si la llamás N veces, dos lotes concurrentes que
+   tocan los mismos recursos en distinto orden se pueden **deadlockear**.
+   Tomá TODOS los locks primero, con un solo llamado que reciba el array
+   completo (ya viene ordenado), y después validá cada tramo con
+   `validateOperationalConflicts` + `validateOrderLoadCoherence`.
+
+2. **Los tramos se validan entre sí, y eso es lo que queremos.** Los INSERT
+   son visibles dentro de la misma transacción, así que el tramo 2 ve al
+   tramo 1. Consecuencias que NO hay que suprimir:
+   - Dos tramos simultáneos con el **mismo chofer** dan
+     `person_schedule_conflict`. Correcto: una persona no puede manejar dos
+     camiones a la vez.
+   - Dos salidas del **mismo vehículo** con ventanas que se solapan dan
+     `vehicle_schedule_conflict`. Correcto.
+   Es la protección funcionando, no un bug.
+
+3. **Dos tramos con el mismo vehículo y fechas IDÉNTICAS no dan conflicto —
+   y eso sí es un problema.** `isSamePhysicalTrip()` exime a los despachos
+   que coinciden exactamente en vehículo, chofer, ayudante, salida y llegada,
+   porque los interpreta como **un solo viaje físico compartido**. Un lote
+   con dos tramos así sería aceptado, pero significaría otra cosa que lo que
+   el usuario pidió. Rechazalo explícitamente: dentro de un mismo lote, dos
+   tramos con el mismo vehículo no pueden tener la misma ventana. Devolvé
+   400 con un código propio y un mensaje claro.
+
+4. **Todas las validaciones previas van DENTRO de la transacción.**
+   `POST /dispatches` hoy chequea existencia de venta/traslado/vehículo y
+   capacidad **afuera** del `db.transaction`, y solo los conflictos adentro.
+   Para un solo despacho da igual. Para un lote **no**: si el chequeo de
+   capacidad del tramo 3 falla cuando los tramos 1 y 2 ya se insertaron, hay
+   que poder revertir. Todo adentro.
+
+5. **Todos los tramos tienen que ser de la MISMA orden.** El endpoint reparte
+   una orden entre camiones; no es un creador genérico de despachos en lote.
+   Si los tramos referencian ventas o traslados distintos → 400.
+
+6. **Todos los tramos tienen que ser `cargaParcial: true`**, incluido el
+   último aunque entre completo. Si alguno viene en `false`,
+   `validateOrderLoadCoherence` lo va a rechazar igual con
+   `order_load_mode_conflict`, pero es mejor cortarlo antes con un 400
+   explicativo.
+
+7. **No toques `POST /dispatches`.** El camino de un despacho suelto se queda
+   exactamente como está. El endpoint nuevo es aditivo.
+
+8. **Cuidado con el orden de las rutas en Express.** El repo ya se comió esta
+   trampa una vez (ver el comentario en `routes/personnel.ts` sobre
+   `/personnel/reporte-almacenes` antes de `/personnel/:id`). Registrá
+   `/dispatches/batch` de forma que ningún patrón con parámetro lo capture.
+
+9. **`syncLinkedDispatchEntity` va DESPUÉS del commit, una sola vez.** Esa
+   función recalcula el estado de la orden mirando **todos** sus despachos,
+   así que con un solo llamado (con cualquiera de los despachos creados)
+   alcanza: los tramos comparten orden. Llamarla adentro de la transacción
+   sería incorrecto porque leería un estado a medio construir.
+
+10. **`null` sigue siendo `null`.** Una cuota de peso o volumen ausente se
+    guarda `null`, nunca `0` — y `hasPositivePartialCargoQuota` exige que al
+    menos una de las dos sea positiva en cada tramo.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Contrato — `lib/api-spec/openapi.yaml`**
+
+Agregá `POST /dispatches/batch`, `operationId: createDispatchBatch`, tag
+`dispatches`.
+
+Request `DispatchBatchInput`:
+
+```yaml
+required: [tramos]
+properties:
+  tramos:
+    type: array
+    minItems: 1
+    maxItems: 10          # mismo tope que MAX_TRAMOS del motor de reparto
+    items:
+      oneOf:
+        - $ref: "#/components/schemas/DispatchSaleInput"
+        - $ref: "#/components/schemas/DispatchTransferInput"
+```
+
+Reusá los schemas de entrada que ya existen; no dupliques campos.
+
+Respuestas:
+- `201` → array de `Dispatch` (las mismas filas que devuelve
+  `POST /dispatches`, en el mismo orden en que vinieron los tramos).
+- `400` y `409` → objeto con `error`, `message` y **`tramoIndex`**
+  (entero, índice base 0 del tramo que falló, o ausente si el problema es
+  del lote entero). Ese índice es lo que le va a permitir a la UI de 4E-3
+  señalar exactamente qué camión del plan hay que corregir.
+
+Después: `pnpm --filter @workspace/api-spec run codegen`.
+
+**2. Handler — `artifacts/api-server/src/routes/dispatches.ts`**
+
+```
+a) Parsear el body. Validar a nivel LOTE, antes de abrir la transacción:
+   - todos los tramos de la misma orden (mismo ventaId, o mismo trasladoId)
+   - todos con cargaParcial === true
+   - ningún par con el mismo vehiculoId y la misma ventana exacta (trampa 3)
+
+b) Abrir UNA transacción con db.transaction.
+
+c) Armar los N candidatos (misma forma que el candidate de POST /dispatches:
+   id 0, estado "pre-despacho", viajeId null, ayudanteId ?? null).
+
+d) lockDispatchConflictScopes(tx, candidatos)  ← UNA sola vez, con todos.
+
+e) Para cada tramo, en orden:
+     - existencia de la venta o el traslado, y del vehículo
+     - hasPositivePartialCargoQuota
+     - capacidad con effectivePartialDispatchMeasure + exceedsDispatchCapacity
+     - validateOperationalConflicts(tx, candidato)
+     - validateOrderLoadCoherence(tx, candidato)
+     - resolveDistancia
+     - INSERT del despacho
+     - INSERT de la fila de travel_costs (igual que POST /dispatches:
+       costoPeajes = totalPeajes ?? 0, el resto en 0)
+     - INSERT de routePoints si vinieron
+   Cualquier fallo lanza y aborta toda la transacción.
+
+f) Fuera de la transacción: syncLinkedDispatchEntity una vez, y devolver
+   201 con las filas construidas con buildDispatchRow.
+```
+
+Para el manejo de errores, envolvé cada tramo de forma de saber en qué índice
+falló y devolver ese `tramoIndex` junto con el `code` y el `message`
+originales del error (`DispatchConflictError` → 409; capacidad, cuota o
+referencias inexistentes → 400).
+
+**3. Tests — `e2e/tests/dispatches-batch.test.ts` (nuevo)**
+
+Seguí el estilo de `e2e/tests/viajes.test.ts`, que ya levanta el server real y
+prueba concurrencia de verdad con `Promise.all`.
+
+Casos obligatorios:
+
+1. **Camino feliz**: una venta repartida en 2 tramos, vehículos distintos,
+   choferes distintos, misma ventana → `201`, dos despachos creados, los dos
+   con `cargaParcial: true`, y la venta queda en `despachado`.
+2. **Atomicidad — el caso que justifica todo el endpoint**: un lote de 3
+   tramos donde el tercero choca (por ejemplo repite el chofer del primero
+   en la misma ventana) → responde `409` con `tramoIndex: 2`, y
+   **verificá contra la base que no quedó creado NINGÚN despacho**. Este es
+   el test más importante del prompt.
+3. **Mismo vehículo, ventanas consecutivas** (la segunda arranca exactamente
+   cuando termina la primera) → `201`. El sistema permite viajes pegados.
+4. **Mismo vehículo, ventanas solapadas** → `409`.
+5. **Mismo vehículo, ventanas idénticas** → `400` con el código propio de la
+   trampa 3.
+6. **Tramos de órdenes distintas** → `400`.
+7. **Un tramo con `cargaParcial: false`** → `400`.
+8. **Un tramo sin cuota positiva** → `400` `partial_cargo_quota_required`.
+9. **Un tramo cuya cuota excede la capacidad del vehículo** → `400`
+   `vehicle_capacity_exceeded`, y ningún despacho creado.
+10. **Concurrencia real**: dos lotes en paralelo con `Promise.all` que
+    compiten por el mismo vehículo en la misma ventana → uno `201` y el otro
+    `409`, nunca dos `201`. Mismo patrón que el test de viajes.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No modifiques `POST /dispatches`, `PATCH /dispatches/:id`,
+  `DELETE /dispatches/:id` ni `POST /dispatches/:id/approve`.
+- No toques `dispatchConflicts.ts`, `dispatchCapacity.ts`,
+  `dispatchEstadoSync.ts` ni `viajeQueries.ts`. Se usan tal cual.
+- No agregues migraciones ni cambies el schema.
+- No toques `fleet-split.ts`, `medidas.ts` ni nada de `artifacts/logistics`.
+  Esta tarea no tiene frontend.
+- No calcules ni persistas costos reales: la fila de `travel_costs` se crea
+  con el mismo placeholder que usa hoy `POST /dispatches`. Que los costos
+  estimados no se guarden es un tema aparte y preexistente — **no lo
+  arregles acá**.
+- No conectes el lote con la entidad `viajes`. Los despachos del reparto van
+  con `viajeId: null`.
+- No agregues autorización por almacén.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm run typecheck` limpio y api-server reiniciado (hubo codegen).
+2. `pnpm --filter @workspace/e2e run test:api` pasa entero, incluidos los
+   tests que ya existían de despachos y viajes.
+3. El test de atomicidad (caso 2) confirma con una consulta a la base que un
+   lote fallido no deja ningún despacho.
+4. El test de concurrencia (caso 10) nunca devuelve dos `201`.
+5. **Regresión del camino de un solo despacho**: crear un despacho normal
+   desde Pre-Despacho sigue funcionando igual, y un reparto parcial cargado a
+   mano (dos despachos en dos pasos, como se hace hoy) sigue funcionando.
+6. Reportá el `curl` (o el cuerpo JSON) de un lote de 2 tramos que devuelva
+   201, y el de uno que devuelva 409 con su `tramoIndex`. Quiero ver la
+   forma real de la respuesta antes de escribir la UI en 4E-3.
