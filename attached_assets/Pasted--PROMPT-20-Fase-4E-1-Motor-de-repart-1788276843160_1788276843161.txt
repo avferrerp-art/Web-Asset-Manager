@@ -1,0 +1,343 @@
+════════════════════════════════════════════════════════════
+PROMPT 20 (Fase 4E-1) — Motor de reparto de carga entre varios
+camiones. Lógica pura, sin UI, sin cambio de conducta.
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Corregir redondeo de cuotas parciales en
+Pre-Despacho` (24c8c04) o posterior.
+
+Al terminar esta tarea **la app se ve y se comporta exactamente igual que
+antes**. Nadie llama al módulo nuevo todavía. Eso es intencional: la
+matemática se verifica sola, con tests, antes de que ninguna pantalla
+dependa de ella.
+
+No hay migraciones, no hay contrato, no hay backend, no hay UI.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9.
+App web: `artifacts/logistics` (React + Vite + shadcn/ui).
+Tests: `e2e/` con Vitest.
+
+Leé `replit.md` y `.agents/memory/`. Para esta tarea importa especialmente
+`.agents/memory/measurement-domain-semantics.md`.
+
+Archivos que vas a crear:
+- `artifacts/logistics/src/lib/fleet-split.ts` (nuevo)
+- `artifacts/logistics/src/lib/medidas.ts` (nuevo, tres líneas)
+- `e2e/tests/fleet-split.test.ts` (nuevo)
+
+Archivo que vas a tocar mínimamente:
+- `artifacts/logistics/src/pages/pre-despacho.tsx` (solo mover una función)
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Cuando una carga no entra en ningún vehículo de la flota, hoy la app te
+avisa y te abandona. Literalmente dice *"Ningún vehículo soporta esta carga.
+Considera dividir el envío"* (en `carga.tsx` y en
+`nuevo-despacho-wizard.tsx`), y en el wizard "Planificar Carga" ni siquiera
+eso: solo muestra las barras de utilización en rojo, al 400% o al 714%, sin
+ninguna salida.
+
+La mecánica para ejecutar un reparto **ya existe completa** desde la Fase 4C
+(`dispatches.cargaParcial` + cuota de peso/volumen por despacho, con su
+badge de avance y la convergencia de estados). Lo único que falta es el
+cerebro que calcule el reparto.
+
+Esta tarea construye ese cerebro y nada más.
+
+════════════════════════════════════════
+LA FÓRMULA — leé esto dos veces
+════════════════════════════════════════
+
+Acá está el 80% del riesgo de toda la fase.
+
+La tentación es dividir el peso entre la capacidad de peso. **Está mal.** Un
+camión está limitado por peso Y por volumen a la vez, y cuál de los dos
+manda cambia según la carga.
+
+Tratamos la carga como divisible y homogénea (no tenemos dimensiones
+confiables por artículo). Entonces la fracción del total que un vehículo
+puede llevar es:
+
+```
+f = min( capacidadPeso / pesoTotal , capacidadVolumen / volumenTotal )
+```
+
+acotada a 1. Ese vehículo lleva `f × pesoTotal` kg y `f × volumenTotal` m³.
+
+**Propiedad que hace todo lo demás fácil:** como el reparto es
+proporcional, lo que queda después de cargar un camión mantiene exactamente
+la misma relación peso/volumen que el total original. Por eso el problema se
+reduce a **sumar fracciones hasta llegar a 1**, sin recalcular densidades en
+cada paso.
+
+Caso real que motivó esta tarea — orden de 50 kg y 50 m³ contra la flota
+actual:
+
+| Vehículo | capacidad | cp/P | cv/V | **f = min** |
+|---|---|---|---|---|
+| Mitsubishi FM 657 2 | 11000 kg / 28 m³ | 220 | **0.56** | 0.56 |
+| Iveco Daily | 3500 kg / 12.5 m³ | 70 | **0.25** | 0.25 |
+| Foton TM2 | 2000 kg / 7 m³ | 40 | **0.14** | 0.14 |
+| Mitsubishi Panel L300 | 1000 kg / 5.7 m³ | 20 | **0.114** | 0.114 |
+| Silverado Chevrolet | 950 kg / 2 m³ | 19 | **0.04** | 0.04 |
+
+Fijate que el peso **no manda en ninguna fila**: el volumen es el cuello de
+botella en las cinco. Si esto se implementa dividiendo por peso, el
+resultado dice que el Mitsubishi se lleva los 50 kg de un viaje, el reparto
+entero queda mal, y **no salta ningún error** — simplemente da un plan
+incorrecto con cara de correcto.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **La fracción es `min` de las dos dimensiones.** Ver arriba. Es la
+   trampa principal y la más fácil de cometer.
+
+2. **`null` NO es cero.** Si una medida no está disponible, esa dimensión
+   simplemente no restringe: `f` se calcula solo con la dimensión conocida.
+   Tratar `null` como 0 haría que `capacidad/0 = Infinity` o que la carga
+   parezca vacía, y en ambos casos el motor diría "entra todo en el camión
+   más chico". Es el bug más peligroso posible acá porque falla en silencio
+   y hacia el lado inseguro. Si **las dos** medidas faltan, el plan no es
+   viable: no se puede repartir lo que no se sabe cuánto mide.
+
+3. **Este módulo NO decide qué significa "sin dato".** Recibe
+   `number | null` ya resuelto y confía en eso. La regla de que en ventas un
+   valor `<= 0` significa "sin dato" (`sinDatoCarga`) y en traslados solo
+   `null` lo significa (`trasladoSinMedida`) son dos dominios separados por
+   diseño — ver `.agents/memory/measurement-domain-semantics.md`. **No
+   importes ninguno de esos helpers acá y no repliques su lógica.** Quien
+   llame al motor resuelve la conversión antes.
+
+4. **Capacidad 0 = vehículo inutilizable.** `fleet.ts` ya se protege de esto
+   (`capacidadPeso > 0 && capacidadVolumen > 0`) porque una capacidad 0 da
+   división por cero o `Infinity`. Hacé la misma guarda: un vehículo con
+   cualquiera de sus dos capacidades en 0 se descarta, nunca entra en un
+   plan.
+
+5. **El último tramo cierra por resta, no por su propia fracción.** Si cada
+   tramo calcula su cuota por separado, la suma queda con cola de flotante
+   y termina disparando el aviso falso de "las cuotas superan el total" que
+   arreglamos en PROMPT 19. Al último tramo asignale
+   `total − suma de los anteriores`, y redondeá con el helper compartido
+   (punto 1 de la tarea).
+
+6. **No toques `fleet.ts` ni `classifyFleet`.** Están usados en 4 lugares
+   (`cargo-wizard.tsx`, `nuevo-despacho-wizard.tsx`, `carga.tsx` y una copia
+   en `mockup-sandbox`). El módulo nuevo puede **importar** de `fleet.ts` si
+   le sirve, pero no modifica nada ahí.
+
+7. **Cuidado con el bucle infinito.** Si por alguna razón todos los
+   vehículos restantes tienen `f = 0`, un `while (faltaCarga)` no termina
+   nunca y cuelga el navegador. Toda iteración tiene que avanzar o cortar.
+
+8. **Tope de sensatez.** Un plan que pide 40 camiones no es un plan, es un
+   dato malo. Si el reparto necesita más de **10** tramos, devolvelo como no
+   viable con un motivo claro en vez de una lista interminable.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Helper de redondeo compartido — `artifacts/logistics/src/lib/medidas.ts`**
+
+Hoy `roundPartialQuotaSum` vive como función local (no exportada) al tope de
+`pre-despacho.tsx`. El motor nuevo necesita exactamente el mismo redondeo, y
+tener dos definiciones de "cómo se redondea una suma de cuotas" es como
+empiezan a divergir en silencio.
+
+Creá el archivo con la función **copiada textual**, sin cambiarle nada:
+
+```ts
+// Redondea exclusivamente acumulaciones de cuotas parciales; los totales
+// fuente de Odoo conservan su precisión y semántica originales.
+export function roundPartialQuotaSum(value: number) {
+  return Math.round((value + Number.EPSILON) * 1_000) / 1_000;
+}
+```
+
+Después, en `pre-despacho.tsx`: borrá la definición local e importala desde
+`@/lib/medidas`. **Ese archivo no cambia de conducta en absoluto** — mismos
+llamados, misma función, mismo resultado. Es mover, no reescribir.
+
+**2. El motor — `artifacts/logistics/src/lib/fleet-split.ts`**
+
+Tipos:
+
+```ts
+export interface SplitVehicle {
+  id: number;
+  capacidadPeso: number;
+  capacidadVolumen: number;
+}
+
+export interface TramoReparto<V extends SplitVehicle> {
+  orden: number;               // 1-based
+  vehiculo: V;
+  pesoKg: number | null;       // null si esa dimensión no tiene dato
+  volumenM3: number | null;
+}
+
+export type EstrategiaReparto = "flota-simultanea" | "viajes-sucesivos";
+
+export interface PlanDeReparto<V extends SplitVehicle> {
+  estrategia: EstrategiaReparto;
+  tramos: TramoReparto<V>[];
+  viable: boolean;
+  motivoNoViable: string | null;  // texto para mostrarle al usuario
+}
+```
+
+Funciones:
+
+```ts
+/**
+ * Fracción del total (0..1) que este vehículo puede llevar.
+ * Devuelve 0 si el vehículo es inutilizable o no hay datos de carga.
+ */
+export function fraccionQueEntra(
+  vehiculo: SplitVehicle,
+  pesoTotal: number | null,
+  volumenTotal: number | null,
+): number;
+
+/** Escenario A: varios camiones distintos, cada uno una sola vez. */
+export function planFlotaSimultanea<V extends SplitVehicle>(
+  vehiculos: V[],
+  pesoTotal: number | null,
+  volumenTotal: number | null,
+): PlanDeReparto<V>;
+
+/** Escenario B: un solo camión haciendo N salidas. */
+export function planViajesSucesivos<V extends SplitVehicle>(
+  vehiculos: V[],
+  pesoTotal: number | null,
+  volumenTotal: number | null,
+): PlanDeReparto<V>;
+
+/**
+ * Avisa cuando la densidad implícita de la carga es absurda, señal de que
+ * el dato de Odoo está mal cargado. Devuelve null si está bien o si falta
+ * alguna medida.
+ */
+export function densidadImplausible(
+  pesoTotal: number | null,
+  volumenTotal: number | null,
+): string | null;
+```
+
+Comportamiento esperado:
+
+**`fraccionQueEntra`**
+- Vehículo con `capacidadPeso <= 0` o `capacidadVolumen <= 0` → `0`.
+- Las dos medidas en null → `0`.
+- Solo peso conocido → `capacidadPeso / pesoTotal`, acotado a 1.
+- Solo volumen conocido → `capacidadVolumen / volumenTotal`, acotado a 1.
+- Las dos conocidas → `min(...)` de ambas, acotado a 1.
+
+**`planFlotaSimultanea`**
+- Descarta vehículos inutilizables.
+- Ordena por `fraccionQueEntra` descendente (el que más lleva primero) y va
+  acumulando hasta cubrir el total. Cada vehículo se usa **una sola vez**.
+- Al último tramo le asigna el remanente exacto, no su fracción completa
+  (trampa 5).
+- Si se acaban los vehículos y todavía falta carga → `viable: false` con un
+  motivo del tipo *"La flota completa no alcanza para esta carga"*.
+- Si las dos medidas faltan → `viable: false`, *"No hay peso ni volumen para
+  calcular el reparto"*.
+
+**`planViajesSucesivos`**
+- Para cada vehículo utilizable, la cantidad de salidas es `ceil(1 / f)`.
+- Elige el vehículo que necesite **menos salidas**. Si hay empate, elige el
+  **más chico** — mismo criterio que ya usa `fleet.ts`, que sugiere el
+  vehículo más ajustado y no el más grande.
+- Genera esa cantidad de tramos, todos con el mismo vehículo, `orden` 1..N,
+  y el último con el remanente exacto.
+- Más de 10 salidas → `viable: false` (trampa 8).
+
+**`densidadImplausible`**
+- Si falta alguna medida → `null` (no hay nada que juzgar).
+- Densidad = `pesoTotal / volumenTotal`, en kg/m³.
+- Menos de **20** kg/m³ o más de **2000** kg/m³ → devolvé un texto corto
+  explicando que el dato de Odoo parece mal cargado y conviene revisarlo.
+- En el medio → `null`.
+
+**3. Tests — `e2e/tests/fleet-split.test.ts`**
+
+Seguí el patrón exacto de `e2e/tests/carga-calculadora.test.ts`, que ya
+prueba `fleet.ts` como lógica pura desde `e2e/`: mismo estilo de import
+relativo (`../../artifacts/logistics/src/lib/...`), mismo encabezado de
+comentario explicando qué cubre.
+
+Casos obligatorios:
+
+1. **El caso de la tabla de arriba.** Carga de 50 kg / 50 m³ contra la flota
+   real (los cinco vehículos con sus capacidades). Verificá que
+   `fraccionQueEntra` del Mitsubishi da 0.56 y no 220 — o sea, que manda el
+   volumen y no el peso. Este test es el que atrapa la trampa principal.
+2. **El reparto cierra exacto.** La suma de las cuotas de todos los tramos
+   es igual al total, sin cola de decimales.
+3. **Solo una dimensión conocida.** Peso en null y volumen con dato: el plan
+   se calcula igual, por volumen, y las cuotas de peso quedan en `null`
+   (nunca en 0).
+4. **Las dos dimensiones en null** → no viable, con motivo.
+5. **Vehículo con capacidad 0** → nunca aparece en ningún plan.
+6. **Carga que entra en un solo camión** → plan de un solo tramo (el motor
+   tiene que funcionar también en el caso fácil).
+7. **Flota insuficiente** → no viable, con motivo.
+8. **`planViajesSucesivos` elige bien**: con 50 m³ el Mitsubishi (28 m³)
+   necesita 2 salidas y es el ganador; verificá que no elige uno más chico
+   que necesitaría 5.
+9. **Empate en cantidad de salidas** → gana el vehículo más chico.
+10. **Densidad implausible**: 50 kg / 50 m³ (= 1 kg/m³) devuelve aviso;
+    una carga normal (por ejemplo 3698.7 kg / 10.79 m³, unos 343 kg/m³)
+    devuelve `null`.
+11. **No cuelga**: una flota donde todos los vehículos tienen capacidad 0
+    termina y devuelve no viable, no un bucle infinito.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni nada dentro de
+  `generated/`.
+- No modifiques `fleet.ts`, `classifyFleet`, `classifyVehicle` ni
+  `suggestedVehicle`.
+- No toques `cargo-wizard.tsx`, `nuevo-despacho-wizard.tsx`, `carga.tsx` ni
+  `viaje-wizard.tsx`. Esta tarea no tiene UI.
+- En `pre-despacho.tsx` lo único permitido es borrar la definición local de
+  `roundPartialQuotaSum` y agregar su import. Nada más.
+- No importes `sinDatoCarga`, `formatCarga`, `trasladoSinMedida` ni
+  `formatTrasladoMedida` dentro de `fleet-split.ts`, ni repliques su lógica.
+- No agregues librerías nuevas.
+- No conectes esto con la entidad `viajes` (4A/4B). Un reparto son N
+  despachos de UNA orden; un viaje agrupa despachos de VARIAS órdenes. Son
+  ejes distintos.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm run typecheck` sin errores.
+2. Los tests nuevos pasan: `pnpm --filter @workspace/e2e run test:api`.
+3. `e2e/tests/carga-calculadora.test.ts` sigue pasando (no rompimos
+   `fleet.ts`).
+4. **Cero cambio visible**: Pre-Despacho se ve y funciona igual que antes.
+   El reparto parcial se sigue creando igual, el badge de avance muestra los
+   mismos números, y el aviso de "las cuotas superan el total" sigue
+   apareciendo solo cuando de verdad se superan.
+5. Reportá, corriendo el motor a mano contra la flota real y una carga de
+   50 kg / 50 m³, qué devuelven los dos planes — cuántos tramos, qué
+   vehículo y qué cuota cada uno. Quiero comparar ese resultado contra la
+   tabla de este prompt antes de seguir con 4E-2.
