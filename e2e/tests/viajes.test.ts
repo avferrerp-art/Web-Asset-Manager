@@ -593,6 +593,109 @@ describe.sequential("viajes compartidos", () => {
     ]);
   });
 
+  it("acepta repartir la misma venta con el mismo camión en ventanas consecutivas", async () => {
+    const sale = await createSale({ peso: 800, volumen: 4 });
+    const response = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [
+          {
+            tipo: "venta",
+            ventaId: sale.id,
+            vehiculoId: vehicleIds[1],
+            choferId: personnelIds[0],
+            fechaEstimadaSalida: "2035-10-04T08:00:00.000Z",
+            fechaEstimadaLlegada: "2035-10-04T10:00:00.000Z",
+            cargaParcial: true,
+            pesoEstimadoKg: 400,
+            volumenEstimadoM3: 2,
+          },
+          {
+            tipo: "venta",
+            ventaId: sale.id,
+            vehiculoId: vehicleIds[1],
+            choferId: personnelIds[0],
+            fechaEstimadaSalida: "2035-10-04T10:00:00.000Z",
+            fechaEstimadaLlegada: "2035-10-04T12:00:00.000Z",
+            cargaParcial: true,
+            pesoEstimadoKg: 400,
+            volumenEstimadoM3: 2,
+          },
+        ],
+      }),
+    });
+    expect(response.status).toBe(201);
+    const body = await response.json();
+    expect(body).toHaveLength(2);
+    expect(body).toEqual([
+      expect.objectContaining({
+        ventaId: sale.id,
+        vehiculoId: vehicleIds[1],
+        choferId: personnelIds[0],
+        cargaParcial: true,
+        pesoEstimadoKg: 400,
+        volumenEstimadoM3: 2,
+      }),
+      expect.objectContaining({
+        ventaId: sale.id,
+        vehiculoId: vehicleIds[1],
+        choferId: personnelIds[0],
+        cargaParcial: true,
+        pesoEstimadoKg: 400,
+        volumenEstimadoM3: 2,
+      }),
+    ]);
+    dispatchIds.push(...body.map((dispatch: { id: number }) => dispatch.id));
+  });
+
+  it("rechaza el solapamiento parcial del mismo camión y revierte el lote completo", async () => {
+    const sale = await createSale({ peso: 800, volumen: 4 });
+    const before = await db
+      .select({ id: dispatchesTable.id })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.ventaId, sale.id));
+    const response = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [
+          {
+            tipo: "venta",
+            ventaId: sale.id,
+            vehiculoId: vehicleIds[1],
+            choferId: personnelIds[0],
+            fechaEstimadaSalida: "2035-10-05T08:00:00.000Z",
+            fechaEstimadaLlegada: "2035-10-05T10:00:00.000Z",
+            cargaParcial: true,
+            pesoEstimadoKg: 400,
+            volumenEstimadoM3: 2,
+          },
+          {
+            tipo: "venta",
+            ventaId: sale.id,
+            vehiculoId: vehicleIds[1],
+            choferId: personnelIds[0],
+            fechaEstimadaSalida: "2035-10-05T09:00:00.000Z",
+            fechaEstimadaLlegada: "2035-10-05T11:00:00.000Z",
+            cargaParcial: true,
+            pesoEstimadoKg: 400,
+            volumenEstimadoM3: 2,
+          },
+        ],
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: "vehicle_schedule_conflict",
+      tramoIndex: 1,
+    });
+    const after = await db
+      .select({ id: dispatchesTable.id })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.ventaId, sale.id));
+    expect(before).toHaveLength(0);
+    expect(after).toHaveLength(0);
+  });
+
   it("revierte el lote completo e identifica el tramo inválido", async () => {
     const sale = await createSale({ peso: 2_000, volumen: 20 });
     const before = await db
