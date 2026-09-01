@@ -1,13 +1,22 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   useListSales, getListSalesQueryKey,
   useListVehicles, getListVehiclesQueryKey,
+  useListPersonnel, getListPersonnelQueryKey,
   useListSaleItems, getListSaleItemsQueryKey,
   useListProducts, getListProductsQueryKey,
   useLinkSaleItemProduct, getListUnlinkedSaleItemsQueryKey,
   useGetTraslado, getGetTrasladoQueryKey,
+  useCreateDispatchBatch, getListDispatchesQueryKey,
+  getListTrasladosQueryKey,
 } from "@workspace/api-client-react";
-import type { Vehicle, Sale, TrasladoSummary } from "@workspace/api-client-react";
+import type {
+  DispatchBatchError,
+  DispatchInput,
+  Vehicle,
+  Sale,
+  TrasladoSummary,
+} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import {
@@ -19,6 +28,7 @@ import {
   Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   CheckCircle2, ChevronRight, ChevronLeft, Package, ClipboardList, Truck,
   Check, Unlink, Search, Loader2, AlertTriangle, ArrowRight,
@@ -56,6 +66,13 @@ function utilLabel(pct: number) {
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
 import { classifyFleet } from "@/lib/fleet";
 import {
+  densidadImplausible,
+  planFlotaSimultanea,
+  planViajesSucesivos,
+  type EstrategiaReparto,
+  type PlanDeReparto as FleetSplitPlan,
+} from "@/lib/fleet-split";
+import {
   cargoEstimateDraftValid,
   DispatchCargoEstimateEditor,
   effectiveCargoMeasure,
@@ -88,6 +105,12 @@ export function CargoWizard({
     peso: "",
     volumen: "",
   });
+  const [planStartedAt] = useState(() => new Date());
+  const [driverAssignments, setDriverAssignments] = useState<Record<EstrategiaReparto, number[]>>({
+    "flota-simultanea": [],
+    "viajes-sucesivos": [],
+  });
+  const [batchError, setBatchError] = useState<{ message: string; tramoIndex?: number; estrategia?: EstrategiaReparto } | null>(null);
 
   const { data: salesData, isLoading: isLoadingSales } = useListSales(
     { status: "pendiente" },
@@ -110,6 +133,10 @@ export function CargoWizard({
   const { data: vehicles } = useListVehicles({
     query: { queryKey: getListVehiclesQueryKey() },
   });
+  const { data: personnel } = useListPersonnel({
+    query: { queryKey: getListPersonnelQueryKey(), enabled: open },
+  });
+  const createBatch = useCreateDispatchBatch();
 
   const { data: saleItems, isLoading: isLoadingItems } = useListSaleItems(
     selectedSaleId ?? 0,
@@ -200,6 +227,23 @@ export function CargoWizard({
     maxPct: c.maxPct,
     canFit: c.isFit,
   }));
+  const needsSplit = (vehicles ?? []).length > 0 && fleetClass.fit.length === 0;
+  const splitPeso = totalPeso ?? null;
+  const splitVolumen = totalVol ?? null;
+  const simultaneousPlan = planFlotaSimultanea(vehicles ?? [], splitPeso, splitVolumen);
+  const successivePlan = planViajesSucesivos(vehicles ?? [], splitPeso, splitVolumen);
+  const drivers = (personnel ?? []).filter(person => person.rol === "chofer");
+  const densityWarning = needsSplit ? densidadImplausible(splitPeso, splitVolumen) : null;
+
+  useEffect(() => {
+    if (!needsSplit || personnel == null) return;
+    setDriverAssignments(current => ({
+      "flota-simultanea": simultaneousPlan.tramos.map((_, index) =>
+        current["flota-simultanea"][index] ?? drivers[index]?.id ?? 0),
+      "viajes-sucesivos": successivePlan.tramos.map((_, index) =>
+        current["viajes-sucesivos"][index] ?? drivers[0]?.id ?? 0),
+    }));
+  }, [needsSplit, personnel, simultaneousPlan.tramos.length, successivePlan.tramos.length]);
 
   const sinDatos = sinPeso && sinVolumen;
   function currentEstimates(): DispatchCargoEstimates {
@@ -211,9 +255,157 @@ export function CargoWizard({
     };
   }
 
+  function tramoWindow(estrategia: EstrategiaReparto, index: number) {
+    const durationMs = 24 * 60 * 60 * 1000;
+    const offset = estrategia === "viajes-sucesivos" ? index * durationMs : 0;
+    return {
+      salida: new Date(planStartedAt.getTime() + offset),
+      llegada: new Date(planStartedAt.getTime() + offset + durationMs),
+    };
+  }
+
+  function formatWindow(estrategia: EstrategiaReparto, index: number) {
+    const { salida, llegada } = tramoWindow(estrategia, index);
+    const format = (date: Date) => date.toLocaleString("es-VE", {
+      day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
+    });
+    return `${format(salida)} → ${format(llegada)}`;
+  }
+
+  function refreshOperationalLists() {
+    const keys = [
+      getListDispatchesQueryKey(),
+      getListSalesQueryKey(),
+      getListTrasladosQueryKey(),
+    ];
+    for (const queryKey of keys) {
+      queryClient.removeQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey });
+    }
+    if (selectedTraslado) {
+      const queryKey = getGetTrasladoQueryKey(selectedTraslado.id);
+      queryClient.removeQueries({ queryKey });
+      queryClient.invalidateQueries({ queryKey });
+    }
+  }
+
+  function createSplitPlan(plan: FleetSplitPlan<Vehicle>) {
+    const assignments = driverAssignments[plan.estrategia];
+    setBatchError(null);
+    const tramos: DispatchInput[] = plan.tramos.map((tramo, index) => {
+      const window = tramoWindow(plan.estrategia, index);
+      const base = {
+        vehiculoId: tramo.vehiculo.id,
+        choferId: assignments[index],
+        fechaEstimadaSalida: window.salida.toISOString(),
+        fechaEstimadaLlegada: window.llegada.toISOString(),
+        cargaParcial: true,
+        pesoEstimadoKg: tramo.pesoKg,
+        volumenEstimadoM3: tramo.volumenM3,
+      };
+      return trasladoMode && selectedTraslado
+        ? { ...base, tipo: "traslado" as const, trasladoId: selectedTraslado.id }
+        : { ...base, tipo: "venta" as const, ventaId: selectedSaleId! };
+    });
+    createBatch.mutate({ data: { tramos } }, {
+      onSuccess: () => {
+        refreshOperationalLists();
+        toast({
+          title: "Despachos parciales creados",
+          description: `Se crearon ${tramos.length} despachos de forma atómica.`,
+        });
+        handleClose();
+      },
+      onError: (error) => {
+        const data = (error as { data?: DispatchBatchError | null }).data;
+        const message = data?.message || (error instanceof Error ? error.message : "El servidor rechazó la operación.");
+        setBatchError({ message, tramoIndex: data?.tramoIndex, estrategia: plan.estrategia });
+        toast({ title: "No se pudo crear el reparto", description: message, variant: "destructive" });
+      },
+    });
+  }
+
+  function renderSplitPlan(plan: FleetSplitPlan<Vehicle>, title: string, description: string) {
+    const insufficientDrivers = plan.estrategia === "flota-simultanea"
+      && plan.tramos.length > drivers.length;
+    const missingDriver = plan.tramos.some((_, index) => !driverAssignments[plan.estrategia][index]);
+    return (
+      <div className="rounded-lg border bg-card p-4 space-y-4" data-testid={`split-plan-${plan.estrategia}`}>
+        <div>
+          <h3 className="font-semibold">{title}</h3>
+          <p className="text-xs text-muted-foreground">{description}</p>
+        </div>
+        {!plan.viable ? (
+          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+            {plan.motivoNoViable}
+          </div>
+        ) : (
+          <>
+            {insufficientDrivers && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive" data-testid="warning-insufficient-drivers">
+                Se necesitan {plan.tramos.length} choferes distintos y solo hay {drivers.length} disponibles.
+              </div>
+            )}
+            <div className="space-y-3">
+              {plan.tramos.map((tramo, index) => {
+                const highlighted = batchError?.estrategia === plan.estrategia && batchError.tramoIndex === index;
+                const usedByOtherTramo = new Set(driverAssignments[plan.estrategia].filter((_, assignmentIndex) => assignmentIndex !== index));
+                return (
+                  <div key={`${tramo.vehiculo.id}-${index}`} className={`rounded-md border p-3 space-y-2 ${highlighted ? "border-destructive bg-destructive/5" : ""}`} data-testid={`split-tramo-${plan.estrategia}-${index}`}>
+                    <div className="flex items-center justify-between gap-2 text-sm">
+                      <span className="font-medium">{tramo.orden}. {tramo.vehiculo.modelo} · {tramo.vehiculo.placa}</span>
+                      <span className="text-xs text-muted-foreground">
+                        {tramo.pesoKg == null ? "peso sin dato" : `${tramo.pesoKg} kg`} · {tramo.volumenM3 == null ? "volumen sin dato" : `${tramo.volumenM3} m³`}
+                      </span>
+                    </div>
+                    <p className="text-xs text-muted-foreground">{formatWindow(plan.estrategia, index)}</p>
+                    <Select
+                      value={driverAssignments[plan.estrategia][index] ? String(driverAssignments[plan.estrategia][index]) : ""}
+                      onValueChange={value => setDriverAssignments(current => ({
+                        ...current,
+                        [plan.estrategia]: plan.estrategia === "viajes-sucesivos"
+                          ? current[plan.estrategia].map(() => Number(value))
+                          : current[plan.estrategia].map((id, assignmentIndex) => assignmentIndex === index ? Number(value) : id),
+                      }))}
+                    >
+                      <SelectTrigger className="h-8 text-xs" data-testid={`select-driver-${plan.estrategia}-${index}`}>
+                        <SelectValue placeholder="Elegir chofer" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {drivers.map(driver => (
+                          <SelectItem
+                            key={driver.id}
+                            value={String(driver.id)}
+                            disabled={plan.estrategia === "flota-simultanea" && usedByOtherTramo.has(driver.id)}
+                          >
+                            {driver.nombre}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {highlighted && <p className="text-xs text-destructive">{batchError.message}</p>}
+                  </div>
+                );
+              })}
+            </div>
+            <Button
+              className="w-full"
+              disabled={createBatch.isPending || insufficientDrivers || missingDriver}
+              onClick={() => createSplitPlan(plan)}
+              data-testid={`button-create-${plan.estrategia}`}
+            >
+              {createBatch.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+              Crear {plan.tramos.length} despachos
+            </Button>
+          </>
+        )}
+      </div>
+    );
+  }
+
   return (
     <Dialog open={open} onOpenChange={o => !o && handleClose()}>
-      <DialogContent className="sm:max-w-[740px] grid-cols-[minmax(0,1fr)] max-h-[90vh] overflow-y-auto">
+      <DialogContent className={`${needsSplit ? "sm:max-w-[1100px]" : "sm:max-w-[740px]"} grid-cols-[minmax(0,1fr)] max-h-[90vh] overflow-y-auto`}>
         <DialogHeader>
           <DialogTitle className="text-lg">
             {trasladoMode
@@ -540,9 +732,25 @@ export function CargoWizard({
                 </span>
               </div>
             )}
+            {densityWarning && (
+              <div className="flex items-start gap-2 text-xs bg-yellow-500/10 border border-yellow-500/40 rounded-md px-3 py-2" data-testid="warning-density">
+                <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                <span><strong>Revise las medidas:</strong> {densityWarning}. Densidad implícita: {(totalPeso! / totalVol!).toFixed(1)} kg/m³.</span>
+              </div>
+            )}
+            {batchError && batchError.tramoIndex == null && (
+              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
+                {batchError.message}
+              </div>
+            )}
             {(vehicles ?? []).length === 0 ? (
               <div className="py-12 text-center text-muted-foreground border border-dashed border-border rounded-lg">
                 No hay vehículos registrados en la flota.
+              </div>
+            ) : needsSplit ? (
+              <div className="grid gap-4 md:grid-cols-2" data-testid="split-plan-comparison">
+                {renderSplitPlan(simultaneousPlan, "Flota simultánea", "Varios vehículos salen dentro de la misma ventana.")}
+                {renderSplitPlan(successivePlan, "Viajes sucesivos", "Un vehículo repite salidas en ventanas consecutivas.")}
               </div>
             ) : (
               <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">
