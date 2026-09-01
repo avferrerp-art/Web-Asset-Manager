@@ -1,0 +1,205 @@
+════════════════════════════════════════════════════════════
+PROMPT 22B — El reparto guarda las fechas en otro formato y eso
+deja ciega la detección de conflictos
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Add atomic cargo split choices to fleet wizard`
+(c17a343). Corrige un bug de ese commit.
+
+El arreglo son **dos líneas**. Lo que lleva trabajo son los tests, porque el
+hueco que dejó pasar esto sigue abierto.
+
+No hay migraciones, no hay contrato, no hay cambios de schema.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9.
+
+Archivos afectados:
+- `artifacts/logistics/src/components/cargo-wizard.tsx`
+- `e2e/tests/viajes.test.ts`
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA — bug reproducido en producción
+════════════════════════════════════════
+
+`createSplitPlan()` arma las fechas de cada tramo con `.toISOString()`:
+
+```ts
+fechaEstimadaSalida: window.salida.toISOString(),   // "2026-09-01T20:17:19.158Z"
+```
+
+**Todo el resto de la app guarda otra cosa.** Los despachos creados desde
+Pre-Despacho o desde Despachos guardan el string crudo del input
+`datetime-local`, o sea hora local sin zona:
+
+```
+"2026-08-26T14:46"
+```
+
+`fechaEstimadaSalida` es una columna **text**: guarda literal lo que le
+mandan. Así que ahora conviven dos formatos distintos en la misma columna.
+
+El backend los compara con `new Date(x).getTime()`
+(`overlapsStrictly`, `isSamePhysicalTrip` en `dispatchConflicts.ts`):
+
+- `"2026-09-01T20:17:19.158Z"` → instante absoluto en UTC.
+- `"2026-08-26T14:46"` → se interpreta en la zona horaria **del servidor**.
+
+Como el usuario está en UTC−4, para la **misma hora de reloj** los dos
+formatos quedan corridos cuatro horas entre sí. La validación de conflictos
+de PROMPT 18 queda ciega entre un camino y el otro.
+
+**Esto está probado contra la app real, no deducido:**
+
+1. Creé un reparto con el wizard: el Mitsubishi quedó ocupado del
+   1-sept 16:17 al 2-sept 16:17 (hora local).
+2. Intenté ocupar **el mismo camión** el 1-sept de 16:30 a 17:30 —adentro de
+   esa ventana— por el camino normal, con el formato ingenuo.
+   → **`201`. Lo aceptó.** El camión quedó reservado dos veces para el mismo
+   horario real.
+3. Control: el mismo intento de solape, pero contra un despacho guardado en
+   el **mismo** formato ingenuo.
+   → **`409 vehicle_schedule_conflict`**, como corresponde.
+
+Mismo formato rechaza; formatos mezclados pasa.
+
+════════════════════════════════════════
+POR QUÉ LOS TESTS NO LO ATRAPARON
+════════════════════════════════════════
+
+Los tests de `/dispatches/batch` mandan las fechas así:
+
+```ts
+fechaEstimadaSalida: "2035-10-04T08:00:00.000Z",
+```
+
+O sea: **todos usan el formato con Z, que es el único que la app real nunca
+manda por los otros caminos.** Son internamente consistentes, así que la
+mezcla de formatos les resulta invisible por construcción.
+
+El endpoint nunca fue probado con el formato que la aplicación de verdad usa.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **El arreglo va en el frontend, no en el backend.** Es tentador
+   "normalizar" las fechas del lado del servidor, pero eso obligaría a migrar
+   las filas que ya existen y a decidir en qué zona se interpretan las
+   viejas. La app tiene que hablar **un solo formato**, y ese formato ya está
+   elegido: el que usan Pre-Despacho, Despachos y el wizard de Nuevo
+   Despacho. El código nuevo se adapta al existente, no al revés.
+
+2. **No cambies el tipo de la columna.** Pasar `text` a `timestamptz` es lo
+   correcto a largo plazo y ya está anotado como tarea aparte desde PROMPT 8,
+   pero toca contrato, app del chofer y todos los despachos existentes. **No
+   es esta tarea.**
+
+3. **`toDatetimeLocal` trunca a minutos, y está bien.** Devuelve
+   `"2026-09-01T16:17"`, sin segundos. Verificá que eso **no rompe** la
+   propiedad de ventanas consecutivas del Escenario B: la llegada del tramo N
+   y la salida del tramo N+1 se calculan desde el mismo instante
+   (`planStartedAt + N*24h`), así que truncar a minutos las deja idénticas,
+   que es exactamente lo que se necesita. No "arregles" esto agregando
+   segundos.
+
+4. **No toques `toDatetimeLocal` ni `datetime-local.ts`.** Ese helper existe
+   justamente por el bug de fechas de PROMPT 8 y está bien como está.
+
+5. **No cambies la aritmética de las ventanas** (`tramoWindow`, el
+   `planStartedAt`, la duración de 24 h). Lo único que cambia es cómo se
+   serializa la fecha al mandarla.
+
+6. **Los tests nuevos tienen que usar el formato ingenuo**, sin Z y sin
+   segundos, porque es el que manda la app. Un test con Z no prueba nada de
+   esto.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. El arreglo — `cargo-wizard.tsx`, dentro de `createSplitPlan`**
+
+Importá el helper que ya existe:
+
+```ts
+import { toDatetimeLocal } from "@/lib/datetime-local";
+```
+
+y reemplazá las dos líneas:
+
+```ts
+fechaEstimadaSalida: toDatetimeLocal(window.salida),
+fechaEstimadaLlegada: toDatetimeLocal(window.llegada),
+```
+
+Nada más. `formatWindow` (el texto que se muestra en pantalla) se queda como
+está: usa `toLocaleString` para mostrar, que es correcto.
+
+**2. Test de regresión del bug — `e2e/tests/viajes.test.ts`**
+
+Este es el importante. Reproduce exactamente lo que pasó en producción:
+
+- Creá un despacho por `POST /dispatches` con un vehículo y una ventana en
+  **formato ingenuo** (por ejemplo `"2035-11-10T08:00"` →
+  `"2035-11-10T18:00"`).
+- Mandá después un lote a `POST /dispatches/batch` para **otra venta**, con
+  el **mismo vehículo** y una ventana que se solape, también en formato
+  ingenuo (por ejemplo `"2035-11-10T09:00"` → `"2035-11-10T11:00"`).
+- Esperá **`409 vehicle_schedule_conflict`** con su `tramoIndex`, y confirmá
+  contra la base que el lote no creó ningún despacho.
+
+Antes del arreglo este test falla con `201`: es la prueba de que el bug
+existía.
+
+**3. Tests del lote con el formato real de la app**
+
+Los dos casos del Escenario B que ya existen (`acepta repartir la misma venta
+con el mismo camión en ventanas consecutivas` y `rechaza el solapamiento
+parcial del mismo camión...`) están escritos con fechas en formato Z.
+Agregá **dos casos equivalentes en formato ingenuo**:
+
+- mismo camión, ventanas consecutivas sin Z (la salida del segundo tramo
+  idéntica a la llegada del primero) → `201`
+- mismo camión, ventanas solapadas sin Z → `409` y sin despachos creados
+
+No borres ni reescribas los que ya están: que convivan los dos formatos en la
+suite es justamente lo que hace falta.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni `generated/`.
+- No normalices fechas en `dispatchConflicts.ts` ni en `routes/dispatches.ts`.
+- No modifiques `fleet-split.ts`, `medidas.ts` ni `fleet.ts`.
+- No toques `pre-despacho.tsx`, `despachos.tsx` ni
+  `nuevo-despacho-wizard.tsx`: esos ya usan el formato correcto.
+- No cambies el panel de reparto, sus avisos, la asignación de choferes ni el
+  layout. Todo eso quedó bien y funciona.
+- No agregues una migración para "arreglar" filas viejas.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm run typecheck` limpio.
+2. `pnpm --filter @workspace/e2e run test:api` pasa entero, con los tres
+   tests nuevos en verde.
+3. **Confirmá que el test de regresión detecta el bug**: revertí
+   momentáneamente las dos líneas del punto 1 (volviendo a `.toISOString()`),
+   corré ese test, y verificá que **falla**. Después volvé a dejar el
+   arreglo. Un test de regresión que pasa con y sin el arreglo no sirve de
+   nada — quiero saber que este de verdad lo agarra.
+4. **En la app real**: creá un reparto desde el wizard "Planificar Carga" y
+   confirmá con una consulta que `fechaEstimadaSalida` quedó guardada como
+   `"AAAA-MM-DDTHH:MM"`, **sin la Z y sin segundos**, igual que la de
+   cualquier otro despacho.
+5. Reportá el valor exacto que quedó guardado en los despachos del reparto.
