@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   useListSales, getListSalesQueryKey,
   useListVehicles, getListVehiclesQueryKey,
@@ -32,7 +32,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { toDatetimeLocal } from "@/lib/datetime-local";
 import {
   CheckCircle2, ChevronRight, ChevronLeft, Package, ClipboardList, Truck,
-  Check, Unlink, Search, Loader2, AlertTriangle, ArrowRight,
+  Check, Unlink, Search, Loader2, AlertTriangle, ArrowRight, Plus, Trash2,
 } from "lucide-react";
 
 interface Props {
@@ -73,6 +73,7 @@ import {
   type EstrategiaReparto,
   type PlanDeReparto as FleetSplitPlan,
 } from "@/lib/fleet-split";
+import { roundPartialQuotaSum } from "@/lib/medidas";
 import {
   cargoEstimateDraftValid,
   DispatchCargoEstimateEditor,
@@ -84,6 +85,31 @@ import {
 export interface DispatchCargoEstimates {
   pesoEstimadoKg?: number;
   volumenEstimadoM3?: number;
+}
+
+interface EditableSplitRow {
+  id: number;
+  vehiculoId: number | null;
+  choferId: number | null;
+  peso: string;
+  volumen: string;
+}
+
+interface EditableSplitDraft {
+  estrategia: EstrategiaReparto;
+  rows: EditableSplitRow[];
+}
+
+function quotaText(value: number | null) {
+  return value == null ? "" : String(value);
+}
+
+function parseQuota(value: string) {
+  if (!value.trim()) return null;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return undefined;
+  const rounded = roundPartialQuotaSum(parsed);
+  return rounded > 0 ? rounded : undefined;
 }
 
 export function CargoWizard({
@@ -107,10 +133,8 @@ export function CargoWizard({
     volumen: "",
   });
   const [planStartedAt] = useState(() => new Date());
-  const [driverAssignments, setDriverAssignments] = useState<Record<EstrategiaReparto, number[]>>({
-    "flota-simultanea": [],
-    "viajes-sucesivos": [],
-  });
+  const nextSplitRowId = useRef(1);
+  const [splitDraft, setSplitDraft] = useState<EditableSplitDraft | null>(null);
   const [batchError, setBatchError] = useState<{ message: string; tramoIndex?: number; estrategia?: EstrategiaReparto } | null>(null);
 
   const { data: salesData, isLoading: isLoadingSales } = useListSales(
@@ -236,15 +260,28 @@ export function CargoWizard({
   const drivers = (personnel ?? []).filter(person => person.rol === "chofer");
   const densityWarning = needsSplit ? densidadImplausible(splitPeso, splitVolumen) : null;
 
+  function seedSplitDraft(plan: FleetSplitPlan<Vehicle>) {
+    if (!plan.viable) return;
+    setBatchError(null);
+    setSplitDraft({
+      estrategia: plan.estrategia,
+      rows: plan.tramos.map((tramo, index) => ({
+        id: nextSplitRowId.current++,
+        vehiculoId: tramo.vehiculo.id,
+        choferId: plan.estrategia === "flota-simultanea"
+          ? drivers[index]?.id ?? null
+          : drivers[0]?.id ?? null,
+        peso: quotaText(tramo.pesoKg),
+        volumen: quotaText(tramo.volumenM3),
+      })),
+    });
+  }
+
   useEffect(() => {
-    if (!needsSplit || personnel == null) return;
-    setDriverAssignments(current => ({
-      "flota-simultanea": simultaneousPlan.tramos.map((_, index) =>
-        current["flota-simultanea"][index] ?? drivers[index]?.id ?? 0),
-      "viajes-sucesivos": successivePlan.tramos.map((_, index) =>
-        current["viajes-sucesivos"][index] ?? drivers[0]?.id ?? 0),
-    }));
-  }, [needsSplit, personnel, simultaneousPlan.tramos.length, successivePlan.tramos.length]);
+    if (!needsSplit || personnel == null || splitDraft != null) return;
+    if (simultaneousPlan.viable) seedSplitDraft(simultaneousPlan);
+    else if (successivePlan.viable) seedSplitDraft(successivePlan);
+  }, [needsSplit, personnel, splitDraft, simultaneousPlan, successivePlan]);
 
   const sinDatos = sinPeso && sinVolumen;
   function currentEstimates(): DispatchCargoEstimates {
@@ -290,19 +327,27 @@ export function CargoWizard({
     }
   }
 
-  function createSplitPlan(plan: FleetSplitPlan<Vehicle>) {
-    const assignments = driverAssignments[plan.estrategia];
+  function updateSplitRow(id: number, patch: Partial<EditableSplitRow>) {
     setBatchError(null);
-    const tramos: DispatchInput[] = plan.tramos.map((tramo, index) => {
-      const window = tramoWindow(plan.estrategia, index);
+    setSplitDraft(current => current
+      ? { ...current, rows: current.rows.map(row => row.id === id ? { ...row, ...patch } : row) }
+      : current);
+  }
+
+  function createSplitPlan(draft: EditableSplitDraft) {
+    setBatchError(null);
+    const tramos: DispatchInput[] = draft.rows.map((row, index) => {
+      const window = tramoWindow(draft.estrategia, index);
+      const peso = parseQuota(row.peso);
+      const volumen = parseQuota(row.volumen);
       const base = {
-        vehiculoId: tramo.vehiculo.id,
-        choferId: assignments[index],
+        vehiculoId: row.vehiculoId!,
+        choferId: row.choferId!,
         fechaEstimadaSalida: toDatetimeLocal(window.salida),
         fechaEstimadaLlegada: toDatetimeLocal(window.llegada),
         cargaParcial: true,
-        pesoEstimadoKg: tramo.pesoKg,
-        volumenEstimadoM3: tramo.volumenM3,
+        ...(peso == null ? {} : { pesoEstimadoKg: peso }),
+        ...(volumen == null ? {} : { volumenEstimadoM3: volumen }),
       };
       return trasladoMode && selectedTraslado
         ? { ...base, tipo: "traslado" as const, trasladoId: selectedTraslado.id }
@@ -320,86 +365,97 @@ export function CargoWizard({
       onError: (error) => {
         const data = (error as { data?: DispatchBatchError | null }).data;
         const message = data?.message || (error instanceof Error ? error.message : "El servidor rechazó la operación.");
-        setBatchError({ message, tramoIndex: data?.tramoIndex, estrategia: plan.estrategia });
+        setBatchError({ message, tramoIndex: data?.tramoIndex, estrategia: draft.estrategia });
         toast({ title: "No se pudo crear el reparto", description: message, variant: "destructive" });
       },
     });
   }
 
-  function renderSplitPlan(plan: FleetSplitPlan<Vehicle>, title: string, description: string) {
-    const insufficientDrivers = plan.estrategia === "flota-simultanea"
-      && plan.tramos.length > drivers.length;
-    const missingDriver = plan.tramos.some((_, index) => !driverAssignments[plan.estrategia][index]);
+  function renderSplitEditor() {
+    if (!splitDraft) {
+      return <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No hay una sugerencia viable para iniciar el plan.</div>;
+    }
+    const parsedRows = splitDraft.rows.map(row => {
+      const vehicle = (vehicles ?? []).find(item => item.id === row.vehiculoId);
+      const peso = parseQuota(row.peso);
+      const volumen = parseQuota(row.volumen);
+      const errors: string[] = [];
+      if (!vehicle) errors.push("Selecciona un vehículo.");
+      if (!row.choferId) errors.push("Selecciona un chofer.");
+      if (peso === undefined || volumen === undefined) errors.push("Las cuotas deben ser positivas o quedar vacías.");
+      if (peso == null && volumen == null) errors.push("Indica al menos una cuota positiva.");
+      if (vehicle && peso != null && peso > vehicle.capacidadPeso) errors.push(`El peso supera la capacidad de ${vehicle.capacidadPeso} kg.`);
+      if (vehicle && volumen != null && volumen > vehicle.capacidadVolumen) errors.push(`El volumen supera la capacidad de ${vehicle.capacidadVolumen} m³.`);
+      if (splitDraft.estrategia === "flota-simultanea" && row.choferId
+        && splitDraft.rows.some(other => other.id !== row.id && other.choferId === row.choferId)) {
+        errors.push("Este chofer está repetido en tramos simultáneos.");
+      }
+      return { row, vehicle, peso, volumen, errors };
+    });
+    const assignedPeso = roundPartialQuotaSum(parsedRows.reduce((sum, item) => sum + (item.peso ?? 0), 0));
+    const assignedVolumen = roundPartialQuotaSum(parsedRows.reduce((sum, item) => sum + (item.volumen ?? 0), 0));
+    const coverage = (label: string, assigned: number, total: number | null | undefined, unit: string) => {
+      if (total == null) return <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="font-semibold">{assigned} {unit} asignados</p><p className="text-xs text-yellow-600">Sin dato total en Odoo</p></div>;
+      const balance = roundPartialQuotaSum(total - assigned);
+      return <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="font-semibold">{assigned} / {total} {unit}</p><p className={`text-xs ${balance < 0 ? "text-yellow-600" : balance > 0 ? "text-blue-600" : "text-green-600"}`}>{balance < 0 ? `${Math.abs(balance)} ${unit} sobreasignados` : balance > 0 ? `${balance} ${unit} pendientes` : "Cobertura completa"}</p></div>;
+    };
+    const invalid = splitDraft.rows.length === 0 || parsedRows.some(item => item.errors.length > 0);
+    const insufficientDrivers = splitDraft.estrategia === "flota-simultanea" && splitDraft.rows.length > drivers.length;
     return (
-      <div className="rounded-lg border bg-card p-4 space-y-4" data-testid={`split-plan-${plan.estrategia}`}>
-        <div>
-          <h3 className="font-semibold">{title}</h3>
-          <p className="text-xs text-muted-foreground">{description}</p>
-        </div>
-        {!plan.viable ? (
-          <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
-            {plan.motivoNoViable}
+      <div className="rounded-lg border bg-card p-4 space-y-4" data-testid="split-plan-editor">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="font-semibold">Plan de reparto editable</h3>
+            <p className="text-xs text-muted-foreground">{splitDraft.estrategia === "flota-simultanea" ? "Los camiones salen en la misma ventana." : "Los viajes usan ventanas consecutivas."}</p>
           </div>
-        ) : (
-          <>
-            {insufficientDrivers && (
-              <div className="rounded-md border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive" data-testid="warning-insufficient-drivers">
-                Se necesitan {plan.tramos.length} choferes distintos y solo hay {drivers.length} disponibles.
-              </div>
-            )}
-            <div className="space-y-3">
-              {plan.tramos.map((tramo, index) => {
-                const highlighted = batchError?.estrategia === plan.estrategia && batchError.tramoIndex === index;
-                const usedByOtherTramo = new Set(driverAssignments[plan.estrategia].filter((_, assignmentIndex) => assignmentIndex !== index));
-                return (
-                  <div key={`${tramo.vehiculo.id}-${index}`} className={`rounded-md border p-3 space-y-2 ${highlighted ? "border-destructive bg-destructive/5" : ""}`} data-testid={`split-tramo-${plan.estrategia}-${index}`}>
-                    <div className="flex items-center justify-between gap-2 text-sm">
-                      <span className="font-medium">{tramo.orden}. {tramo.vehiculo.modelo} · {tramo.vehiculo.placa}</span>
-                      <span className="text-xs text-muted-foreground">
-                        {tramo.pesoKg == null ? "peso sin dato" : `${tramo.pesoKg} kg`} · {tramo.volumenM3 == null ? "volumen sin dato" : `${tramo.volumenM3} m³`}
-                      </span>
-                    </div>
-                    <p className="text-xs text-muted-foreground">{formatWindow(plan.estrategia, index)}</p>
-                    <Select
-                      value={driverAssignments[plan.estrategia][index] ? String(driverAssignments[plan.estrategia][index]) : ""}
-                      onValueChange={value => setDriverAssignments(current => ({
-                        ...current,
-                        [plan.estrategia]: plan.estrategia === "viajes-sucesivos"
-                          ? current[plan.estrategia].map(() => Number(value))
-                          : current[plan.estrategia].map((id, assignmentIndex) => assignmentIndex === index ? Number(value) : id),
-                      }))}
-                    >
-                      <SelectTrigger className="h-8 text-xs" data-testid={`select-driver-${plan.estrategia}-${index}`}>
-                        <SelectValue placeholder="Elegir chofer" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {drivers.map(driver => (
-                          <SelectItem
-                            key={driver.id}
-                            value={String(driver.id)}
-                            disabled={plan.estrategia === "flota-simultanea" && usedByOtherTramo.has(driver.id)}
-                          >
-                            {driver.nombre}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    {highlighted && <p className="text-xs text-destructive">{batchError.message}</p>}
-                  </div>
-                );
-              })}
-            </div>
-            <Button
-              className="w-full"
-              disabled={createBatch.isPending || insufficientDrivers || missingDriver}
-              onClick={() => createSplitPlan(plan)}
-              data-testid={`button-create-${plan.estrategia}`}
-            >
-              {createBatch.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
-              Crear {plan.tramos.length} despachos
-            </Button>
-          </>
+          <Badge variant="outline">{splitDraft.estrategia === "flota-simultanea" ? "Flota simultánea" : "Viajes sucesivos"}</Badge>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          {coverage("Peso asignado", assignedPeso, totalPeso, "kg")}
+          {coverage("Volumen asignado", assignedVolumen, totalVol, "m³")}
+        </div>
+        {insufficientDrivers && (
+          <div className="rounded-md border border-yellow-500/40 bg-yellow-500/10 p-3 text-xs text-yellow-700" data-testid="warning-insufficient-drivers">
+            Hay {splitDraft.rows.length} tramos simultáneos y solo {drivers.length} choferes disponibles. Ajusta el plan antes de crear.
+          </div>
         )}
+        <div className="space-y-3">
+          {parsedRows.map(({ row, errors }, index) => {
+            const highlighted = batchError?.estrategia === splitDraft.estrategia && batchError.tramoIndex === index;
+            return (
+              <div key={row.id} className={`rounded-md border p-3 space-y-3 ${errors.length || highlighted ? "border-destructive bg-destructive/5" : ""}`} data-testid={`split-row-${row.id}`}>
+                <div className="flex items-center justify-between">
+                  <p className="text-sm font-medium">Camión {index + 1}</p>
+                  <Button type="button" size="icon" variant="ghost" onClick={() => setSplitDraft(current => current ? { ...current, rows: current.rows.filter(item => item.id !== row.id) } : current)} aria-label={`Eliminar camión ${index + 1}`}>
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2">
+                  <Select value={row.vehiculoId ? String(row.vehiculoId) : ""} onValueChange={value => updateSplitRow(row.id, { vehiculoId: Number(value) })}>
+                    <SelectTrigger data-testid={`select-vehicle-${row.id}`}><SelectValue placeholder="Elegir vehículo" /></SelectTrigger>
+                    <SelectContent>{(vehicles ?? []).map(vehicle => <SelectItem key={vehicle.id} value={String(vehicle.id)}>{vehicle.modelo} · {vehicle.placa}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={row.choferId ? String(row.choferId) : ""} onValueChange={value => updateSplitRow(row.id, { choferId: Number(value) })}>
+                    <SelectTrigger data-testid={`select-driver-${row.id}`}><SelectValue placeholder="Elegir chofer" /></SelectTrigger>
+                    <SelectContent>{drivers.map(driver => <SelectItem key={driver.id} value={String(driver.id)}>{driver.nombre}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Input type="text" inputMode="decimal" value={row.peso} onChange={event => updateSplitRow(row.id, { peso: event.target.value })} placeholder="Peso (kg)" data-testid={`input-weight-${row.id}`} />
+                  <Input type="text" inputMode="decimal" value={row.volumen} onChange={event => updateSplitRow(row.id, { volumen: event.target.value })} placeholder="Volumen (m³)" data-testid={`input-volume-${row.id}`} />
+                </div>
+                <p className="text-xs text-muted-foreground">{formatWindow(splitDraft.estrategia, index)}</p>
+                {errors.map(error => <p key={error} className="text-xs text-destructive">{error}</p>)}
+                {highlighted && <p className="text-xs text-destructive">{batchError.message}</p>}
+              </div>
+            );
+          })}
+        </div>
+        <Button type="button" variant="outline" className="w-full" onClick={() => setSplitDraft(current => current ? { ...current, rows: [...current.rows, { id: nextSplitRowId.current++, vehiculoId: null, choferId: null, peso: "", volumen: "" }] } : current)} data-testid="button-add-split-row">
+          <Plus className="mr-2 h-4 w-4" /> Agregar camión
+        </Button>
+        <Button className="w-full" disabled={createBatch.isPending || invalid} onClick={() => createSplitPlan(splitDraft)} data-testid="button-create-split-draft">
+          {createBatch.isPending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Check className="mr-2 h-4 w-4" />}
+          Crear {splitDraft.rows.length} despachos
+        </Button>
       </div>
     );
   }
@@ -463,7 +519,13 @@ export function CargoWizard({
                 {pendingSales.map(sale => (
                   <button
                     key={sale.id}
-                    onClick={() => setSelectedSaleId(sale.id)}
+                    onClick={() => {
+                      if (sale.id !== selectedSaleId) {
+                        setSplitDraft(null);
+                        setBatchError(null);
+                      }
+                      setSelectedSaleId(sale.id);
+                    }}
                     className={`w-full text-left p-3 rounded-lg border transition-colors ${
                       selectedSaleId === sale.id
                         ? "border-primary bg-primary/10"
@@ -749,9 +811,18 @@ export function CargoWizard({
                 No hay vehículos registrados en la flota.
               </div>
             ) : needsSplit ? (
-              <div className="grid gap-4 md:grid-cols-2" data-testid="split-plan-comparison">
-                {renderSplitPlan(simultaneousPlan, "Flota simultánea", "Varios vehículos salen dentro de la misma ventana.")}
-                {renderSplitPlan(successivePlan, "Viajes sucesivos", "Un vehículo repite salidas en ventanas consecutivas.")}
+              <div className="space-y-4" data-testid="split-plan-comparison">
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <Button variant={splitDraft?.estrategia === "flota-simultanea" ? "default" : "outline"} disabled={!simultaneousPlan.viable} onClick={() => seedSplitDraft(simultaneousPlan)} data-testid="button-seed-simultaneous">
+                    Sugerir flota simultánea
+                  </Button>
+                  <Button variant={splitDraft?.estrategia === "viajes-sucesivos" ? "default" : "outline"} disabled={!successivePlan.viable} onClick={() => seedSplitDraft(successivePlan)} data-testid="button-seed-successive">
+                    Sugerir viajes sucesivos
+                  </Button>
+                  {!simultaneousPlan.viable && <p className="text-xs text-muted-foreground">{simultaneousPlan.motivoNoViable}</p>}
+                  {!successivePlan.viable && <p className="text-xs text-muted-foreground">{successivePlan.motivoNoViable}</p>}
+                </div>
+                {renderSplitEditor()}
               </div>
             ) : (
               <div className="space-y-3 max-h-[380px] overflow-y-auto pr-1">

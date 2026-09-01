@@ -33,3 +33,17 @@ mtime_ms = 1787335698531
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/2349a7cb-0df2-4284-bc2e-84f29047e7c8/69627cd2-2421-47d1-879c-31fd9a592b5b"
 storage_version_token = "1787336023813481"
 content_type = "image/jpeg"
+
+[[outputs]]
+id = "-3qt9dFQw6nbSRA9EBF56"
+uri = "file://attached_assets/plan-reparto-editable.jpg"
+type = "image"
+title = "Plan de reparto editable"
+description = "Captura del panel final con una flota simultánea sembrada, dos filas editables y cobertura completa."
+logical_id = "c7db67c3-31e6-4ea5-81b9-3a6a3012575f"
+content_hash = "sha256:e4046e83d364427f2920c438fe86684f7ec8a3f35ef5c2bc1746ba694e2a24b6"
+size = 77685
+mtime_ms = 1788299172775
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/c7db67c3-31e6-4ea5-81b9-3a6a3012575f/56105b4f-1173-4abd-8e13-a1a5122225b7"
+storage_version_token = "1788299203614330"
+content_type = "image/jpeg"

@@ -4,6 +4,7 @@ export const modules: ModuleMap = {
   "./components/mockups/chofer-entrega.tsx": () => import("../components/mockups/chofer-entrega.tsx"),
   "./components/mockups/dimensiones-verificacion.tsx": () => import("../components/mockups/dimensiones-verificacion.tsx"),
   "./components/mockups/odoo-card-albaranes.tsx": () => import("../components/mockups/odoo-card-albaranes.tsx"),
+  "./components/mockups/plan-reparto-editable.tsx": () => import("../components/mockups/plan-reparto-editable.tsx"),
   "./components/mockups/pre-despacho-traslados.tsx": () => import("../components/mockups/pre-despacho-traslados.tsx"),
   "./components/mockups/traslados.tsx": () => import("../components/mockups/traslados.tsx"),
   "./components/mockups/ventas-entrega.tsx": () => import("../components/mockups/ventas-entrega.tsx"),
