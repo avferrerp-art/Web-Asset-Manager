@@ -593,7 +593,27 @@ describe.sequential("viajes compartidos", () => {
     ]);
   });
 
-  it("acepta repartir la misma venta con el mismo camión en ventanas consecutivas", async () => {
+  it.each([
+    {
+      formato: "UTC",
+      primeraSalida: "2035-10-04T08:00:00.000Z",
+      primeraLlegada: "2035-10-04T10:00:00.000Z",
+      segundaSalida: "2035-10-04T10:00:00.000Z",
+      segundaLlegada: "2035-10-04T12:00:00.000Z",
+    },
+    {
+      formato: "local",
+      primeraSalida: "2035-10-06T08:00",
+      primeraLlegada: "2035-10-06T10:00",
+      segundaSalida: "2035-10-06T10:00",
+      segundaLlegada: "2035-10-06T12:00",
+    },
+  ])("acepta repartir la misma venta con el mismo camión en ventanas consecutivas ($formato)", async ({
+    primeraSalida,
+    primeraLlegada,
+    segundaSalida,
+    segundaLlegada,
+  }) => {
     const sale = await createSale({ peso: 800, volumen: 4 });
     const response = await api("/dispatches/batch", {
       method: "POST",
@@ -604,8 +624,8 @@ describe.sequential("viajes compartidos", () => {
             ventaId: sale.id,
             vehiculoId: vehicleIds[1],
             choferId: personnelIds[0],
-            fechaEstimadaSalida: "2035-10-04T08:00:00.000Z",
-            fechaEstimadaLlegada: "2035-10-04T10:00:00.000Z",
+            fechaEstimadaSalida: primeraSalida,
+            fechaEstimadaLlegada: primeraLlegada,
             cargaParcial: true,
             pesoEstimadoKg: 400,
             volumenEstimadoM3: 2,
@@ -615,8 +635,8 @@ describe.sequential("viajes compartidos", () => {
             ventaId: sale.id,
             vehiculoId: vehicleIds[1],
             choferId: personnelIds[0],
-            fechaEstimadaSalida: "2035-10-04T10:00:00.000Z",
-            fechaEstimadaLlegada: "2035-10-04T12:00:00.000Z",
+            fechaEstimadaSalida: segundaSalida,
+            fechaEstimadaLlegada: segundaLlegada,
             cargaParcial: true,
             pesoEstimadoKg: 400,
             volumenEstimadoM3: 2,
@@ -646,9 +666,44 @@ describe.sequential("viajes compartidos", () => {
       }),
     ]);
     dispatchIds.push(...body.map((dispatch: { id: number }) => dispatch.id));
+    const stored = await db
+      .select({
+        salida: dispatchesTable.fechaEstimadaSalida,
+        llegada: dispatchesTable.fechaEstimadaLlegada,
+      })
+      .from(dispatchesTable)
+      .where(inArray(
+        dispatchesTable.id,
+        body.map((dispatch: { id: number }) => dispatch.id),
+      ));
+    expect(stored).toHaveLength(2);
+    expect(stored).toEqual(expect.arrayContaining([
+      { salida: primeraSalida, llegada: primeraLlegada },
+      { salida: segundaSalida, llegada: segundaLlegada },
+    ]));
   });
 
-  it("rechaza el solapamiento parcial del mismo camión y revierte el lote completo", async () => {
+  it.each([
+    {
+      formato: "UTC",
+      primeraSalida: "2035-10-05T08:00:00.000Z",
+      primeraLlegada: "2035-10-05T10:00:00.000Z",
+      segundaSalida: "2035-10-05T09:00:00.000Z",
+      segundaLlegada: "2035-10-05T11:00:00.000Z",
+    },
+    {
+      formato: "local",
+      primeraSalida: "2035-10-07T08:00",
+      primeraLlegada: "2035-10-07T10:00",
+      segundaSalida: "2035-10-07T09:00",
+      segundaLlegada: "2035-10-07T11:00",
+    },
+  ])("rechaza el solapamiento parcial del mismo camión y revierte el lote completo ($formato)", async ({
+    primeraSalida,
+    primeraLlegada,
+    segundaSalida,
+    segundaLlegada,
+  }) => {
     const sale = await createSale({ peso: 800, volumen: 4 });
     const before = await db
       .select({ id: dispatchesTable.id })
@@ -663,8 +718,8 @@ describe.sequential("viajes compartidos", () => {
             ventaId: sale.id,
             vehiculoId: vehicleIds[1],
             choferId: personnelIds[0],
-            fechaEstimadaSalida: "2035-10-05T08:00:00.000Z",
-            fechaEstimadaLlegada: "2035-10-05T10:00:00.000Z",
+            fechaEstimadaSalida: primeraSalida,
+            fechaEstimadaLlegada: primeraLlegada,
             cargaParcial: true,
             pesoEstimadoKg: 400,
             volumenEstimadoM3: 2,
@@ -674,8 +729,8 @@ describe.sequential("viajes compartidos", () => {
             ventaId: sale.id,
             vehiculoId: vehicleIds[1],
             choferId: personnelIds[0],
-            fechaEstimadaSalida: "2035-10-05T09:00:00.000Z",
-            fechaEstimadaLlegada: "2035-10-05T11:00:00.000Z",
+            fechaEstimadaSalida: segundaSalida,
+            fechaEstimadaLlegada: segundaLlegada,
             cargaParcial: true,
             pesoEstimadoKg: 400,
             volumenEstimadoM3: 2,
@@ -694,6 +749,54 @@ describe.sequential("viajes compartidos", () => {
       .where(eq(dispatchesTable.ventaId, sale.id));
     expect(before).toHaveLength(0);
     expect(after).toHaveLength(0);
+  });
+
+  it("rechaza un lote local que se solapa con un despacho local existente sin escribir sus tramos", async () => {
+    await createSaleDispatch({
+      vehicleId: vehicleIds[1],
+      salida: "2035-10-08T08:00",
+      llegada: "2035-10-08T10:00",
+    });
+    const batchSale = await createSale({ peso: 800, volumen: 4 });
+    const response = await api("/dispatches/batch", {
+      method: "POST",
+      body: JSON.stringify({
+        tramos: [
+          {
+            tipo: "venta",
+            ventaId: batchSale.id,
+            vehiculoId: vehicleIds[0],
+            choferId: personnelIds[0],
+            fechaEstimadaSalida: "2035-10-08T06:00",
+            fechaEstimadaLlegada: "2035-10-08T07:00",
+            cargaParcial: true,
+            pesoEstimadoKg: 400,
+            volumenEstimadoM3: 2,
+          },
+          {
+            tipo: "venta",
+            ventaId: batchSale.id,
+            vehiculoId: vehicleIds[1],
+            choferId: personnelIds[1],
+            fechaEstimadaSalida: "2035-10-08T09:00",
+            fechaEstimadaLlegada: "2035-10-08T11:00",
+            cargaParcial: true,
+            pesoEstimadoKg: 400,
+            volumenEstimadoM3: 2,
+          },
+        ],
+      }),
+    });
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: "vehicle_schedule_conflict",
+      tramoIndex: 1,
+    });
+    const stored = await db
+      .select({ id: dispatchesTable.id })
+      .from(dispatchesTable)
+      .where(eq(dispatchesTable.ventaId, batchSale.id));
+    expect(stored).toHaveLength(0);
   });
 
   it("revierte el lote completo e identifica el tramo inválido", async () => {

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { toDatetimeLocal } from "@/lib/datetime-local";
 import {
   CheckCircle2, ChevronRight, ChevronLeft, Package, ClipboardList, Truck,
   Check, Unlink, Search, Loader2, AlertTriangle, ArrowRight,
@@ -297,8 +298,8 @@ export function CargoWizard({
       const base = {
         vehiculoId: tramo.vehiculo.id,
         choferId: assignments[index],
-        fechaEstimadaSalida: window.salida.toISOString(),
-        fechaEstimadaLlegada: window.llegada.toISOString(),
+        fechaEstimadaSalida: toDatetimeLocal(window.salida),
+        fechaEstimadaLlegada: toDatetimeLocal(window.llegada),
         cargaParcial: true,
         pesoEstimadoKg: tramo.pesoKg,
         volumenEstimadoM3: tramo.volumenM3,
