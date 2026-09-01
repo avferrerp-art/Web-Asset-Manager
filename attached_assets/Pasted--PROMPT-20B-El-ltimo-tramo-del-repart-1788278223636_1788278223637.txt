@@ -1,0 +1,217 @@
+════════════════════════════════════════════════════════════
+PROMPT 20B — El último tramo del reparto puede quedar con cuota
+cero o negativa
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Agregar motor puro de reparto de flota` (7a93e26).
+Corrige un bug de ese commit.
+
+Cambio acotado a **un solo archivo de lógica** (`fleet-split.ts`, la función
+`construirTramos`) más sus tests. No hay migraciones, no hay contrato, no hay
+backend, no hay UI. El módulo sigue sin tener consumidores: por eso es el
+momento barato para arreglarlo.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9.
+App web: `artifacts/logistics`. Tests: `e2e/` con Vitest.
+
+Archivos afectados:
+- `artifacts/logistics/src/lib/fleet-split.ts`
+- `e2e/tests/fleet-split.test.ts`
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+`construirTramos` calcula todos los tramos menos el último con
+`roundPartialQuotaSum(total * fraccion)`, y al último le asigna el resto:
+`roundPartialQuotaSum(total - asignado)`.
+
+El problema es que `roundPartialQuotaSum` redondea **al más cercano**, así
+que cada tramo previo puede redondear hacia ARRIBA hasta 0.0005. Cuando eso
+pasa, `asignado` termina siendo mayor que la porción real y el resto del
+último tramo queda en cero o en negativo.
+
+**Caso reproducible con la flota real:**
+
+Carga de **11000.74 kg / 4.9289 m³**. El Mitsubishi (11000 kg / 28 m³) se
+lleva casi todo y queda un segundo camión con el sobrante:
+
+```
+tramo 1 → 11000 kg / 4.929 m³     ← el volumen redondeó HACIA ARRIBA
+tramo 2 →   0.74 kg / 0 m³        ← 4.9289 − 4.929 = −0.0001 → 0
+```
+
+Con más tramos llega a ser abiertamente negativo (se observó `-0.002`).
+
+**Por qué importa más de lo que parece.** La regla más protegida del repo es
+`null` = "sin dato", **nunca `0`**. Un despacho guardado con
+`volumenEstimadoM3 = 0` después lo lee `sinDatoCarga` como *"sin dato en
+Odoo"*: la cuota real de 0.0001 m³ no queda como cero, queda como
+**desconocida**, para siempre. Es corrupción silenciosa.
+
+Y no se rechaza sola: `hasPositivePartialCargoQuota` solo exige que **alguna**
+de las dos medidas sea positiva, y el peso (0.74 kg) lo es. El despacho entra
+derecho a la base.
+
+**Frecuencia medida:** ~0.013% de los repartos (1 de cada 8000), sobre 435 mil
+cargas simuladas que realmente necesitan reparto contra la flota real. Es
+poco, pero fijate en el ejemplo: una carga que excede por menos de un kilo la
+capacidad de un camión es *el motivo más típico* para repartir, no un caso
+raro.
+
+════════════════════════════════════════
+POR QUÉ EL ARREGLO OBVIO NO SIRVE
+════════════════════════════════════════
+
+Lo primero que uno piensa es redondear **hacia abajo** los tramos previos,
+para que el resto nunca pueda quedar negativo. Lo probé sobre 500 mil casos:
+elimina los negativos, **pero rompe otra cosa**.
+
+Al redondear hacia abajo, todo lo que pierden los tramos previos se le suma
+al último. Y en `planFlotaSimultanea` el último tramo es justo el que quedó
+al ras de su capacidad (el greedy lo llena hasta el borde). Resultado: la
+cuota del último se pasa de la capacidad de su propio camión, por 0.001 o
+0.002 — y entonces `exceedsDispatchCapacity` va a rechazar la creación del
+despacho en la Fase 4E-2. Se cambia un bug silencioso por uno que bloquea.
+
+El error de redondeo no se puede mandar ni al último tramo ni repartir a
+ciegas: **tiene que ir al tramo que tenga holgura de sobra.**
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **No redondees hacia abajo.** Ver arriba: cambia el problema de lugar y lo
+   empeora.
+
+2. **Ninguna cuota puede superar la capacidad de su propio vehículo, nunca.**
+   Es la restricción dura. Si para cerrar la suma habría que pasarse de la
+   capacidad de algún camión, **es preferible dejar el residuo sin asignar**.
+   Perder 0.001 kg de una carga es irrelevante; generar un despacho que el
+   backend rechaza, no.
+
+3. **Ninguna cuota puede quedar en ≤ 0** en una dimensión que sí tiene dato.
+   Un `0` guardado se lee después como "sin dato" (regla `null` ≠ `0`).
+
+4. **`null` sigue siendo `null`.** Si una dimensión no tiene dato, todas las
+   cuotas de esa dimensión siguen siendo `null` en todos los tramos. Nada de
+   convertir `null` en 0.001.
+
+5. **Los resultados que ya funcionan no pueden cambiar.** El reparto de
+   50 kg / 50 m³ tiene que seguir dando exactamente
+   `28 / 12.5 / 7 / 2.5`, y los viajes sucesivos `28 / 22`. Si tu cambio
+   mueve esos números, algo se rompió.
+
+6. **Un test actual va a dejar de valer y hay que reescribirlo** — ver el
+   punto 3 de la tarea. No lo "arregles" revirtiendo la lógica.
+
+7. **No toques `fraccionQueEntra`, `planFlotaSimultanea`,
+   `planViajesSucesivos` ni `densidadImplausible`.** El bug está solo en cómo
+   `construirTramos` reparte el redondeo. Las fracciones y la elección de
+   vehículos están bien.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Reescribir `construirTramos` en `fleet-split.ts`**
+
+Reemplazá el esquema actual ("todos por fracción, el último por resta") por
+este, que se verificó sobre 500 mil casos con la flota real:
+
+```
+a) Cada tramo —incluido el último— recibe roundPartialQuotaSum(total * fraccion).
+   Ya no hay un tramo que se calcule por resta.
+
+b) residuo = roundPartialQuotaSum(total − suma de todas las cuotas)
+
+c) Si residuo ≠ 0, se lo aplicás a UN solo tramo: el que tenga más holgura
+   (capacidad − cuota) en esa dimensión, entre los que puedan absorberlo
+   quedando > 0 y sin superar su capacidad. Si empatan en holgura, el de
+   mayor `orden`.
+
+d) Si NINGÚN tramo puede absorberlo sin pasarse de capacidad, el residuo se
+   deja sin asignar. La capacidad manda sobre el cierre exacto (trampa 2).
+
+e) Después, cualquier tramo que haya quedado con cuota ≤ 0 en una dimensión
+   con dato se sube a 0.001, restándole ese 0.001 al tramo con la cuota más
+   grande que pueda cederlo sin quedar en ≤ 0.
+```
+
+Cada dimensión (peso y volumen) se procesa por separado: una puede tener dato
+y la otra no.
+
+**2. Verificación del caso del bug**
+
+Con la flota real y una carga de 11000.74 kg / 4.9289 m³, el resultado
+esperado es:
+
+```
+tramo 1 → 11000 kg / 4.928 m³
+tramo 2 →   0.74 kg / 0.001 m³
+```
+
+El tramo 1 no supera sus 28 m³ ni sus 11000 kg, el tramo 2 no tiene ninguna
+cuota en cero, y las dos dimensiones suman el total exacto.
+
+**3. Reescribir el test "closes rounded partial quotas"**
+
+El test actual usa un vehículo de `capacidadPeso: 0.3334` y espera
+`[0.333, 0.333, 0.334]`. Ese resultado **ya no es alcanzable, y con razón**:
+0.334 supera la capacidad de 0.3334, así que la única forma de producirlo era
+excediendo la capacidad del camión. Con capacidades de 4 decimales y cuotas de
+3, el cierre exacto es imposible sin romper la trampa 2.
+
+Reescribilo con una capacidad expresable en 3 decimales (por ejemplo
+`0.334`), donde el cierre sí es alcanzable, y que siga probando lo que el test
+quería probar: que las tres cuotas suman exactamente el total.
+
+**4. Tests nuevos**
+
+- **El caso del bug**, tal cual el punto 2, con sus valores exactos.
+- **Invariante "ninguna cuota en cero ni negativa"**: recorré los tramos de
+  varios planes y confirmá que toda cuota con dato es > 0.
+- **Invariante "ninguna cuota supera su capacidad"**: para cada tramo,
+  `pesoKg <= vehiculo.capacidadPeso` y `volumenM3 <= vehiculo.capacidadVolumen`.
+  Incluí explícitamente el caso 11000.74 / 4.9289, que es el que rompía con el
+  arreglo ingenuo.
+- **Regresión**: 50 kg / 50 m³ sigue dando `28 / 12.5 / 7 / 2.5` en flota
+  simultánea y `28 / 22` en viajes sucesivos.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni `generated/`.
+- No modifiques `fleet.ts`, `medidas.ts` ni `pre-despacho.tsx`.
+- No cambies la firma ni los tipos exportados de `fleet-split.ts`
+  (`SplitVehicle`, `TramoReparto`, `PlanDeReparto`, `EstrategiaReparto`).
+- No cambies `MAX_TRAMOS` ni `FRACTION_EPSILON`.
+- No cambies la precisión de `roundPartialQuotaSum` (sigue en 3 decimales) ni
+  la toques en `medidas.ts`: la usan también las cuotas de Pre-Despacho.
+- No agregues UI ni conectes el motor con ninguna pantalla. Sigue sin
+  consumidores.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm run typecheck` sin errores.
+2. `pnpm --filter @workspace/e2e run test:api` pasa entero, incluidos
+   `carga-calculadora.test.ts` y el resto de `fleet-split.test.ts`.
+3. El caso 11000.74 kg / 4.9289 m³ da el resultado del punto 2.
+4. Los resultados de 50/50 no cambiaron.
+5. **Cero cambio visible en la app**: Pre-Despacho sigue igual, el módulo
+   sigue sin consumidores.
+6. Reportá, para la flota real, qué devuelven los dos planes con estas tres
+   cargas: `11000.74 kg / 4.9289 m³`, `50 kg / 50 m³` y
+   `22057.41 kg / 0.2397 m³`. Quiero comparar los tres contra mi propia
+   simulación antes de seguir con 4E-2.
