@@ -1,0 +1,255 @@
+════════════════════════════════════════════════════════════
+PROMPT 22 (Fase 4E-3) — La sugerencia de reparto en el wizard
+"Planificar Carga"
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Add atomic batch dispatch endpoint` (743d841) o
+posterior.
+
+Frontend puro. No hay migraciones, no hay contrato, no hay backend: el
+endpoint `POST /dispatches/batch` y el motor `fleet-split.ts` ya existen y se
+usan tal cual.
+
+Un solo archivo de producción: `artifacts/logistics/src/components/cargo-wizard.tsx`.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9.
+App web: `artifacts/logistics` (React + Vite + shadcn/ui + React Query).
+
+Leé `replit.md` y `.agents/memory/`. Para esta tarea importan:
+  - `.agents/memory/hook-call-convention.md` (los hooks generados reciben un
+    único argumento objeto)
+  - `.agents/memory/measurement-domain-semantics.md`
+
+REGLAS DEL REPO:
+  1. Los `generated/` NUNCA se editan a mano.
+  2. `null` = "sin dato". NUNCA `0`.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Es la última pieza de la Fase 4E y la única que el usuario ve.
+
+Hoy, cuando una carga no entra en ningún camión, el paso "Flota" del wizard
+muestra las barras de utilización en rojo —714%, 400%— y **no ofrece
+absolutamente nada**. Ni un mensaje. El usuario ve que no entra y se queda
+solo.
+
+Las dos piezas que faltaban ya están construidas y probadas:
+
+- **`artifacts/logistics/src/lib/fleet-split.ts`** calcula el reparto. Da dos
+  planes: `planFlotaSimultanea` (varios camiones a la vez) y
+  `planViajesSucesivos` (un camión, varias salidas). Tiene tests que cubren
+  el redondeo, el cierre exacto de cuotas y los casos degenerados.
+- **`POST /dispatches/batch`** crea los N despachos parciales en **una sola
+  transacción**: o se crean todos, o ninguno.
+
+Esta tarea las conecta con la pantalla.
+
+════════════════════════════════════════
+LO QUE EL MOTOR TE DA Y LO QUE NO
+════════════════════════════════════════
+
+`fleet-split.ts` devuelve, por cada plan:
+
+```ts
+PlanDeReparto { estrategia, tramos[], viable, motivoNoViable }
+TramoReparto  { orden, vehiculo, pesoKg, volumenM3 }
+```
+
+O sea: **vehículo y cuota por tramo.** Nada más.
+
+Lo que el motor NO decide y esta tarea sí tiene que resolver:
+
+- **Quién maneja cada tramo.** El endpoint exige `choferId` por tramo.
+- **Las fechas de cada tramo.** El endpoint exige salida y llegada.
+
+Ahí está el trabajo de diseño de este prompt, y ahí están las trampas.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **Las fechas se arman con `toDatetimeLocal`, nunca a mano.** Existe
+   `artifacts/logistics/src/lib/datetime-local.ts` justamente porque este
+   repo ya tuvo un bug grave: se construían las fechas con
+   `.toISOString().slice(0,16)` y cada edición corría el despacho **+4
+   horas**, de forma acumulativa. Está documentado en PROMPT 8. No lo
+   reinventes: importá el helper.
+
+2. **Escenario B: las ventanas tienen que ser estrictamente consecutivas.**
+   El tramo N arranca **exactamente** cuando termina el N−1. Ni antes ni
+   igual:
+   - Si se **solapan** aunque sea un minuto → `409 vehicle_schedule_conflict`
+     y no se crea nada.
+   - Si son **idénticas** → el backend las rechaza con
+     `batch_duplicate_vehicle_window`, porque dos tramos iguales se leerían
+     como un único viaje físico compartido.
+   Arrancar justo cuando termina el anterior **sí** está permitido: la
+   comparación de solape es estricta. Verificado en vivo contra la API real.
+
+3. **Escenario A necesita un chofer DISTINTO por tramo.** Son camiones
+   saliendo a la vez; el mismo chofer en dos tramos simultáneos da
+   `409 person_schedule_conflict`. Contá los choferes disponibles: si hay
+   menos que tramos, mostrá el aviso y **no dejes crear ese escenario**.
+   Esto no es hipotético — hoy el padrón tiene **dos** choferes, y el
+   reparto de la orden que motivó esta fase pide cuatro camiones.
+   No intentes verificar la agenda de cada chofer desde el front: de eso ya
+   se encarga el backend y te lo devuelve con `tramoIndex`. Acá solo se
+   cuenta cuántos hay.
+
+4. **Las cuotas vienen del motor. No las recalcules.** `fleet-split.ts` ya
+   resuelve el redondeo a 3 decimales, el cierre exacto de la suma, la cuota
+   mínima y el tope de capacidad. Si el wizard vuelve a calcular o a
+   redondear, reintroduce exactamente los bugs que arreglamos en PROMPT 20B.
+   Pasá `tramo.pesoKg` y `tramo.volumenM3` tal cual al endpoint.
+
+5. **Todos los tramos van con `cargaParcial: true`**, incluido el último
+   aunque entrara completo. Si alguno va en `false`, el backend rechaza el
+   lote entero con `batch_partial_load_required`.
+
+6. **El wizard hoy no conoce el personal.** Hay que agregarle
+   `useListPersonnel`. Es la única query nueva; filtrá por `rol === "chofer"`,
+   igual que hace `pre-despacho.tsx`.
+
+7. **No toques el camino que ya funciona.** Cuando algún vehículo SÍ entra,
+   el paso "Flota" tiene que seguir viéndose y comportándose exactamente
+   igual que hoy: la lista rankeada, el badge "⭐ SUGERIDO", el botón
+   "Asignar este vehículo" y el callback `onVehicleAssigned`. El panel de
+   reparto es una rama nueva, no un reemplazo.
+
+8. **No toques `classifyFleet` ni `fleet.ts`.** Se usan en 4 lugares.
+
+9. **`null` no es `0`.** Si una dimensión no tiene dato, la cuota de esa
+   dimensión va `null` en el body. El wizard ya calcula `totalPeso` y
+   `totalVol` con la convención correcta (`sinDatoCarga` para ventas,
+   `trasladoSinMedida` para traslados): pasale esos valores al motor tal
+   cual, no los re-derives.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+Todo dentro del paso 3 ("Flota") de `cargo-wizard.tsx`.
+
+**1. Cuándo aparece el panel de reparto**
+
+Cuando **ningún** vehículo soporta la carga, o sea `fleetClass.fit.length === 0`.
+Si hay al menos uno que entra, no se muestra nada nuevo (trampa 7).
+
+**2. Aviso de densidad sospechosa**
+
+Llamá a `densidadImplausible(totalPeso, totalVol)`. Si devuelve texto,
+mostralo arriba del panel como advertencia, con el valor implícito de
+densidad. **No bloquea nada**: es para que el usuario sepa que el problema
+puede ser el dato de Odoo y no la logística, antes de mandar cuatro camiones
+por una caja.
+
+**3. Los dos escenarios, lado a lado**
+
+Calculá `planFlotaSimultanea(vehicles, totalPeso, totalVol)` y
+`planViajesSucesivos(vehicles, totalPeso, totalVol)` y mostrá una tarjeta por
+cada uno:
+
+- **Flota simultánea** — "N camiones, todos salen el mismo día"
+- **Viajes sucesivos** — "1 camión, N salidas en N días"
+
+Cada tarjeta lista sus tramos: orden, vehículo, cuota de peso y de volumen.
+
+Si un plan viene con `viable: false`, mostrá su `motivoNoViable` en lugar de
+los tramos y no ofrezcas crearlo.
+
+**4. Fechas y choferes por tramo**
+
+Partí de las mismas fechas por defecto que ya usa el wizard/Pre-Despacho
+(hoy → mañana), y armalas con `toDatetimeLocal`:
+
+- **Flota simultánea**: todos los tramos comparten la misma ventana.
+- **Viajes sucesivos**: cada tramo dura lo mismo que el primero, y arranca
+  exactamente cuando termina el anterior (trampa 2).
+
+Choferes:
+
+- **Flota simultánea**: asigná automáticamente un chofer distinto a cada
+  tramo, en orden. Si hay menos choferes que tramos, mostrá el aviso de
+  personal insuficiente y deshabilitá el botón de crear de esa tarjeta.
+- **Viajes sucesivos**: el mismo chofer en todos los tramos.
+
+En los dos casos, dejá un `<Select>` por tramo para que el usuario pueda
+cambiar el chofer.
+
+**5. Crear el reparto**
+
+Botón por tarjeta ("Crear los N despachos") que llame a
+`useCreateDispatchBatch` con un tramo por cada `TramoReparto`:
+
+```
+tipo, ventaId (o trasladoId), vehiculoId: tramo.vehiculo.id, choferId,
+fechaEstimadaSalida, fechaEstimadaLlegada,
+cargaParcial: true,
+pesoEstimadoKg: tramo.pesoKg, volumenEstimadoM3: tramo.volumenM3
+```
+
+Al terminar:
+- **Éxito** → toast, invalidá las queries de despachos y de ventas/traslados
+  con el `queryClient` que el wizard ya tiene, y cerrá el wizard. La orden va
+  a aparecer en Pre-Despacho con su badge de avance, que ya funciona desde
+  la Fase 4C.
+- **Error** → el backend devuelve `{ error, message, tramoIndex }`. Mostrá el
+  `message` y **resaltá el tramo indicado por `tramoIndex`** en la tarjeta.
+  Ese índice existe justamente para que el usuario sepa qué camión corregir.
+  Como el endpoint es atómico, no hace falta limpiar nada: no se creó ningún
+  despacho.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni `generated/`.
+- No modifiques `fleet-split.ts`, `medidas.ts` ni `fleet.ts`.
+- No toques `pre-despacho.tsx`, `nuevo-despacho-wizard.tsx`,
+  `viaje-wizard.tsx` ni `carga.tsx`. Los avisos muertos de "Considera dividir
+  el envío" de `carga.tsx` y `nuevo-despacho-wizard.tsx` se conectarán
+  después con este mismo motor — **no en esta tarea**.
+- No muestres costos estimados en las tarjetas. Los costos de un despacho hoy
+  **no se persisten** (`POST /dispatches` guarda la fila de `travel_costs` en
+  ceros), así que mostrar un número que después no queda guardado sería
+  engañoso. Es un tema aparte y preexistente.
+- No conectes el reparto con la entidad `viajes`. Los despachos van con
+  `viajeId: null`.
+- No agregues librerías nuevas.
+- No cambies el layout ni los pasos del wizard: el panel va dentro del paso
+  "Flota" que ya existe.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm run typecheck` sin errores.
+2. `pnpm --filter @workspace/e2e run test:api` sigue pasando entero.
+3. **Regresión del camino normal**: una orden que entra en algún camión
+   muestra el paso "Flota" exactamente como antes, con su lista rankeada y su
+   badge "⭐ SUGERIDO". Nada nuevo aparece.
+4. **El caso real**: la orden de 50 kg / 50 m³. El panel tiene que mostrar
+   los dos escenarios, y en "Flota simultánea" proponer 4 camiones
+   (Mitsubishi 28 + Iveco 12.5 + Foton 7 + Panel 2.5 m³) y en "Viajes
+   sucesivos" 2 salidas del Mitsubishi (28 + 22 m³).
+5. **El aviso de personal insuficiente se dispara de verdad**: con los dos
+   choferes que hay hoy en el padrón, el escenario de 4 camiones tiene que
+   mostrar el aviso y tener el botón deshabilitado.
+6. **El aviso de densidad se dispara**: esa misma orden da 1 kg/m³ y tiene
+   que mostrar la advertencia de dato sospechoso.
+7. **Creación real de punta a punta**: creá un reparto con "Viajes
+   sucesivos" (que necesita un solo chofer) y confirmá que se crearon los N
+   despachos, que la orden queda en `despachado`, y que aparece en
+   Pre-Despacho con el badge "X kg asignados / Y kg — N camiones".
+8. Reportá una captura del panel con los dos escenarios para la orden de
+   50/50.
