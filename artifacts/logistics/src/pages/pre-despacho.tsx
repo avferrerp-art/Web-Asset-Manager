@@ -1,4 +1,5 @@
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
+import { roundPartialQuotaSum } from "@/lib/medidas";
 import React, { useEffect, useState } from "react";
 import {
   useListSales, getListSalesQueryKey,
@@ -62,12 +63,6 @@ function fmtDateShort(s: string) {
   return new Date(s).toLocaleDateString("es-VE", {
     day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
   });
-}
-
-// Redondea exclusivamente acumulaciones de cuotas parciales; los totales fuente
-// de Odoo conservan su precisión y semántica originales.
-function roundPartialQuotaSum(value: number) {
-  return Math.round((value + Number.EPSILON) * 1_000) / 1_000;
 }
 
 export default function PreDespacho() {
