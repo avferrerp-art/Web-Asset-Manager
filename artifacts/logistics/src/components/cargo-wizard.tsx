@@ -93,10 +93,13 @@ interface EditableSplitRow {
   choferId: number | null;
   peso: string;
   volumen: string;
+  manualWindow: { salida: string; llegada: string } | null;
 }
 
 interface EditableSplitDraft {
   estrategia: EstrategiaReparto;
+  salidaGlobal: string;
+  duracionHoras: string;
   rows: EditableSplitRow[];
 }
 
@@ -265,6 +268,8 @@ export function CargoWizard({
     setBatchError(null);
     setSplitDraft({
       estrategia: plan.estrategia,
+      salidaGlobal: toDatetimeLocal(planStartedAt),
+      duracionHoras: "24",
       rows: plan.tramos.map((tramo, index) => ({
         id: nextSplitRowId.current++,
         vehiculoId: tramo.vehiculo.id,
@@ -273,6 +278,7 @@ export function CargoWizard({
           : drivers[0]?.id ?? null,
         peso: quotaText(tramo.pesoKg),
         volumen: quotaText(tramo.volumenM3),
+        manualWindow: null,
       })),
     });
   }
@@ -293,17 +299,29 @@ export function CargoWizard({
     };
   }
 
-  function tramoWindow(estrategia: EstrategiaReparto, index: number) {
-    const durationMs = 24 * 60 * 60 * 1000;
-    const offset = estrategia === "viajes-sucesivos" ? index * durationMs : 0;
+  function automaticTramoWindow(draft: EditableSplitDraft, index: number) {
+    const salidaGlobal = new Date(draft.salidaGlobal);
+    const durationHours = Number(draft.duracionHoras);
+    if (Number.isNaN(salidaGlobal.getTime()) || !Number.isFinite(durationHours) || durationHours <= 0) return null;
+    const durationMs = durationHours * 60 * 60 * 1000;
+    const offset = draft.estrategia === "viajes-sucesivos" ? index * durationMs : 0;
     return {
-      salida: new Date(planStartedAt.getTime() + offset),
-      llegada: new Date(planStartedAt.getTime() + offset + durationMs),
+      salida: new Date(salidaGlobal.getTime() + offset),
+      llegada: new Date(salidaGlobal.getTime() + offset + durationMs),
     };
   }
 
-  function formatWindow(estrategia: EstrategiaReparto, index: number) {
-    const { salida, llegada } = tramoWindow(estrategia, index);
+  function effectiveTramoWindow(draft: EditableSplitDraft, row: EditableSplitRow, index: number) {
+    if (!row.manualWindow) return automaticTramoWindow(draft, index);
+    const salida = new Date(row.manualWindow.salida);
+    const llegada = new Date(row.manualWindow.llegada);
+    if (Number.isNaN(salida.getTime()) || Number.isNaN(llegada.getTime())) return null;
+    return { salida, llegada };
+  }
+
+  function formatWindow(window: { salida: Date; llegada: Date } | null) {
+    if (!window) return "Ventana inválida";
+    const { salida, llegada } = window;
     const format = (date: Date) => date.toLocaleString("es-VE", {
       day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit",
     });
@@ -337,7 +355,7 @@ export function CargoWizard({
   function createSplitPlan(draft: EditableSplitDraft) {
     setBatchError(null);
     const tramos: DispatchInput[] = draft.rows.map((row, index) => {
-      const window = tramoWindow(draft.estrategia, index);
+      const window = effectiveTramoWindow(draft, row, index)!;
       const peso = parseQuota(row.peso);
       const volumen = parseQuota(row.volumen);
       const base = {
@@ -376,9 +394,11 @@ export function CargoWizard({
       return <div className="rounded-lg border border-dashed p-8 text-center text-sm text-muted-foreground">No hay una sugerencia viable para iniciar el plan.</div>;
     }
     const parsedRows = splitDraft.rows.map(row => {
+      const index = splitDraft.rows.indexOf(row);
       const vehicle = (vehicles ?? []).find(item => item.id === row.vehiculoId);
       const peso = parseQuota(row.peso);
       const volumen = parseQuota(row.volumen);
+      const window = effectiveTramoWindow(splitDraft, row, index);
       const errors: string[] = [];
       if (!vehicle) errors.push("Selecciona un vehículo.");
       if (!row.choferId) errors.push("Selecciona un chofer.");
@@ -386,11 +406,21 @@ export function CargoWizard({
       if (peso == null && volumen == null) errors.push("Indica al menos una cuota positiva.");
       if (vehicle && peso != null && peso > vehicle.capacidadPeso) errors.push(`El peso supera la capacidad de ${vehicle.capacidadPeso} kg.`);
       if (vehicle && volumen != null && volumen > vehicle.capacidadVolumen) errors.push(`El volumen supera la capacidad de ${vehicle.capacidadVolumen} m³.`);
-      if (splitDraft.estrategia === "flota-simultanea" && row.choferId
-        && splitDraft.rows.some(other => other.id !== row.id && other.choferId === row.choferId)) {
-        errors.push("Este chofer está repetido en tramos simultáneos.");
+      if (!window || window.llegada.getTime() <= window.salida.getTime()) {
+        errors.push("La llegada debe ser posterior a la salida.");
       }
-      return { row, vehicle, peso, volumen, errors };
+      if (window) {
+        for (const [otherIndex, other] of splitDraft.rows.entries()) {
+          if (other.id === row.id) continue;
+          const otherWindow = effectiveTramoWindow(splitDraft, other, otherIndex);
+          if (!otherWindow) continue;
+          const overlaps = window.salida < otherWindow.llegada && otherWindow.salida < window.llegada;
+          if (!overlaps) continue;
+          if (row.choferId && row.choferId === other.choferId) errors.push("Este chofer tiene otro tramo que se solapa.");
+          if (row.vehiculoId && row.vehiculoId === other.vehiculoId) errors.push("Este vehículo tiene otro tramo que se solapa.");
+        }
+      }
+      return { row, vehicle, peso, volumen, window, errors: [...new Set(errors)] };
     });
     const assignedPeso = roundPartialQuotaSum(parsedRows.reduce((sum, item) => sum + (item.peso ?? 0), 0));
     const assignedVolumen = roundPartialQuotaSum(parsedRows.reduce((sum, item) => sum + (item.volumen ?? 0), 0));
@@ -399,7 +429,10 @@ export function CargoWizard({
       const balance = roundPartialQuotaSum(total - assigned);
       return <div className="rounded-md border bg-muted/30 p-3"><p className="text-xs text-muted-foreground">{label}</p><p className="font-semibold">{assigned} / {total} {unit}</p><p className={`text-xs ${balance < 0 ? "text-yellow-600" : balance > 0 ? "text-blue-600" : "text-green-600"}`}>{balance < 0 ? `${Math.abs(balance)} ${unit} sobreasignados` : balance > 0 ? `${balance} ${unit} pendientes` : "Cobertura completa"}</p></div>;
     };
-    const invalid = splitDraft.rows.length === 0 || parsedRows.some(item => item.errors.length > 0);
+    const globalStartValid = splitDraft.salidaGlobal !== "" && !Number.isNaN(new Date(splitDraft.salidaGlobal).getTime());
+    const duration = Number(splitDraft.duracionHoras);
+    const durationValid = splitDraft.duracionHoras.trim() !== "" && Number.isFinite(duration) && duration > 0;
+    const invalid = !globalStartValid || !durationValid || splitDraft.rows.length === 0 || parsedRows.some(item => item.errors.length > 0);
     const insufficientDrivers = splitDraft.estrategia === "flota-simultanea" && splitDraft.rows.length > drivers.length;
     return (
       <div className="rounded-lg border bg-card p-4 space-y-4" data-testid="split-plan-editor">
@@ -409,6 +442,53 @@ export function CargoWizard({
             <p className="text-xs text-muted-foreground">{splitDraft.estrategia === "flota-simultanea" ? "Los camiones salen en la misma ventana." : "Los viajes usan ventanas consecutivas."}</p>
           </div>
           <Badge variant="outline">{splitDraft.estrategia === "flota-simultanea" ? "Flota simultánea" : "Viajes sucesivos"}</Badge>
+        </div>
+        <div className="grid gap-3 md:grid-cols-3">
+          <label className="space-y-1 text-xs font-medium">
+            Salida global
+            <Input
+              type="datetime-local"
+              value={splitDraft.salidaGlobal}
+              onChange={event => {
+                setBatchError(null);
+                setSplitDraft(current => current ? { ...current, salidaGlobal: event.target.value } : current);
+              }}
+              data-testid="input-global-departure"
+            />
+            {!globalStartValid && <span className="block text-destructive">Indica una fecha válida.</span>}
+          </label>
+          <label className="space-y-1 text-xs font-medium">
+            Duración por tramo (horas)
+            <Input
+              type="number"
+              inputMode="decimal"
+              min="0"
+              step="any"
+              value={splitDraft.duracionHoras}
+              onChange={event => {
+                setBatchError(null);
+                setSplitDraft(current => current ? { ...current, duracionHoras: event.target.value } : current);
+              }}
+              data-testid="input-global-duration"
+            />
+            {!durationValid && <span className="block text-destructive">La duración debe ser positiva.</span>}
+          </label>
+          <label className="space-y-1 text-xs font-medium">
+            Modo temporal
+            <Select
+              value={splitDraft.estrategia}
+              onValueChange={value => {
+                setBatchError(null);
+                setSplitDraft(current => current ? { ...current, estrategia: value as EstrategiaReparto } : current);
+              }}
+            >
+              <SelectTrigger data-testid="select-temporal-mode"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="flota-simultanea">Salidas simultáneas</SelectItem>
+                <SelectItem value="viajes-sucesivos">Viajes consecutivos</SelectItem>
+              </SelectContent>
+            </Select>
+          </label>
         </div>
         <div className="grid grid-cols-2 gap-3">
           {coverage("Peso asignado", assignedPeso, totalPeso, "kg")}
@@ -420,12 +500,15 @@ export function CargoWizard({
           </div>
         )}
         <div className="space-y-3">
-          {parsedRows.map(({ row, errors }, index) => {
+          {parsedRows.map(({ row, window, errors }, index) => {
             const highlighted = batchError?.estrategia === splitDraft.estrategia && batchError.tramoIndex === index;
             return (
               <div key={row.id} className={`rounded-md border p-3 space-y-3 ${errors.length || highlighted ? "border-destructive bg-destructive/5" : ""}`} data-testid={`split-row-${row.id}`}>
                 <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium">Camión {index + 1}</p>
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium">Camión {index + 1}</p>
+                    {row.manualWindow && <Badge variant="secondary">Fechas manuales</Badge>}
+                  </div>
                   <Button type="button" size="icon" variant="ghost" onClick={() => setSplitDraft(current => current ? { ...current, rows: current.rows.filter(item => item.id !== row.id) } : current)} aria-label={`Eliminar camión ${index + 1}`}>
                     <Trash2 className="h-4 w-4" />
                   </Button>
@@ -442,14 +525,29 @@ export function CargoWizard({
                   <Input type="text" inputMode="decimal" value={row.peso} onChange={event => updateSplitRow(row.id, { peso: event.target.value })} placeholder="Peso (kg)" data-testid={`input-weight-${row.id}`} />
                   <Input type="text" inputMode="decimal" value={row.volumen} onChange={event => updateSplitRow(row.id, { volumen: event.target.value })} placeholder="Volumen (m³)" data-testid={`input-volume-${row.id}`} />
                 </div>
-                <p className="text-xs text-muted-foreground">{formatWindow(splitDraft.estrategia, index)}</p>
+                {row.manualWindow ? (
+                  <div className="grid gap-3 md:grid-cols-[1fr_1fr_auto]">
+                    <label className="space-y-1 text-xs font-medium">Salida
+                      <Input type="datetime-local" value={row.manualWindow.salida} onChange={event => updateSplitRow(row.id, { manualWindow: { ...row.manualWindow!, salida: event.target.value } })} data-testid={`input-row-departure-${row.id}`} />
+                    </label>
+                    <label className="space-y-1 text-xs font-medium">Llegada
+                      <Input type="datetime-local" value={row.manualWindow.llegada} onChange={event => updateSplitRow(row.id, { manualWindow: { ...row.manualWindow!, llegada: event.target.value } })} data-testid={`input-row-arrival-${row.id}`} />
+                    </label>
+                    <Button type="button" variant="outline" className="self-end" onClick={() => updateSplitRow(row.id, { manualWindow: null })}>Volver a automático</Button>
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs text-muted-foreground">{formatWindow(window)}</p>
+                    <Button type="button" size="sm" variant="outline" disabled={!window} onClick={() => window && updateSplitRow(row.id, { manualWindow: { salida: toDatetimeLocal(window.salida), llegada: toDatetimeLocal(window.llegada) } })}>Editar fechas</Button>
+                  </div>
+                )}
                 {errors.map(error => <p key={error} className="text-xs text-destructive">{error}</p>)}
                 {highlighted && <p className="text-xs text-destructive">{batchError.message}</p>}
               </div>
             );
           })}
         </div>
-        <Button type="button" variant="outline" className="w-full" onClick={() => setSplitDraft(current => current ? { ...current, rows: [...current.rows, { id: nextSplitRowId.current++, vehiculoId: null, choferId: null, peso: "", volumen: "" }] } : current)} data-testid="button-add-split-row">
+        <Button type="button" variant="outline" className="w-full" onClick={() => setSplitDraft(current => current ? { ...current, rows: [...current.rows, { id: nextSplitRowId.current++, vehiculoId: null, choferId: null, peso: "", volumen: "", manualWindow: null }] } : current)} data-testid="button-add-split-row">
           <Plus className="mr-2 h-4 w-4" /> Agregar camión
         </Button>
         <Button className="w-full" disabled={createBatch.isPending || invalid} onClick={() => createSplitPlan(splitDraft)} data-testid="button-create-split-draft">
