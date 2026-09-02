@@ -1,0 +1,231 @@
+════════════════════════════════════════════════════════════
+PROMPT 23B — Fechas editables en el plan de reparto
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Convertir el reparto en un plan editable` (6eb979b).
+
+Frontend puro, un solo archivo:
+`artifacts/logistics/src/components/cargo-wizard.tsx`.
+
+No hay backend, contrato, migraciones ni cambios en el motor de reparto.
+Cierra la Fase 4E.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, TypeScript 5.9.
+App web: `artifacts/logistics` (React + Vite + shadcn/ui).
+
+REGLAS DEL REPO: los `generated/` no se editan a mano; `null` = "sin dato",
+nunca `0`.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+El 23A hizo editable todo el plan **menos las fechas**, que siguen siendo
+sintéticas: `planStartedAt` es el instante en que se abrió el wizard y la
+duración son 24 horas fijas en el código. Por eso el plan dice cosas como
+"11:41 a. m. → 11:41 a. m. del día siguiente": no es una decisión, es la
+hora en que se hizo clic.
+
+Un operador necesita decir "sale mañana a las 8 y cada viaje dura 6 horas", y
+a veces "este camión en particular sale el lunes".
+
+════════════════════════════════════════
+EL DISEÑO: DOS NIVELES
+════════════════════════════════════════
+
+**Nivel global** — una fecha/hora de salida del plan y una duración por
+viaje. Resuelve el caso común de una sola vez, sin tener que llenar dos
+campos por fila.
+
+**Nivel por tramo** — cualquier fila puede sobrescribir sus propias fechas
+cuando hace falta algo puntual. Las filas que no se tocaron siguen derivando
+del nivel global.
+
+**El interruptor** — "todos salen juntos" / "uno tras otro" gobierna cómo se
+derivan las fechas de las filas automáticas. Hoy esa información está
+implícita en `splitDraft.estrategia` (la fija la plantilla que sembró);
+ahora se expone como control y el usuario puede cambiarla.
+
+`estrategia` sigue siendo **la única fuente de verdad** del modo: la fijan
+tanto las plantillas como el interruptor. No agregues un segundo campo
+paralelo.
+
+════════════════════════════════════════
+UNA REGLA QUE SE VUELVE EXACTA
+════════════════════════════════════════
+
+El 23A bloquea "el mismo chofer repetido cuando el modo es simultáneo". Eso
+era **una aproximación**: como todas las filas compartían ventana, repetir
+chofer equivalía a solaparlo.
+
+Con fechas reales la regla verdadera se puede escribir tal cual es:
+
+> **una persona o un vehículo no pueden estar en dos tramos cuyas ventanas se
+> solapan.**
+
+Esa regla cubre los dos modos y además atrapa casos que hoy se escapan —por
+ejemplo dos filas con el **mismo vehículo**, que hoy no se validan y que el
+backend rechaza con `batch_duplicate_vehicle_window` (400) o
+`vehicle_schedule_conflict` (409).
+
+Reemplazá la regla vieja por la nueva. No las acumules.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **`toDatetimeLocal` para todo: los inputs y el payload. Nunca
+   `.toISOString()`.** Este repo ya se comió ese bug dos veces: una corría
+   los despachos +4 h por edición (PROMPT 8) y otra guardó las fechas del
+   lote en un formato distinto al del resto de la app, dejando **ciega la
+   detección de conflictos entre los dos caminos de creación** (PROMPT 22B,
+   demostrado con un doble booking real). El helper está en
+   `@/lib/datetime-local` y ya se usa en el archivo.
+
+2. **La comparación de solape tiene que ser ESTRICTA.** El backend usa `<` y
+   `>`, no `<=` / `>=`: un tramo que arranca **exactamente** cuando termina
+   el anterior **NO** es conflicto y se permite. Si la UI lo bloquea, el modo
+   "uno tras otro" queda inutilizable, porque eso es precisamente lo que
+   genera. Verificado en vivo contra la API real.
+
+3. **En modo sucesivo, la llegada de un tramo y la salida del siguiente
+   tienen que ser el MISMO valor**, no dos cálculos parecidos. Derivalos del
+   mismo instante (`salidaGlobal + N × duración`) para que las cadenas
+   coincidan carácter por carácter. Si difieren por segundos, o el backend
+   ve un solape, o quedan huecos raros.
+
+4. **Una fila manual no se pisa.** Cambiar la fecha global, la duración o el
+   interruptor **re-deriva solo las filas automáticas**. Las que el usuario
+   editó a mano conservan lo suyo hasta que él las devuelva a automático.
+
+5. **Borrar o agregar filas en modo sucesivo corre los índices.** Las filas
+   automáticas se re-derivan según su nueva posición; las manuales no se
+   tocan.
+
+6. **No rompas nada del 23A**: agregar y quitar filas, cambiar vehículo,
+   cuota y chofer, el saldo en vivo, la validación de capacidad y el
+   redondeo con `roundPartialQuotaSum` se quedan exactamente como están.
+
+7. **Duración en horas, cuenta en milisegundos.** Aceptá horas fraccionarias
+   (2.5) y rechazá 0 o negativo.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Estado nuevo**
+
+- `planSalida: string` — `datetime-local`, arranca en **ahora**, armado con
+  `toDatetimeLocal(new Date())`.
+- `planDuracionHoras: string` — arranca en `"24"`.
+- Cada fila (`EditableSplitRow`) suma dos campos opcionales:
+  `fechaSalida?: string` y `fechaLlegada?: string`. Si están, la fila es
+  manual; si no, deriva.
+
+Con esos valores por defecto **el comportamiento es idéntico al de hoy**.
+
+**2. Controles globales**
+
+Arriba de la lista, tres controles:
+
+- **Salida del plan** — `<Input type="datetime-local">`.
+- **Duración de cada viaje (horas)** — `<Input>` numérico.
+- **Interruptor de modo** — "Todos salen juntos" / "Uno tras otro", que
+  escribe `splitDraft.estrategia`.
+
+**3. Derivación**
+
+Reescribí `tramoWindow` para que use el estado en vez de las constantes:
+
+```
+si la fila tiene fechas manuales → esas
+si no:
+  base = planSalida
+  duracion = planDuracionHoras en ms
+  offset = (modo === "uno tras otro") ? index * duracion : 0
+  salida  = base + offset
+  llegada = base + offset + duracion
+```
+
+**4. Edición por tramo**
+
+En cada fila, junto a la ventana que hoy se muestra como texto, un botón
+**"Editar fechas"** que la cambia por dos `<Input type="datetime-local">`
+(salida y llegada), más un **"Volver a automático"** que borra los campos
+manuales y devuelve la fila a la derivación.
+
+Marcá visualmente las filas con fechas manuales, para que se distingan de un
+vistazo de las que siguen al plan.
+
+**5. Validaciones nuevas**
+
+Bloqueantes, sumadas a las del 23A:
+
+- duración vacía, cero o negativa
+- fecha de salida del plan vacía
+- en una fila manual, llegada anterior o igual a la salida
+- **dos filas con el mismo vehículo y ventanas que se solapan**
+- **dos filas con el mismo chofer y ventanas que se solapan**
+- dos filas con el mismo vehículo y ventanas **idénticas** (el backend lo
+  rechaza con `batch_duplicate_vehicle_window`)
+
+Y **quitá** la regla vieja de "chofer repetido en modo simultáneo": queda
+subsumida por la de solapes.
+
+Recordá la trampa 2: pegado no es solape.
+
+**6. El envío**
+
+`createSplitPlan` sigue igual salvo que las fechas de cada tramo salen de la
+nueva `tramoWindow` (manual o derivada), serializadas con `toDatetimeLocal`.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni `generated/`.
+- No modifiques `fleet-split.ts`, `medidas.ts`, `fleet.ts` ni
+  `datetime-local.ts`.
+- No toques `pre-despacho.tsx`, `nuevo-despacho-wizard.tsx`,
+  `viaje-wizard.tsx` ni `carga.tsx`.
+- No cambies el motor de reparto ni cómo siembran las plantillas las cuotas.
+- No saques el aviso de densidad, el saldo en vivo ni el camino de la lista
+  rankeada.
+- No agregues un segundo campo de modo en paralelo a `estrategia`.
+- No agregues librerías nuevas (nada de date-fns ni dayjs).
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm run typecheck` limpio y `pnpm --filter @workspace/e2e run test:api`
+   pasando entero.
+2. **Regresión con los valores por defecto**: al abrir el panel, las ventanas
+   son las mismas que hoy (ahora → +24 h; consecutivas en modo sucesivo).
+3. **Nivel global**: poné la salida mañana a las 08:00 y duración 6, y
+   confirmá que **todas** las filas automáticas se actualizan.
+4. **El interruptor**: pasá de "juntos" a "uno tras otro" y confirmá que las
+   ventanas dejan de ser iguales y pasan a encadenarse.
+5. **Fila manual**: editá las fechas de una fila, después cambiá la fecha
+   global, y confirmá que **esa fila conserva las suyas** y el resto se
+   mueve.
+6. **Pegado se permite**: dos filas con el mismo vehículo donde la segunda
+   arranca exactamente cuando termina la primera → **sin error**, botón
+   habilitado. Este es el chequeo que atrapa el `<=` de la trampa 2.
+7. **Solape se bloquea**: corré la segunda una hora hacia atrás para que se
+   pise con la primera → error en la fila y botón deshabilitado, **antes** de
+   mandar nada.
+8. **Creación real**: creá un reparto con fechas editadas y confirmá que los
+   despachos quedaron guardados con esas fechas, en formato
+   `"AAAA-MM-DDTHH:MM"` — **sin Z y sin segundos**, igual que cualquier otro
+   despacho de la app.
+9. Reportame el valor exacto de `fechaEstimadaSalida` de los despachos
+   creados.
