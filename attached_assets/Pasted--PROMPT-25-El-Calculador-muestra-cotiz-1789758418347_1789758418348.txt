@@ -1,0 +1,191 @@
+════════════════════════════════════════════════════════════
+PROMPT 25 — El Calculador muestra cotizaciones, y el buscador
+empieza a buscar bien
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit de PROMPT 24 (el que agregó `sales.odooEstado` y el
+parámetro de cotizaciones en `GET /sales`).
+
+**Antes de empezar, averiguá el nombre REAL del parámetro** que PROMPT 24
+agregó a `GET /sales` — buscalo en `lib/api-spec/openapi.yaml` y en
+`artifacts/api-server/src/routes/sales.ts`. No asumas cómo se llama.
+
+Frontend puro, **un solo archivo**:
+`artifacts/logistics/src/pages/carga.tsx` (318 líneas hoy).
+
+Sin backend, sin contrato, sin migraciones.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm, TypeScript 5.9.
+App web: `artifacts/logistics` (React + Vite + wouter + shadcn/ui + React
+Query).
+
+Leé `.agents/memory/hook-call-convention.md` (los hooks generados reciben un
+único argumento objeto) y
+`.agents/memory/measurement-domain-semantics.md`.
+
+REGLAS DEL REPO: los `generated/` no se editan a mano; `null` = "sin dato",
+nunca `0`.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+PROMPT 24 dejó las cotizaciones importadas y accesibles, pero ninguna pantalla
+las muestra. Esta tarea las expone **solo en el Calculador de Carga**.
+
+Ventas, Pre-Despacho y Despachos siguen viendo únicamente pedidos
+confirmados. Es deliberado: una cotización no se despacha, así que no tiene
+nada que hacer en una cola de planificación.
+
+Y de paso arregla el buscador, que existe pero no busca bien.
+
+════════════════════════════════════════
+EL BUSCADOR: QUÉ ESTÁ MAL HOY
+════════════════════════════════════════
+
+La página ya tiene un campo de búsqueda (`input-search-sales-carga`), pero el
+filtro de la línea ~46 está escrito a mano:
+
+```ts
+(sales ?? []).filter(s =>
+  `${s.id} ${s.cliente} ${s.destino} ${s.odooRef ?? ""}`
+    .toLowerCase().includes(search.trim().toLowerCase()))
+```
+
+Eso no ignora acentos ni el `#`. Consecuencias reales:
+
+- buscar `lecheria` NO encuentra `Lechería`
+- buscar `#850` NO encuentra la orden 850
+
+El repo ya tiene resuelto exactamente esto en
+`artifacts/logistics/src/lib/search.ts` → `matchesSearch(query, campos[])`,
+que normaliza los dos lados (quita acentos, pasa a minúsculas) y saca el `#`
+inicial. **El resto de las pantallas ya lo usa.** Esta es la única que no.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **No rompas la simulación que ya funciona.** Al elegir una orden,
+   `handleSelectSale` pre-carga `pesoManual` y `volumenManual` desde los
+   totales de Odoo y el operador los puede sobrescribir para simular **sin
+   modificar la venta**. Eso se queda exactamente como está, incluido el
+   texto que lo explica.
+
+2. **`sinDatoCarga` trata CUALQUIER valor `<= 0` como "sin dato", y es a
+   propósito.** Es la convención defensiva de seguridad de carga para ventas,
+   distinta de la de traslados (que solo considera `null`). Está documentada
+   en `.agents/memory/measurement-domain-semantics.md`. **No la "unifiques"
+   ni la toques.**
+
+3. **Una cotización casi nunca va a tener peso ni volumen.** Todavía no pasó
+   por almacén, así que Odoo no calculó sus totales. El aviso rojo de "esta
+   venta no tiene peso ni volumen" —que hoy aparece de vez en cuando— va a
+   aparecer mucho más seguido. Tiene que seguir siendo claro y útil, no
+   alarmista: para una cotización, "sin dato todavía" es lo NORMAL, no un
+   error. Ajustá el texto para que lo diga cuando la orden es una cotización.
+
+4. **Los tres estados no se mezclan en la UI tampoco.** `estado` (interno) y
+   `odooEstado` (comercial) son cosas distintas y se muestran por separado. No
+   los fusiones en un solo badge.
+
+5. **El filtro de tipo se escribe como lista blanca**, igual que en el
+   backend: la opción "pedidos confirmados" enumera `sale` y `done`, no
+   excluye `draft` y `sent`.
+
+6. **`odooEstado` puede venir `null`** (filas viejas, si el backfill no corrió
+   en algún entorno). Una fila con `null` cuenta como pedido confirmado, no
+   como cotización, y nunca debe desaparecer de la lista.
+
+7. **No toques el ranking de flota.** `classifyFleet`, el badge ⭐ SUGERIDO,
+   las barras de utilización y sus colores se quedan igual.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Traer las cotizaciones**
+
+`useListSales` pasa a pedir también las cotizaciones, con el parámetro que
+averiguaste en el REQUISITO PREVIO. Respetá la convención de los hooks
+generados (un único argumento objeto).
+
+**2. Distinguirlas de un vistazo**
+
+Cada fila de la tabla lleva un badge que dice si es cotización o pedido
+confirmado. Tiene que leerse sin buscar una columna: una cotización y un
+pedido no se pueden confundir.
+
+Cuando hay una orden seleccionada, el resumen de arriba también lo dice.
+
+**3. El buscador**
+
+Reemplazá el filtro hecho a mano por `matchesSearch` de `@/lib/search`, con
+los mismos campos que hoy (id, cliente, destino, odooRef). Actualizá el
+placeholder si hace falta.
+
+**4. Dos filtros**
+
+Arriba de la tabla, junto al buscador:
+
+- **Tipo**: Todos · Cotizaciones · Pedidos confirmados
+- **Estado**: Todos · y los valores de `estado` que existan en los datos
+
+Los dos se combinan entre sí y con el buscador. Arrancan en "Todos".
+
+Cuando un filtro deja la tabla vacía, el mensaje tiene que decir que es por
+los filtros, no "Sin órdenes registradas" — que hoy es el único texto y
+miente cuando hay órdenes pero ninguna pasa el filtro.
+
+**5. El aviso de la trampa 3**
+
+Cuando la orden seleccionada es una cotización y no tiene peso ni volumen, el
+aviso explica que para una cotización eso es esperable y que puede escribir
+valores manuales para estimar.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques el backend, `openapi.yaml`, las migraciones ni `generated/`.
+- No toques `pre-despacho.tsx`, `ventas.tsx`, `despachos.tsx`,
+  `cargo-wizard.tsx`, `nuevo-despacho-wizard.tsx` ni `viaje-wizard.tsx`. Las
+  cotizaciones aparecen SOLO en el Calculador.
+- No modifiques `lib/search.ts`, `lib/carga.ts` ni `lib/fleet.ts`.
+- No cambies el cálculo de compatibilidad de flota ni cómo se rankea.
+- No agregues el armado manual de envíos. Eso es el PROMPT 26.
+- No agregues librerías nuevas.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm run typecheck` limpio y
+   `pnpm --filter @workspace/e2e run test:api` pasando entero.
+2. **Regresión de las otras pantallas**: abrí Pre-Despacho y Ventas y
+   confirmá que NO aparece ninguna cotización. Este es el chequeo que importa
+   — si se colaron, el filtro del backend no se está respetando.
+3. En el Calculador aparecen cotizaciones, con su badge, mezcladas con los
+   pedidos.
+4. **El buscador**: buscá `lecheria` sin tilde y confirmá que encuentra
+   destinos con `Lechería`. Buscá `#` seguido de un número de orden y
+   confirmá que la encuentra.
+5. **Los filtros**: "Cotizaciones" muestra solo cotizaciones; "Pedidos
+   confirmados" solo pedidos; combinado con el buscador, los dos se
+   respetan.
+6. **Filtro vacío**: poné una combinación que no devuelva nada y confirmá que
+   el mensaje habla de los filtros, no de que no haya órdenes.
+7. **La simulación sigue igual**: elegí una orden CON peso en Odoo, cambiá el
+   peso a mano y confirmá que la recomendación de camión cambia y que la
+   venta no se modifica.
+8. Elegí una cotización sin peso ni volumen y confirmá que el aviso explica
+   que es esperable.
+9. Mandame una captura de la lista con cotizaciones y pedidos juntos.
