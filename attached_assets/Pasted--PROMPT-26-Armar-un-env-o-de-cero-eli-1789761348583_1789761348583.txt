@@ -1,0 +1,150 @@
+════════════════════════════════════════════════════════════
+PROMPT 26 — Armar un envío de cero, eligiendo artículos
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit de PROMPT 25.
+
+Frontend puro, un solo archivo de producción:
+`artifacts/logistics/src/pages/carga.tsx`.
+
+Sin backend, sin contrato, sin migraciones. **Esta pantalla no escribe nada
+en la base de datos.**
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm, TypeScript 5.9.
+App web: `artifacts/logistics` (React + Vite + shadcn/ui + React Query).
+
+Leé `.agents/memory/hook-call-convention.md` y
+`.agents/memory/measurement-domain-semantics.md`.
+
+REGLAS DEL REPO: los `generated/` no se editan a mano; `null` = "sin dato",
+NUNCA `0`.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Hoy el Calculador solo sabe calcular sobre una orden que ya existe en Odoo. A
+veces hace falta lo contrario: todavía no hay orden, hay una idea de carga
+—tantas cajas de esto, tantos rollos de aquello— y la pregunta es qué camión
+haría falta.
+
+El Calculador pasa a tener dos modos: **"Desde una orden"** (lo que ya hay) y
+**"Armar de cero"** (nuevo).
+
+**Es un simulador y nada más. No crea despachos ni ventas.** No es una
+limitación técnica que haya que superar después: es la decisión. Un despacho
+en este sistema exige una venta o un traslado —hay un `CHECK` en la base,
+`dispatches_fuente_exclusiva_check` (migración 0010), que lo obliga— así que
+crear despachos desde acá significaría inventar ventas locales que no vienen
+de Odoo, y eso ensucia el módulo de Ventas. Fuera de alcance, a propósito.
+
+════════════════════════════════════════
+CASI TODO YA ESTÁ CONSTRUIDO
+════════════════════════════════════════
+
+Lo único que de verdad aporta esta tarea es el selector de artículos y la
+suma. El resto ya existe, está probado y se usa tal cual:
+
+| Pieza | Dónde | Para qué |
+|---|---|---|
+| `GET /products` con `search` | ya existe, filtra EN EL SERVIDOR | el selector |
+| `classifyFleet` | `@/lib/fleet` | ranking de camiones que entran |
+| `planFlotaSimultanea` / `planViajesSucesivos` / `densidadImplausible` | `@/lib/fleet-split` | el reparto cuando no entra en ninguno |
+| `roundPartialQuotaSum` | `@/lib/medidas` | sumar sin cola de decimales |
+
+El endpoint de productos ya acepta `search` y filtra con `ilike` sobre
+`nombre` y `odooRef` del lado del servidor. **Usalo así**: no traigas el
+catálogo entero para filtrar en el navegador.
+
+Los campos de peso y volumen del producto se llaman **`pesoOdoo`** y
+**`volumenOdoo`** (no `pesoKgOdoo` ni `volumenM3Odoo`). Confirmalo en
+`lib/db/src/schema/products.ts` antes de escribir código.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **LA TRAMPA QUE IMPORTA: `pesoOdoo` y `volumenOdoo` son `null` para buena
+   parte del catálogo.** La cobertura registrada es ~63 % en peso y ~31 % en
+   volumen. Si la suma trata esos `null` como `0`, el total **parece
+   autoritativo y está mal**, y el Calculador va a recomendar un camión chico
+   para una carga que no entra. El costo de equivocarse acá no es una cifra
+   fea: es un camión mandado de más.
+
+   La suma tiene que llevar la cuenta de cuántos artículos no tienen dato y
+   decirlo arriba del resultado, por dimensión y por separado — el peso y el
+   volumen tienen coberturas muy distintas. Algo como:
+
+     "3 de 7 artículos no tienen peso en Odoo — este total está incompleto"
+
+   Y si NINGÚN artículo de la lista tiene volumen, el total de volumen es
+   `null` ("sin dato"), **no `0`**. Un `0` se leería como "no ocupa lugar".
+
+2. **`sale_items.pesoUnitario` es `NOT NULL DEFAULT 0`** — una columna vieja
+   que viola la convención `null ≠ 0`. **No la uses como fuente de nada.** El
+   peso y el volumen salen de `products`.
+
+3. **La cantidad es un entero positivo y vive como texto mientras se
+   escribe.** Si parseás a número en cada tecla, el usuario no puede borrar el
+   campo para volver a empezar. Guardá el string crudo y parsealo al calcular.
+   Este patrón ya está resuelto en `cargo-wizard.tsx` (`parseQuota`); mirá
+   cómo lo hace antes de inventar otro.
+
+4. **La `key` de React de cada fila tiene que ser un id estable, NO el índice
+   del array.** Las filas se agregan y se borran; con `key={index}` React
+   reusa el nodo equivocado y la cantidad que escribiste salta a otra fila
+   cuando borrás una de arriba. Generá un id al agregar cada artículo.
+   (Es la trampa que ya se documentó en PROMPT 23A.)
+
+5. **El mismo artículo se puede agregar dos veces.** Decidí qué pasa —
+   sumar cantidades o dejar dos filas— y que sea consistente. No lo dejes al
+   azar.
+
+6. **No toques el modo "Desde una orden".** Todo lo que existe hoy —
+   selección de orden, simulación con valores manuales, avisos, ranking de
+   flota, buscador y filtros del PROMPT 25 — sigue funcionando exactamente
+   igual. El modo nuevo es una rama aparte, no un reemplazo.
+
+7. **No toques `fleet-split.ts`, `fleet.ts`, `medidas.ts` ni `carga.ts`.** Se
+   usan tal cual.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Los dos modos**
+
+Arriba de la página, un selector de modo: **"Desde una orden"** (el de hoy, y
+el que arranca activo) y **"Armar de cero"**. Cambiar de modo no pierde lo
+que se cargó en el otro mientras dure la sesión de la página.
+
+**2. El selector de artículos**
+
+- Un campo de búsqueda que consulta `GET /products` con `search`, con debounce
+  para no disparar una request por tecla.
+- Los resultados muestran nombre, referencia, y el peso y volumen unitarios —
+  o "sin dato" cuando son `null`, para que el usuario vea el problema ANTES de
+  agregarlo.
+- Un botón para agregar el artículo a la lista.
+
+**3. La lista de carga**
+
+Una fila por artículo, con:
+- nombre y referencia
+- un input de **cantidad**
+- el subtotal de peso y volumen de esa fila (o "sin dato")
+- un botón de borrar
+
+Y un botón para vaciar la lista entera.
+
+**4. El total**
+
+Arriba o abajo de la lista:
