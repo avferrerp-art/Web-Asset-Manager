@@ -47,3 +47,17 @@ mtime_ms = 1788299172775
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/c7db67c3-31e6-4ea5-81b9-3a6a3012575f/56105b4f-1173-4abd-8e13-a1a5122225b7"
 storage_version_token = "1788299203614330"
 content_type = "image/jpeg"
+
+[[outputs]]
+id = "aoxGJWA3ByCvqRUw_OCwv"
+uri = "file://artifacts/logistics/carga-mixed-list.png"
+type = "image"
+title = "Calculador: cotizaciones y pedidos juntos"
+description = "Captura real con búsqueda lecheria y ambos filtros en Todos; badges comerciales separados del estado interno."
+logical_id = "d4337dd0-81c6-43c1-ad85-6620446a46c2"
+content_hash = "sha256:bcd515ac870b32a453888bb17032057c98ab7cf4f6727686faef8953c9875f77"
+size = 117953
+mtime_ms = 1789758892074
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/d4337dd0-81c6-43c1-ad85-6620446a46c2/0d9323c5-7f19-47e7-839b-2aac3e76d1e3"
+storage_version_token = "1789758943553096"
+content_type = "image/png"

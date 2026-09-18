@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import {
-  useListSales, getListSalesQueryKey,
+  useListSales,
   useListVehicles, getListVehiclesQueryKey,
 } from "@workspace/api-client-react";
 import type { Sale } from "@workspace/api-client-react";
@@ -8,12 +8,30 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { matchesSearch } from "@/lib/search";
 import { classifyFleet } from "@/lib/fleet";
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
 import {
   CheckCircle2, ChevronRight, PackageOpen, Truck,
-  ArrowLeft, AlertTriangle, Search,
+  ArrowLeft, AlertTriangle, Info, Search,
 } from "lucide-react";
+
+function isQuotation(sale: Sale) {
+  return sale.odooEstado === "draft" || sale.odooEstado === "sent";
+}
+
+function isConfirmedOrder(sale: Sale) {
+  return sale.odooEstado == null || sale.odooEstado === "sale" || sale.odooEstado === "done";
+}
+
+function CommercialBadge({ sale }: { sale: Sale }) {
+  return (
+    <Badge variant={isQuotation(sale) ? "secondary" : "outline"} className="text-xs whitespace-nowrap">
+      {isQuotation(sale) ? "Cotización" : "Pedido confirmado"}
+    </Badge>
+  );
+}
 
 function utilizationColor(pct: number) {
   if (pct > 100) return "text-red-500";
@@ -29,24 +47,26 @@ function utilizationBg(pct: number) {
 export default function Carga() {
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("todos");
+  const [statusFilter, setStatusFilter] = useState("todos");
   // Valores efectivos para el cálculo: se inicializan con los totales de Odoo
   // de la venta y el operador puede sobrescribirlos para simular.
   const [pesoManual, setPesoManual] = useState<string>("");
   const [volumenManual, setVolumenManual] = useState<string>("");
 
-  const { data: sales, isLoading: isLoadingSales } = useListSales(undefined, {
-    query: { queryKey: getListSalesQueryKey() }
-  });
+  const { data: sales, isLoading: isLoadingSales } = useListSales({ includeQuotations: true });
   const { data: vehicles } = useListVehicles({
     query: { queryKey: getListVehiclesQueryKey() }
   });
 
   const selectedSale = sales?.find(s => s.id === selectedSaleId) ?? null;
 
-  const filteredSales = search.trim()
-    ? (sales ?? []).filter(s =>
-        `${s.id} ${s.cliente} ${s.destino} ${s.odooRef ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()))
-    : (sales ?? []);
+  const statuses = Array.from(new Set((sales ?? []).map(s => s.estado))).sort();
+  const filteredSales = (sales ?? []).filter(s =>
+    (typeFilter === "todos" || (typeFilter === "cotizaciones" ? isQuotation(s) : isConfirmedOrder(s))) &&
+    (statusFilter === "todos" || s.estado === statusFilter) &&
+    matchesSearch(search.trim(), [s.id, s.cliente, s.destino, s.odooRef])
+  );
 
   function handleSelectSale(sale: Sale) {
     setSelectedSaleId(sale.id);
@@ -102,15 +122,42 @@ export default function Carga() {
               <PackageOpen className="w-4 h-4 text-primary" />
               Selecciona una Orden de Venta
             </CardTitle>
-            <div className="relative max-w-sm pt-2">
+            <div className="flex flex-wrap items-end gap-3 pt-2">
+            <div className="relative flex-1 min-w-[240px]">
               <Search className="absolute left-2.5 top-1/2 translate-y-0 w-4 h-4 text-muted-foreground" />
               <Input
-                placeholder="Buscar por cliente, destino o #orden..."
+                placeholder="Buscar cliente, destino, #orden o ref. Odoo..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 className="pl-8 h-9"
                 data-testid="input-search-sales-carga"
               />
+            </div>
+            <div className="space-y-1">
+              <label id="label-tipo-carga" className="text-xs text-muted-foreground">Tipo</label>
+              <Select value={typeFilter} onValueChange={setTypeFilter}>
+                <SelectTrigger aria-labelledby="label-tipo-carga" className="w-[200px] h-9" data-testid="select-tipo-carga">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  <SelectItem value="cotizaciones">Cotizaciones</SelectItem>
+                  <SelectItem value="pedidos">Pedidos confirmados</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1">
+              <label id="label-estado-carga" className="text-xs text-muted-foreground">Estado</label>
+              <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger aria-labelledby="label-estado-carga" className="w-[180px] h-9" data-testid="select-estado-carga">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="todos">Todos</SelectItem>
+                  {statuses.map(status => <SelectItem key={status} value={status}>{status}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
             </div>
           </CardHeader>
           <CardContent className="p-0">
@@ -132,11 +179,18 @@ export default function Carga() {
                   </thead>
                   <tbody>
                     {filteredSales.length === 0 && (
-                      <tr><td colSpan={7} className="text-center py-10 text-muted-foreground">Sin órdenes registradas.</td></tr>
+                      <tr><td colSpan={7} className="text-center py-10 text-muted-foreground">
+                        {sales?.length ? "No hay órdenes que coincidan con la búsqueda y los filtros." : "Sin órdenes registradas."}
+                      </td></tr>
                     )}
                     {filteredSales.map(sale => (
                       <tr key={sale.id} className="border-b border-border/50 hover:bg-muted/20 transition-colors" data-testid={`row-sale-carga-${sale.id}`}>
-                        <td className="px-4 py-3 font-medium">#{sale.id}</td>
+                        <td className="px-4 py-3 font-medium">
+                          <div className="flex flex-col items-start gap-1">
+                            <span>#{sale.id}</span>
+                            <CommercialBadge sale={sale} />
+                          </div>
+                        </td>
                         <td className="px-4 py-3">{sale.cliente}</td>
                         <td className="px-4 py-3 text-muted-foreground">{sale.destino}</td>
                         <td className="px-4 py-3">
@@ -173,6 +227,7 @@ export default function Carga() {
           {/* Order summary */}
           <div className="bg-muted/50 rounded-lg px-4 py-3 flex flex-wrap gap-4 text-sm">
             <div><span className="text-muted-foreground">Orden:</span> <span className="font-medium">#{selectedSale.id}</span></div>
+            <CommercialBadge sale={selectedSale} />
             <div><span className="text-muted-foreground">Cliente:</span> <span className="font-medium">{selectedSale.cliente}</span></div>
             <div><span className="text-muted-foreground">Destino:</span> <span className="font-medium">{selectedSale.destino}</span></div>
             <div>
@@ -219,11 +274,14 @@ export default function Carga() {
 
           {/* Warnings */}
           {sinPeso && sinVolumen && (
-            <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-sin-datos">
-              <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+            <div className={`flex items-start gap-2 text-sm border rounded-md px-4 py-3 ${isQuotation(selectedSale) ? "bg-muted/50 border-border" : "bg-red-500/10 border-red-500/40"}`} data-testid="warning-sin-datos">
+              {isQuotation(selectedSale)
+                ? <Info className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5" />
+                : <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />}
               <span>
-                Esta venta no tiene peso ni volumen en Odoo. No se puede recomendar un vehículo:
-                escribe valores manuales para simular, o corrige los datos del artículo en Odoo.
+                {isQuotation(selectedSale)
+                  ? "Es esperable que una cotización aún no tenga peso ni volumen en Odoo. Puedes introducir valores manuales para estimar la carga; sin peso no se recomienda un vehículo."
+                  : "Esta venta no tiene peso ni volumen en Odoo. No se puede recomendar un vehículo: escribe valores manuales para simular, o corrige los datos del artículo en Odoo."}
               </span>
             </div>
           )}
