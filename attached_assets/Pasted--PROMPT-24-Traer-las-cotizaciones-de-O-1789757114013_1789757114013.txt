@@ -1,0 +1,240 @@
+════════════════════════════════════════════════════════════
+PROMPT 24 — Traer las cotizaciones de Odoo (backend)
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+REQUISITO PREVIO
+════════════════════════════════════════
+
+Aplicalo sobre el commit `Permitir fechas editables en planes de reparto`
+(bbdf9a1) o posterior.
+
+Solo backend. **Al terminar esta tarea, ninguna pantalla cambia.** Las
+cotizaciones quedan importadas y accesibles por la API, y nadie las muestra
+todavía. Eso es deliberado: se verifica el dato con una consulta antes de
+construir pantalla encima.
+
+════════════════════════════════════════
+CONTEXTO DEL PROYECTO
+════════════════════════════════════════
+
+LogiFleet, sistema de gestión logística de flota. Monorepo pnpm workspaces,
+Node 24, TypeScript 5.9.
+
+  lib/db/               Drizzle: schema (fuente de verdad) + migraciones
+  lib/api-spec/         openapi.yaml — contrato + config de Orval
+  lib/api-zod/          GENERADO — NO editar
+  lib/api-client-react/ GENERADO — NO editar
+  artifacts/api-server/ API Express 5
+  e2e/                  Vitest
+
+Leé `replit.md` y `.agents/memory/`. Para esta tarea importan:
+  - .agents/memory/odoo-deliveries-incremental.md
+  - .agents/memory/odoo-stock-picking.md
+  - .agents/memory/sales-totales-null.md
+  - .agents/memory/db-migrations-boot.md
+  - .agents/memory/api-server-restart-after-codegen.md
+
+REGLAS DEL REPO — no negociables:
+  1. Contrato primero: cambios de API en lib/api-spec/openapi.yaml + codegen
+     de Orval. Los `generated/` NUNCA se editan a mano.
+  2. Schema = archivo + migración numerada e idempotente en
+     lib/db/src/migrations/, registrada en su index.ts. La última hoy es
+     `0018_dispatch_partial_cargo`.
+  3. Routers nuevos van DESPUÉS de requireAuth.
+  4. Reiniciar el workflow del api-server tras tocar cualquier lib.
+  5. null = "sin dato". NUNCA 0.
+
+════════════════════════════════════════
+POR QUÉ ESTA TAREA
+════════════════════════════════════════
+
+Las cotizaciones de Odoo **no existen en LogiFleet**. No es que no se
+muestren: no están en la base de datos.
+
+`artifacts/api-server/src/services/odooSync.ts`, función
+`fetchConfirmedOrders` (línea ~213), filtra así:
+
+```js
+[[["state", "in", ["sale", "done"]], ["id", ">", lastId]]]
+```
+
+Solo entran pedidos confirmados (`sale`) y bloqueados (`done`). En Odoo una
+cotización es `draft` (borrador) o `sent` (enviada), y nunca se importa. La
+palabra "cotización" no aparece ni una vez en todo el repo.
+
+El operador necesita poder calcular qué camión haría falta para una
+cotización ANTES de que el cliente la apruebe. Hoy no puede: el dato no llega.
+
+════════════════════════════════════════
+LA DECISIÓN DE DISEÑO, Y POR QUÉ NO ES OTRA
+════════════════════════════════════════
+
+Una **columna nueva en `sales`**, no una tabla `cotizaciones` aparte.
+
+El argumento decisivo: **cuando el cliente aprueba una cotización en Odoo, la
+orden conserva el mismo `sale.order` id.** Solo cambia `state` de `draft` a
+`sale`.
+
+Con una tabla aparte habría que detectar esa transición y mover la fila con
+sus partidas de una tabla a otra sin romper nada que la apunte. Con una
+columna, la siguiente corrida del sync escribe el estado nuevo y **la
+cotización se convierte en venta sola, sin una línea de código de
+migración.** Las partidas ya importadas, el destino resuelto y el historial
+siguen en su lugar.
+
+Es además el mismo movimiento que ya hizo este repo en la Fase 1: `deliveries`
+se generalizó con una columna `tipo` en vez de crear una tabla paralela de
+traslados.
+
+════════════════════════════════════════
+TRAMPAS
+════════════════════════════════════════
+
+1. **NO toques `sales.estado`. Es una columna con otro dueño.**
+   El repo ya tiene DOS estados que jamás se mezclan, y este es el tercero:
+
+     sales.estado         → lo escribe saleEstadoSync.ts desde los DESPACHOS.
+                            Estado INTERNO de LogiFleet.
+     sales.estadoEntrega  → lo escribe deliveryEstado.ts desde los ALBARANES.
+                            Estado de ENTREGA real en Odoo.
+     sales.odooEstado     → NUEVO. Lo escribe odooSync.ts desde
+                            sale.order.state. Estado COMERCIAL en Odoo.
+
+   Si sobrecargás `estado`, una cotización queda en `pendiente` —
+   indistinguible de un pedido confirmado sin despachar— y `saleEstadoSync`
+   la pisa en la primera corrida. Una cotización entra con
+   `estado: "pendiente"` exactamente igual que hoy; lo que la distingue es la
+   columna nueva.
+
+2. **`GET /sales` tiene que seguir devolviendo EXACTAMENTE lo mismo que hoy
+   si nadie le pide lo contrario.** Doce archivos del backend consultan
+   `salesTable`, y la web consume `GET /sales` desde Pre-Despacho, Ventas, el
+   Calculador y el wizard de despachos. Si las cotizaciones salen por
+   omisión, alguien va a despachar algo que el cliente todavía no compró.
+   El filtro va **por omisión activado**, y se desactiva con un parámetro
+   explícito.
+
+3. **Lista blanca, no lista negra.** No escribas "excluí draft y sent".
+   Escribí "mostrá solo sale y done, salvo que te pidan lo contrario". Si
+   mañana Odoo agrega un estado nuevo, el default tiene que ser "no aparece",
+   no "aparece por error". Esta es la lección literal de PROMPT 17B.
+
+4. **`fetchConfirmedOrders` deja de traer solo confirmadas.** Si el nombre se
+   queda, miente. Renombralo.
+
+5. **Ese bucle NO es incremental — y eso acá juega a favor.** Arranca en
+   `lastId = 0` en cada corrida y pagina con `id > lastId` hasta el final, o
+   sea que relee todas las órdenes siempre. **Ampliar el dominio trae las
+   cotizaciones viejas solas: NO hace falta un backfill.** No agregues uno.
+   (Es lo contrario del caso de los traslados internos, donde el watermark sí
+   las escondía y hubo que agregar un botón — PROMPT 15.)
+
+6. **El scan va a crecer.** Cada corrida relee todas las órdenes y además pide
+   las líneas de cada una (`sale.order.line`). Sumar `draft` + `sent` puede
+   agregar cientos de órdenes a un proceso que ya tarda. **Medí el tiempo de
+   una corrida completa antes y después del cambio y reportá los dos
+   números.**
+
+7. **El UPDATE importa tanto como el INSERT.** `odooEstado` se tiene que
+   escribir en los dos caminos: cuando la orden se inserta por primera vez y
+   cuando se actualiza una que ya existe. El camino del UPDATE es
+   precisamente el que convierte una cotización en venta cuando el cliente la
+   aprueba. Si solo lo escribís en el INSERT, las cotizaciones aprobadas se
+   quedan marcadas como cotización para siempre.
+
+8. **Cuidado con el guard de alertas de cambio.** `odooSync.ts` (~línea 624)
+   levanta una `sync_alert` cuando una orden cambia en Odoo y su `estado`
+   local no es `pendiente`. Una cotización cambia mucho más seguido que un
+   pedido confirmado —es un borrador— pero como entra en `pendiente`, no
+   debería disparar alertas. Verificalo, no lo asumas.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Schema y migración**
+
+- `sales.odooEstado`: `text("odoo_estado")`, **nullable**, en
+  `lib/db/src/schema/sales.ts`, con un comentario que diga qué la escribe y
+  en qué se diferencia de `estado` y `estadoEntrega`.
+- Migración `lib/db/src/migrations/0019_sales_odoo_estado.ts`, idempotente
+  (`ADD COLUMN IF NOT EXISTS`), registrada en su `index.ts`.
+- Backfill en la MISMA migración: las filas que ya existen son todas órdenes
+  confirmadas, así que
+  `UPDATE sales SET odoo_estado = 'sale' WHERE odoo_estado IS NULL`.
+  Nullable a propósito para que ese backfill sea trivial y la migración no
+  necesite un DEFAULT que después haya que quitar.
+
+**2. El sync**
+
+- El dominio pasa a `["draft", "sent", "sale", "done"]`.
+- Agregá `"state"` a la lista de `fields` del `search_read`.
+- Renombrá `fetchConfirmedOrders` por algo que describa lo que hace ahora.
+- Escribí `odooEstado: order.state` en el INSERT **y** en el UPDATE de
+  órdenes ya conocidas (trampa 7).
+
+**3. El contrato**
+
+- `odooEstado` en el schema `Sale` de `lib/api-spec/openapi.yaml`
+  (`type: string`, `nullable: true`).
+- `GET /sales` gana un parámetro de query nuevo, booleano, que pide
+  explícitamente incluir las cotizaciones. Sin él, el comportamiento es el de
+  hoy.
+- `pnpm --filter @workspace/api-spec run codegen`.
+
+**4. El router**
+
+- En `artifacts/api-server/src/routes/sales.ts` (~línea 37), aplicá el filtro
+  de lista blanca descrito en la trampa 3. Respetá el filtro `status` que ya
+  existe; los dos se combinan.
+
+**5. Tests** en `e2e/`
+
+- Una venta con `odooEstado: "draft"` NO sale en `GET /sales`.
+- Sí sale con el parámetro nuevo.
+- Una venta con `odooEstado: "sale"` sale en los dos casos.
+- Una venta con `odooEstado` en NULL (una fila vieja) sale en los dos casos —
+  esto es importante: el backfill podría no haber corrido en algún entorno y
+  no queremos que las ventas existentes desaparezcan.
+- El filtro `status` sigue funcionando igual, solo y combinado.
+
+════════════════════════════════════════
+NO HAGAS
+════════════════════════════════════════
+
+- No toques `sales.estado` ni `sales.estadoEntrega`, ni sus servicios
+  (`saleEstadoSync.ts`, `deliveryEstado.ts`). Una cotización sin despachos ni
+  albaranes ya cae en el caso "sin nada" de los dos.
+- No agregues un backfill ni un endpoint de importación histórica (trampa 5).
+- No agregues detección de borrados. Odoo permite borrar cotizaciones en
+  borrador y este sync **no detecta borrados de órdenes** (sí de líneas), así
+  que una cotización borrada en Odoo va a quedar acá para siempre. Es un
+  problema real pero es su propio análisis, igual que la detección de
+  borrados de albaranes. **Anotalo en el reporte final, no lo resuelvas.**
+- No toques `deliverySync.ts`, `productSync.ts` ni nada de traslados.
+- No toques ninguna pantalla de `artifacts/logistics`. Esta tarea no tiene UI.
+- No edites `generated/`.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `pnpm run typecheck` limpio. Migraciones dos veces seguidas sin fallar.
+   Reiniciar el api-server sin SCHEMA MISMATCH.
+2. `pnpm --filter @workspace/e2e run test:api` pasa entero.
+3. **Antes de sincronizar**, contá las filas de `sales` y guardá el número.
+4. Corré el sync. Reportá:
+   - cuántas filas de `sales` hay ahora, agrupadas por `odooEstado`
+   - cuántas cotizaciones nuevas entraron
+   - **el tiempo de la corrida antes y después del cambio** (trampa 6)
+5. **La regresión que más importa:** `GET /sales` sin parámetros tiene que
+   devolver EXACTAMENTE la misma cantidad de filas que en el paso 3. Si
+   devuelve más, el filtro no está puesto y Pre-Despacho ya está mostrando
+   cotizaciones.
+6. `GET /sales` con el parámetro nuevo devuelve más filas, y las de más
+   tienen `odooEstado` en `draft` o `sent`.
+7. Confirmá que no se crearon `sync_alerts` por las cotizaciones nuevas
+   (trampa 8).
+8. Reportá una fila de ejemplo de cotización, completa, para poder revisar el
+   mapeo a ojo.
