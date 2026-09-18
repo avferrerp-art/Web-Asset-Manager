@@ -1,9 +1,10 @@
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   useListSales,
   useListVehicles, getListVehiclesQueryKey,
+  useListProducts, getListProductsQueryKey,
 } from "@workspace/api-client-react";
-import type { Sale } from "@workspace/api-client-react";
+import type { Product, Sale, Vehicle } from "@workspace/api-client-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,9 +13,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { matchesSearch } from "@/lib/search";
 import { classifyFleet } from "@/lib/fleet";
 import { formatCarga, sinDatoCarga } from "@/lib/carga";
+import { roundPartialQuotaSum } from "@/lib/medidas";
+import {
+  densidadImplausible,
+  planFlotaSimultanea,
+  planViajesSucesivos,
+  type PlanDeReparto,
+} from "@/lib/fleet-split";
 import {
   CheckCircle2, ChevronRight, PackageOpen, Truck,
-  ArrowLeft, AlertTriangle, Info, Search,
+  ArrowLeft, AlertTriangle, Info, Search, Loader2, Plus, Trash2,
 } from "lucide-react";
 
 function isQuotation(sale: Sale) {
@@ -44,7 +52,136 @@ function utilizationBg(pct: number) {
   return "bg-green-500";
 }
 
+function FleetCompatibility({
+  vehicles,
+  peso,
+  volumen,
+  noFitExtra,
+}: {
+  vehicles: Vehicle[];
+  peso: number;
+  volumen: number | null;
+  noFitExtra?: React.ReactNode;
+}) {
+  const sinPeso = peso == null;
+  const sinVolumen = volumen == null;
+  const { fit: fitVehicles, unfit: unfitVehicles } = classifyFleet(vehicles, peso, volumen ?? 0);
+
+  return (
+    <Card>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base flex items-center gap-2">
+          <Truck className="w-4 h-4 text-primary" /> Compatibilidad de Flota
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-3">
+        {fitVehicles.length === 0 && (
+          <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-ningun-vehiculo">
+            <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+            Ningún vehículo soporta esta carga. Considera dividir el envío.
+          </div>
+        )}
+        {fitVehicles.map(({ vehicle, weightPct, volPct }, idx) => (
+          <div
+            key={vehicle.id}
+            className={`rounded-lg border p-4 space-y-2 ${idx === 0 ? "border-primary bg-primary/5" : "border-border"}`}
+            data-testid={`card-vehicle-fit-${vehicle.id}`}
+          >
+            <div className="flex items-center justify-between">
+              <div className="font-semibold flex items-center gap-2">
+                {vehicle.modelo}
+                {idx === 0 && (
+                  <Badge className="gap-1" data-testid="badge-sugerido">
+                    <CheckCircle2 className="w-3 h-3" /> SUGERIDO
+                  </Badge>
+                )}
+              </div>
+              <span className="text-xs text-muted-foreground">{vehicle.placa}</span>
+            </div>
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">
+                  Peso: {sinPeso ? "sin dato" : `${peso.toFixed(1)} / ${vehicle.capacidadPeso} kg`}
+                </span>
+                {!sinPeso && <span className={`font-semibold ${utilizationColor(weightPct)}`}>{weightPct.toFixed(0)}%</span>}
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${utilizationBg(weightPct)}`} style={{ width: `${Math.min(weightPct, 100)}%` }} />
+              </div>
+            </div>
+            <div className="space-y-1">
+              <div className="flex justify-between text-xs">
+                <span className="text-muted-foreground">
+                  Volumen: {sinVolumen ? "sin dato en Odoo — no considerado" : `${volumen.toFixed(3)} / ${vehicle.capacidadVolumen} m³`}
+                </span>
+                {!sinVolumen && <span className={`font-semibold ${utilizationColor(volPct)}`}>{volPct.toFixed(0)}%</span>}
+              </div>
+              <div className="h-2 bg-muted rounded-full overflow-hidden">
+                <div className={`h-full rounded-full ${sinVolumen ? "bg-muted-foreground/30" : utilizationBg(volPct)}`} style={{ width: `${sinVolumen ? 0 : Math.min(volPct, 100)}%` }} />
+              </div>
+            </div>
+          </div>
+        ))}
+        {unfitVehicles.length > 0 && (
+          <p className="text-xs text-muted-foreground">
+            {unfitVehicles.length} vehículo{unfitVehicles.length === 1 ? "" : "s"} sin capacidad suficiente (o sin capacidades registradas).
+          </p>
+        )}
+        {fitVehicles.length === 0 && noFitExtra}
+      </CardContent>
+    </Card>
+  );
+}
+
+type ArticleRow = {
+  rowId: number;
+  product: Product;
+  quantity: string;
+};
+
+function parseQuantity(value: string): number | null {
+  if (!/^[1-9]\d*$/.test(value)) return null;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function SplitPlan({ plan }: { plan: PlanDeReparto<Vehicle> }) {
+  const simultaneous = plan.estrategia === "flota-simultanea";
+  return (
+    <div className="rounded-lg border border-border p-3 space-y-2">
+      <div className="font-medium text-sm">
+        {simultaneous ? "Flota simultánea" : "Viajes sucesivos"}
+      </div>
+      {!plan.viable ? (
+        <p className="text-xs text-muted-foreground">{plan.motivoNoViable}</p>
+      ) : (
+        <>
+          <p className="text-xs text-muted-foreground">
+            {simultaneous
+              ? `${plan.tramos.length} camión${plan.tramos.length === 1 ? "" : "es"} distinto${plan.tramos.length === 1 ? "" : "s"}, una salida por vehículo.`
+              : `${plan.tramos.length} viaje${plan.tramos.length === 1 ? "" : "s"} sucesivo${plan.tramos.length === 1 ? "" : "s"} con el mismo camión.`}
+          </p>
+          <div className="space-y-1">
+            {plan.tramos.map((tramo) => (
+              <div key={tramo.orden} className="text-xs flex flex-wrap justify-between gap-2 rounded bg-muted/40 px-2 py-1.5">
+                <span>
+                  {simultaneous ? `Camión ${tramo.orden}` : `Viaje ${tramo.orden}`}:{" "}
+                  <strong>{tramo.vehiculo.modelo}</strong> ({tramo.vehiculo.placa})
+                </span>
+                <span className="text-muted-foreground">
+                  Peso: {tramo.pesoKg == null ? "sin dato" : formatCarga(tramo.pesoKg, "kg")} · Volumen: {tramo.volumenM3 == null ? "sin dato" : formatCarga(tramo.volumenM3, "m³")}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function Carga() {
+  const [mode, setMode] = useState<"order" | "articles">("order");
   const [selectedSaleId, setSelectedSaleId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("todos");
@@ -53,10 +190,28 @@ export default function Carga() {
   // de la venta y el operador puede sobrescribirlos para simular.
   const [pesoManual, setPesoManual] = useState<string>("");
   const [volumenManual, setVolumenManual] = useState<string>("");
+  const [productSearch, setProductSearch] = useState("");
+  const [debouncedProductSearch, setDebouncedProductSearch] = useState("");
+  const [articleRows, setArticleRows] = useState<ArticleRow[]>([]);
+  const nextRowId = useRef(1);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedProductSearch(productSearch.trim());
+    }, 350);
+    return () => window.clearTimeout(timeout);
+  }, [productSearch]);
 
   const { data: sales, isLoading: isLoadingSales } = useListSales({ includeQuotations: true });
   const { data: vehicles } = useListVehicles({
     query: { queryKey: getListVehiclesQueryKey() }
+  });
+  const productParams = { search: debouncedProductSearch };
+  const productQuery = useListProducts(productParams, {
+    query: {
+      queryKey: getListProductsQueryKey(productParams),
+      enabled: mode === "articles" && debouncedProductSearch.length > 0,
+    },
   });
 
   const selectedSale = sales?.find(s => s.id === selectedSaleId) ?? null;
@@ -93,9 +248,67 @@ export default function Carga() {
   // por peso (volumen 0 no restringe) con el aviso de recomendación incompleta.
   const puedeCalcular = !sinPeso;
 
-  const { fit: fitVehicles, unfit: unfitVehicles } = puedeCalcular
-    ? classifyFleet(vehicles ?? [], peso ?? 0, volumen ?? 0)
+  const computedRows = articleRows.map((row) => {
+    const quantity = parseQuantity(row.quantity);
+    const pesoSubtotal = quantity != null && row.product.pesoOdoo != null
+      ? row.product.pesoOdoo * quantity
+      : null;
+    const volumenSubtotal = quantity != null && row.product.volumenOdoo != null
+      ? row.product.volumenOdoo * quantity
+      : null;
+    const overflow = (pesoSubtotal != null && (
+      !Number.isFinite(pesoSubtotal) || !Number.isFinite(roundPartialQuotaSum(pesoSubtotal))
+    )) || (volumenSubtotal != null && (
+      !Number.isFinite(volumenSubtotal) || !Number.isFinite(roundPartialQuotaSum(volumenSubtotal))
+    ));
+    return { ...row, quantityValue: quantity, pesoSubtotal, volumenSubtotal, overflow };
+  });
+  const hasInvalidQuantity = computedRows.some(row => row.quantityValue == null);
+  const missingWeightRows = articleRows.filter(row => row.product.pesoOdoo == null).length;
+  const missingVolumeRows = articleRows.filter(row => row.product.volumenOdoo == null).length;
+  const knownWeightRows = computedRows.filter(row => row.quantityValue != null && row.product.pesoOdoo != null);
+  const knownVolumeRows = computedRows.filter(row => row.quantityValue != null && row.product.volumenOdoo != null);
+  const rawWeightSum = knownWeightRows.reduce((sum, row) => sum + (row.pesoSubtotal ?? 0), 0);
+  const rawVolumeSum = knownVolumeRows.reduce((sum, row) => sum + (row.volumenSubtotal ?? 0), 0);
+  const summedWeight = roundPartialQuotaSum(rawWeightSum);
+  const summedVolume = roundPartialQuotaSum(rawVolumeSum);
+  const hasArithmeticOverflow = computedRows.some(row => row.overflow)
+    || !Number.isFinite(rawWeightSum)
+    || !Number.isFinite(rawVolumeSum)
+    || !Number.isFinite(summedWeight)
+    || !Number.isFinite(summedVolume);
+  const hasPrecisionLoss = (knownWeightRows.length > 0 && rawWeightSum > 0 && summedWeight === 0)
+    || (knownVolumeRows.length > 0 && rawVolumeSum > 0 && summedVolume === 0);
+  const articlesPeso = knownWeightRows.length === 0 || hasArithmeticOverflow ? null : summedWeight;
+  const articlesVolumen = knownVolumeRows.length === 0 || hasArithmeticOverflow ? null : summedVolume;
+  const articlesCalculationValid = articleRows.length > 0
+    && !hasInvalidQuantity
+    && !hasArithmeticOverflow
+    && !hasPrecisionLoss;
+  const articlesCanRecommend = articlesCalculationValid && articlesPeso != null;
+  const articleFleet = articlesCanRecommend
+    ? classifyFleet(vehicles ?? [], articlesPeso, articlesVolumen ?? 0)
     : { fit: [], unfit: [] };
+  const simultaneousPlan = articlesCanRecommend && articleFleet.fit.length === 0
+    ? planFlotaSimultanea(vehicles ?? [], articlesPeso, articlesVolumen)
+    : null;
+  const successivePlan = articlesCanRecommend && articleFleet.fit.length === 0
+    ? planViajesSucesivos(vehicles ?? [], articlesPeso, articlesVolumen)
+    : null;
+  const densityWarning = articlesCalculationValid
+    ? densidadImplausible(articlesPeso, articlesVolumen)
+    : null;
+  const showingCurrentSearch = productSearch.trim() === debouncedProductSearch;
+
+  function addProduct(product: Product) {
+    const rowId = nextRowId.current;
+    nextRowId.current += 1;
+    setArticleRows(rows => [...rows, {
+      rowId,
+      product,
+      quantity: "1",
+    }]);
+  }
 
   return (
     <div className="space-y-6 max-w-4xl">
@@ -104,18 +317,39 @@ export default function Carga() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-foreground">Calculador de Carga</h1>
           <p className="text-muted-foreground">
-            Recomienda el vehículo según el peso y volumen de Odoo de la venta (o valores manuales para simular).
+            {mode === "order"
+              ? "Recomienda el vehículo según el peso y volumen de Odoo de la venta (o valores manuales para simular)."
+              : "Estima vehículos para una lista de artículos, sin crear órdenes ni despachos."}
           </p>
         </div>
-        {selectedSale && (
+        {mode === "order" && selectedSale && (
           <Button variant="ghost" onClick={handleReset} className="gap-2" data-testid="button-nueva-consulta">
             <ArrowLeft className="w-4 h-4" /> Nueva consulta
           </Button>
         )}
       </div>
 
+      <div className="inline-flex rounded-md border border-border p-1 bg-muted/30" data-testid="mode-selector-carga">
+        <Button
+          size="sm"
+          variant={mode === "order" ? "default" : "ghost"}
+          onClick={() => setMode("order")}
+          data-testid="button-mode-order"
+        >
+          Desde una orden
+        </Button>
+        <Button
+          size="sm"
+          variant={mode === "articles" ? "default" : "ghost"}
+          onClick={() => setMode("articles")}
+          data-testid="button-mode-articles"
+        >
+          Armar de cero
+        </Button>
+      </div>
+
       {/* ── Select sale ── */}
-      {!selectedSale && (
+      {mode === "order" && !selectedSale && (
         <Card>
           <CardHeader>
             <CardTitle className="text-base flex items-center gap-2">
@@ -222,7 +456,7 @@ export default function Carga() {
       )}
 
       {/* ── Calculation ── */}
-      {selectedSale && (
+      {mode === "order" && selectedSale && (
         <div className="space-y-4">
           {/* Order summary */}
           <div className="bg-muted/50 rounded-lg px-4 py-3 flex flex-wrap gap-4 text-sm">
@@ -307,67 +541,236 @@ export default function Carga() {
 
           {/* Fleet */}
           {puedeCalcular && (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <Truck className="w-4 h-4 text-primary" /> Compatibilidad de Flota
-                </CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                {fitVehicles.length === 0 && (
-                  <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-ningun-vehiculo">
-                    <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
-                    Ningún vehículo soporta esta carga. Considera dividir el envío.
-                  </div>
+            <FleetCompatibility vehicles={vehicles ?? []} peso={peso!} volumen={volumen} />
+          )}
+        </div>
+      )}
+
+      {mode === "articles" && (
+        <div className="space-y-4" data-testid="articles-load-builder">
+          <Card>
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <PackageOpen className="w-4 h-4 text-primary" />
+                Buscar artículos
+              </CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Busca por nombre o referencia. Los resultados se consultan en Odoo a través del servidor.
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <div className="relative">
+                <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                <Input
+                  value={productSearch}
+                  onChange={event => setProductSearch(event.target.value)}
+                  placeholder="Buscar por nombre o referencia..."
+                  className="pl-8"
+                  data-testid="input-search-products-carga"
+                />
+              </div>
+              {productSearch.trim() === "" ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  Escribe una búsqueda para consultar artículos.
+                </p>
+              ) : !showingCurrentSearch || productQuery.isLoading || productQuery.isFetching ? (
+                <p className="text-sm text-muted-foreground flex items-center justify-center gap-2 py-4">
+                  <Loader2 className="w-4 h-4 animate-spin" /> Buscando artículos...
+                </p>
+              ) : productQuery.isError ? (
+                <div className="text-sm text-red-500 border border-red-500/40 bg-red-500/10 rounded-md px-3 py-2">
+                  No se pudieron buscar los artículos: {String(productQuery.error)}
+                </div>
+              ) : (productQuery.data?.length ?? 0) === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-4">
+                  No hay artículos que coincidan con la búsqueda.
+                </p>
+              ) : (
+                <div className="max-h-64 overflow-y-auto rounded-md border">
+                  {productQuery.data?.map(product => (
+                    <div key={product.id} className="flex items-center justify-between gap-3 border-b last:border-b-0 px-3 py-2">
+                      <div className="min-w-0">
+                        <div className="font-medium text-sm truncate">{product.nombre}</div>
+                        <div className="text-xs text-muted-foreground">
+                          {product.odooRef ?? "sin referencia"} · Peso: {product.pesoOdoo == null ? "sin dato" : formatCarga(product.pesoOdoo, "kg")} · Volumen: {product.volumenOdoo == null ? "sin dato" : formatCarga(product.volumenOdoo, "m³")}
+                        </div>
+                      </div>
+                      <Button size="sm" variant="outline" className="gap-1 shrink-0" onClick={() => addProduct(product)} data-testid={`button-add-product-${product.id}`}>
+                        <Plus className="w-3.5 h-3.5" /> Agregar
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader className="pb-3">
+              <div className="flex items-center justify-between gap-3">
+                <CardTitle className="text-base">Artículos de la carga</CardTitle>
+                {articleRows.length > 0 && (
+                  <Button variant="ghost" size="sm" onClick={() => setArticleRows([])} data-testid="button-clear-articles">
+                    Vaciar lista
+                  </Button>
                 )}
-                {fitVehicles.map(({ vehicle, weightPct, volPct }, idx) => (
-                  <div
-                    key={vehicle.id}
-                    className={`rounded-lg border p-4 space-y-2 ${idx === 0 ? "border-primary bg-primary/5" : "border-border"}`}
-                    data-testid={`card-vehicle-fit-${vehicle.id}`}
-                  >
-                    <div className="flex items-center justify-between">
-                      <div className="font-semibold flex items-center gap-2">
-                        {vehicle.modelo}
-                        {idx === 0 && (
-                          <Badge className="gap-1" data-testid="badge-sugerido">
-                            <CheckCircle2 className="w-3 h-3" /> SUGERIDO
-                          </Badge>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              {computedRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground text-center py-6">
+                  Agrega artículos para calcular la carga.
+                </p>
+              ) : (
+                <div className="space-y-2">
+                  {computedRows.map(row => {
+                    const quantityInvalid = row.quantityValue == null;
+                    return (
+                      <div key={row.rowId} className={`rounded-md border p-3 ${quantityInvalid || row.overflow ? "border-red-500/50 bg-red-500/5" : "border-border"}`} data-testid={`article-row-${row.rowId}`}>
+                        <div className="flex items-start gap-3">
+                          <div className="flex-1 min-w-0">
+                            <div className="font-medium text-sm">{row.product.nombre}</div>
+                            <div className="text-xs text-muted-foreground">{row.product.odooRef ?? "sin referencia"}</div>
+                          </div>
+                          <div className="w-28">
+                            <label className="text-xs text-muted-foreground">Cantidad</label>
+                            <Input
+                              inputMode="numeric"
+                              value={row.quantity}
+                              onChange={event => setArticleRows(rows => rows.map(item => (
+                                item.rowId === row.rowId ? { ...item, quantity: event.target.value } : item
+                              )))}
+                              aria-invalid={quantityInvalid}
+                              className="h-8"
+                              data-testid={`input-quantity-${row.rowId}`}
+                            />
+                          </div>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 mt-4 shrink-0"
+                            onClick={() => setArticleRows(rows => rows.filter(item => item.rowId !== row.rowId))}
+                            aria-label={`Eliminar ${row.product.nombre}`}
+                            data-testid={`button-remove-article-${row.rowId}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </Button>
+                        </div>
+                        <div className="mt-2 text-xs text-muted-foreground flex flex-wrap gap-x-5 gap-y-1">
+                          <span>
+                            Peso subtotal: {row.pesoSubtotal == null || row.overflow ? "sin dato" : formatCarga(roundPartialQuotaSum(row.pesoSubtotal), "kg")}
+                          </span>
+                          <span>
+                            Volumen subtotal: {row.volumenSubtotal == null || row.overflow ? "sin dato" : formatCarga(roundPartialQuotaSum(row.volumenSubtotal), "m³")}
+                          </span>
+                        </div>
+                        {quantityInvalid && (
+                          <p className="text-xs text-red-500 mt-1">La cantidad debe ser un entero positivo seguro.</p>
+                        )}
+                        {row.overflow && (
+                          <p className="text-xs text-red-500 mt-1">La cantidad produce un total demasiado grande para calcularlo con seguridad.</p>
                         )}
                       </div>
-                      <span className="text-xs text-muted-foreground">{vehicle.placa}</span>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">
-                          Peso: {sinPeso ? "sin dato" : `${(peso ?? 0).toFixed(1)} / ${vehicle.capacidadPeso} kg`}
-                        </span>
-                        {!sinPeso && <span className={`font-semibold ${utilizationColor(weightPct)}`}>{weightPct.toFixed(0)}%</span>}
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${utilizationBg(weightPct)}`} style={{ width: `${Math.min(weightPct, 100)}%` }} />
-                      </div>
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex justify-between text-xs">
-                        <span className="text-muted-foreground">
-                          Volumen: {sinVolumen ? "sin dato en Odoo — no considerado" : `${(volumen ?? 0).toFixed(3)} / ${vehicle.capacidadVolumen} m³`}
-                        </span>
-                        {!sinVolumen && <span className={`font-semibold ${utilizationColor(volPct)}`}>{volPct.toFixed(0)}%</span>}
-                      </div>
-                      <div className="h-2 bg-muted rounded-full overflow-hidden">
-                        <div className={`h-full rounded-full ${sinVolumen ? "bg-muted-foreground/30" : utilizationBg(volPct)}`} style={{ width: `${sinVolumen ? 0 : Math.min(volPct, 100)}%` }} />
-                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
+          {articleRows.length > 0 && (
+            <>
+              <Card>
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base">Totales desde Odoo</CardTitle>
+                </CardHeader>
+                <CardContent className="grid sm:grid-cols-2 gap-3">
+                  <div className="rounded-md bg-muted/50 p-3">
+                    <div className="text-xs text-muted-foreground">Peso total</div>
+                    <div className="text-xl font-semibold">{articlesPeso == null ? "sin dato" : formatCarga(articlesPeso, "kg")}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {missingWeightRows} de {articleRows.length} fila{articleRows.length === 1 ? "" : "s"} sin peso en Odoo.
                     </div>
                   </div>
-                ))}
-                {unfitVehicles.length > 0 && (
-                  <p className="text-xs text-muted-foreground">
-                    {unfitVehicles.length} vehículo{unfitVehicles.length === 1 ? "" : "s"} sin capacidad suficiente (o sin capacidades registradas).
-                  </p>
-                )}
-              </CardContent>
-            </Card>
+                  <div className="rounded-md bg-muted/50 p-3">
+                    <div className="text-xs text-muted-foreground">Volumen total</div>
+                    <div className="text-xl font-semibold">{articlesVolumen == null ? "sin dato" : formatCarga(articlesVolumen, "m³")}</div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {missingVolumeRows} de {articleRows.length} fila{articleRows.length === 1 ? "" : "s"} sin volumen en Odoo.
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+
+              {hasInvalidQuantity && (
+                <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-invalid-quantity">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  Corrige todas las cantidades. No se mostrarán recomendaciones ni repartos mientras haya cantidades vacías o inválidas.
+                </div>
+              )}
+              {hasArithmeticOverflow && (
+                <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-arithmetic-overflow">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  El cálculo excede el rango numérico seguro. Reduce las cantidades antes de solicitar una recomendación.
+                </div>
+              )}
+              {hasPrecisionLoss && !hasArithmeticOverflow && (
+                <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-measurement-precision">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  Una medida positiva es menor que la precisión mínima de 0,001. No se puede recomendar un vehículo sin redondear esa carga a cero.
+                </div>
+              )}
+              {articlesCalculationValid && missingWeightRows === articleRows.length && (
+                <div className="flex items-start gap-2 text-sm bg-red-500/10 border border-red-500/40 rounded-md px-4 py-3" data-testid="warning-no-article-weight">
+                  <AlertTriangle className="w-4 h-4 text-red-500 shrink-0 mt-0.5" />
+                  Ningún artículo tiene peso en Odoo. Sin peso total no se puede recomendar un vehículo.
+                </div>
+              )}
+              {articlesCalculationValid && missingWeightRows > 0 && missingWeightRows < articleRows.length && (
+                <div className="flex items-start gap-2 text-sm bg-yellow-500/10 border border-yellow-500/40 rounded-md px-4 py-3">
+                  <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                  <span><strong>Peso incompleto:</strong> el total es parcial porque faltan datos en {missingWeightRows} de {articleRows.length} filas.</span>
+                </div>
+              )}
+              {articlesCalculationValid && missingVolumeRows === articleRows.length && (
+                <div className="flex items-start gap-2 text-sm bg-yellow-500/10 border border-yellow-500/40 rounded-md px-4 py-3">
+                  <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                  Ningún artículo tiene volumen en Odoo. La estimación considera solo el peso; verifica que la carga quepa físicamente.
+                </div>
+              )}
+              {articlesCalculationValid && missingVolumeRows > 0 && missingVolumeRows < articleRows.length && (
+                <div className="flex items-start gap-2 text-sm bg-yellow-500/10 border border-yellow-500/40 rounded-md px-4 py-3">
+                  <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                  <span><strong>Volumen incompleto:</strong> el total es parcial porque faltan datos en {missingVolumeRows} de {articleRows.length} filas.</span>
+                </div>
+              )}
+              {densityWarning && (
+                <div className="flex items-start gap-2 text-sm bg-yellow-500/10 border border-yellow-500/40 rounded-md px-4 py-3" data-testid="warning-density">
+                  <AlertTriangle className="w-4 h-4 text-yellow-500 shrink-0 mt-0.5" />
+                  {densityWarning}
+                </div>
+              )}
+
+              {articlesCanRecommend && (
+                <FleetCompatibility
+                  vehicles={vehicles ?? []}
+                  peso={articlesPeso!}
+                  volumen={articlesVolumen}
+                  noFitExtra={simultaneousPlan && successivePlan ? (
+                    <div className="space-y-3 pt-1" data-testid="informational-split-plans">
+                      <div>
+                        <div className="font-medium text-sm">Opciones informativas de reparto</div>
+                        <p className="text-xs text-muted-foreground">
+                          Estas estrategias son estimaciones; no crean órdenes, despachos ni viajes.
+                        </p>
+                      </div>
+                      <SplitPlan plan={simultaneousPlan} />
+                      <SplitPlan plan={successivePlan} />
+                    </div>
+                  ) : null}
+                />
+              )}
+            </>
           )}
         </div>
       )}

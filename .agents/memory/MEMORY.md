@@ -11,7 +11,7 @@
 - [Odoo partner reads](odoo-partner-reads.md) — this Odoo instance lacks `mobile` on res.partner; use fields_get-driven reads and never drop address fields on retry.
 - [Odoo stock.picking reads](odoo-stock-picking.md) — Odoo 19: delivered qty is `quantity` (no quantity_done); lines are `move_ids`; link albarán→venta via `sale_id`.
 - [Drizzle ANY(ARRAY) pitfall](drizzle-any-array-params.md) — raw `= ANY(ARRAY[$..])` params infer as text and break integer filters; always use `inArray`.
-- [Visual verify behind auth](visual-verify-behind-auth.md) — screenshots hit the Clerk login; use a mockup-sandbox component for captures + standalone router/SQL for real numbers.
+- [Visual verify behind auth](visual-verify-behind-auth.md) — standalone screenshots hit login; prefer authenticated browser evidence and narrow catalog searches.
 - [Odoo deliveries incremental sync](odoo-deliveries-incremental.md) — reads must be incremental too: write_date>=watermark domain + id-only search for deletions; test rewinds must cap the global watermark.
 - [Totales de venta null = sin dato](sales-totales-null.md) — pesoTotal/volumenTotal espejan Odoo; null = sin dato (nunca 0); columnas de dimensiones manuales dormidas, no reusar.
 - [Medidas por dominio](measurement-domain-semantics.md) — ventas tratan cero como ausencia por capacidad; traslados reservan null; no compartir el predicado.

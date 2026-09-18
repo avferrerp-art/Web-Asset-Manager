@@ -4,4 +4,10 @@ description: How to produce UI screenshots for verification when the web app req
 ---
 The screenshot tool cannot sign in, so any authenticated page renders the Clerk login screen.
 
-**How to apply:** build a small self-contained mockup in `artifacts/mockup-sandbox/src/components/mockups/<name>.tsx` (plain relative imports of `../ui/*`, mock data mirroring real DB rows) and screenshot `/preview/<name>` on the mockup-sandbox artifact. Verify the real data/behavior separately: run the actual Express router standalone (see run-server-code-standalone) plus SQL checks, and pair those numbers with the mockup capture.
+**Why:** the standalone screenshot tool has no authenticated session, but the browser tester can use a supported Clerk test session. A mockup alone cannot verify the real page.
+
+**How to apply:** prefer the authenticated browser tester for required real-page evidence; use browser-only response fixtures for unavailable edge cases and label them explicitly. A mockup is only a clearly labelled visual fallback, never evidence of the real flow.
+
+For catalog evidence, prefer an exact reference over a one-letter search.
+
+**Why:** broad searches twice timed out the browser worker during capture; a narrow real reference allowed the same verification to finish. The root cause was not established, so do not assume this proves an API defect.

@@ -61,3 +61,17 @@ mtime_ms = 1789758892074
 storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/d4337dd0-81c6-43c1-ad85-6620446a46c2/0d9323c5-7f19-47e7-839b-2aac3e76d1e3"
 storage_version_token = "1789758943553096"
 content_type = "image/png"
+
+[[outputs]]
+id = "CJHxG1VfvGu372ft70ixG"
+uri = "file://artifacts/logistics/screenshots/carga-articulos-recomendacion.png"
+type = "image"
+title = "Armar de cero: artículo real y vehículo sugerido"
+description = "Captura del Calculador con un artículo real de Odoo, volumen ausente y recomendación por peso."
+logical_id = "2146d9ec-f7b4-49d7-b49e-1a169b3bd99a"
+content_hash = "sha256:e7c945a4b8616e304378ee81b6f3817f546e6cea3db1e7c108e2b70727642ed5"
+size = 162191
+mtime_ms = 1789762593362
+storage_uri = "gcs://replit-rams-assets-kirk/rams/assets/repl:abf2fa3c-c219-451b-8db5-88824bc41bb6/2146d9ec-f7b4-49d7-b49e-1a169b3bd99a/23a4209f-acdd-4566-9a51-fd004305815a"
+storage_version_token = "1789762777070778"
+content_type = "image/png"
