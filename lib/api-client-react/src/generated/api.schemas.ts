@@ -557,6 +557,8 @@ export interface ProductSyncResult {
 }
 
 export interface Sale {
+  /** Commercial sale.order.state mirrored by Odoo sync; independent of internal estado and delivery estadoEntrega. */
+  odooEstado?: string | null;
   id: number;
   cliente: string;
   /** @nullable */
@@ -1308,6 +1310,10 @@ export interface ActiveDispatch {
 }
 
 export type ListSalesParams = {
+/**
+ * Include draft and sent Odoo quotations; by default only sale, done and legacy NULL commercial states are returned.
+ */
+includeQuotations?: boolean;
 status?: string;
 };
 

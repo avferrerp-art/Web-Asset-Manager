@@ -7,6 +7,8 @@
  */
 
 export interface Sale {
+  /** Commercial sale.order.state mirrored by Odoo sync; independent of internal estado and delivery estadoEntrega. */
+  odooEstado?: string | null;
   id: number;
   cliente: string;
   /** @nullable */

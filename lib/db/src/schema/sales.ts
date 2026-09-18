@@ -19,6 +19,9 @@ export const salesTable = pgTable("sales", {
   dimensionesIncompletas: boolean("dimensiones_incompletas").notNull().default(false),
   destino: text("destino").notNull(),
   estado: text("estado").notNull().default("pendiente"),
+  // Commercial sale.order.state, written exclusively by odooSync.
+  // Independent of estado (dispatches) and estadoEntrega (deliveries).
+  odooEstado: text("odoo_estado"),
   // Estado de entrega derivado de los albaranes de Odoo (deliveries).
   // SEPARADO de `estado` (interno, derivado de despachos por saleEstadoSync).
   // sin_albaran | pendiente | parcial | entregado | cancelado

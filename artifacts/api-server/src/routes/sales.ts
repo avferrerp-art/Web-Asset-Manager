@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { and, desc, eq, isNotNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, isNotNull, or, sql } from "drizzle-orm";
 import { db, salesTable, deliveriesTable } from "@workspace/db";
 import {
   ListSalesQueryParams,
@@ -35,11 +35,28 @@ export async function getSaleDeliveryNames(): Promise<Map<number, string[]>> {
 }
 
 router.get("/sales", async (req, res): Promise<void> => {
-  const query = ListSalesQueryParams.safeParse(req.query);
-  let results = await db.select().from(salesTable).orderBy(desc(salesTable.createdAt));
-  if (query.success && query.data.status) {
-    results = results.filter((s) => s.estado === query.data.status);
+  // Orval uses Boolean coercion: Boolean("false") is true. Normalize the
+  // wire representation explicitly before using the generated contract.
+  const includeQuotations = req.query.includeQuotations;
+  if (includeQuotations !== undefined && includeQuotations !== "true" && includeQuotations !== "false") {
+    res.status(400).json({ error: "includeQuotations must be true or false" });
+    return;
   }
+  const query = ListSalesQueryParams.safeParse({
+    ...req.query,
+    includeQuotations: includeQuotations === "true",
+  });
+  if (!query.success) {
+    res.status(400).json({ error: query.error.message });
+    return;
+  }
+  const commercialStates = query.data.includeQuotations
+    ? ["draft", "sent", "sale", "done"]
+    : ["sale", "done"];
+  const results = await db.select().from(salesTable).where(and(
+    or(inArray(salesTable.odooEstado, commercialStates), isNull(salesTable.odooEstado)),
+    query.data.status ? eq(salesTable.estado, query.data.status) : undefined,
+  )).orderBy(desc(salesTable.createdAt));
   // Albarán names per sale, so the list search can match e.g. "CCS/OUT/00278"
   const nombresByVenta = await getSaleDeliveryNames();
   res.json(results.map((s) => ({ ...s, albaranNombres: nombresByVenta.get(s.id) ?? [] })));

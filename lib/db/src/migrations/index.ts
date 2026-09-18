@@ -27,6 +27,7 @@ import * as personnelTarifaPorKm from "./0015_personnel_tarifa_por_km";
 import * as dispatchCargoEstimates from "./0016_dispatch_cargo_estimates";
 import * as backfillDispatchCargoEstimates from "./0017_backfill_dispatch_cargo_estimates";
 import * as dispatchPartialCargo from "./0018_dispatch_partial_cargo";
+import * as salesOdooEstado from "./0019_sales_odoo_estado";
 
 export interface Migration {
   name: string;
@@ -53,4 +54,5 @@ export const migrations: Migration[] = [
   dispatchCargoEstimates,
   backfillDispatchCargoEstimates,
   dispatchPartialCargo,
+  salesOdooEstado,
 ];

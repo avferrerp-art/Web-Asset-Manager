@@ -7,5 +7,9 @@
  */
 
 export type ListSalesParams = {
+/**
+ * Include draft and sent Odoo quotations; by default only sale, done and legacy NULL commercial states are returned.
+ */
+includeQuotations?: boolean;
 status?: string;
 };

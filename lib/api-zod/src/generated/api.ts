@@ -374,11 +374,15 @@ export const ReplacePersonnelAlmacenesResponse = zod.object({
 /**
  * @summary List all sales
  */
+export const listSalesQueryIncludeQuotationsDefault = false;
+
 export const ListSalesQueryParams = zod.object({
+  "includeQuotations": zod.coerce.boolean().default(listSalesQueryIncludeQuotationsDefault).describe('Include draft and sent Odoo quotations; by default only sale, done and legacy NULL commercial states are returned.'),
   "status": zod.coerce.string().optional()
 })
 
 export const ListSalesResponseItem = zod.object({
+  "odooEstado": zod.string().nullish().describe('Commercial sale.order.state mirrored by Odoo sync; independent of internal estado and delivery estadoEntrega.'),
   "id": zod.number(),
   "cliente": zod.string(),
   "vendedor": zod.string().nullish(),
@@ -420,6 +424,7 @@ export const CreateSaleBody = zod.object({
 })
 
 export const CreateSaleResponse = zod.object({
+  "odooEstado": zod.string().nullish().describe('Commercial sale.order.state mirrored by Odoo sync; independent of internal estado and delivery estadoEntrega.'),
   "id": zod.number(),
   "cliente": zod.string(),
   "vendedor": zod.string().nullish(),
@@ -451,6 +456,7 @@ export const GetSaleParams = zod.object({
 })
 
 export const GetSaleResponse = zod.object({
+  "odooEstado": zod.string().nullish().describe('Commercial sale.order.state mirrored by Odoo sync; independent of internal estado and delivery estadoEntrega.'),
   "id": zod.number(),
   "cliente": zod.string(),
   "vendedor": zod.string().nullish(),
@@ -495,6 +501,7 @@ export const UpdateSaleBody = zod.object({
 })
 
 export const UpdateSaleResponse = zod.object({
+  "odooEstado": zod.string().nullish().describe('Commercial sale.order.state mirrored by Odoo sync; independent of internal estado and delivery estadoEntrega.'),
   "id": zod.number(),
   "cliente": zod.string(),
   "vendedor": zod.string().nullish(),

@@ -336,6 +336,13 @@ paths:
       tags: [sales]
       summary: List all sales
       parameters:
+        - name: includeQuotations
+          in: query
+          required: false
+          description: Include draft and sent Odoo quotations; by default only sale, done and legacy NULL commercial states are returned.
+          schema:
+            type: boolean
+            default: false
         - name: status
           in: query
           required: false
@@ -2711,6 +2718,10 @@ components:
       type: object
       required: [id, cliente, destino, estado, estadoEntrega, createdAt]
       properties:
+        odooEstado:
+          type: string
+          nullable: true
+          description: "Commercial sale.order.state mirrored by Odoo sync; independent of internal estado and delivery estadoEntrega."
         id:
           type: integer
         cliente:

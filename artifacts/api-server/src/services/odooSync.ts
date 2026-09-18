@@ -35,6 +35,7 @@ export interface SyncResult {
 
 interface OdooSaleOrder {
   id: number;
+  state: string;
   name: string;
   partner_id: [number, string] | false;
   partner_shipping_id: [number, string] | false;
@@ -210,7 +211,7 @@ export async function testOdooConnection(): Promise<{ uid: number; url: string }
 
 const FETCH_BATCH_SIZE = 200;
 
-async function fetchConfirmedOrders(
+async function fetchSalesAndQuotations(
   config: OdooConfig,
   uid: number,
 ): Promise<OdooSaleOrder[]> {
@@ -222,9 +223,10 @@ async function fetchConfirmedOrders(
       uid,
       "sale.order",
       "search_read",
-      [[["state", "in", ["sale", "done"]], ["id", ">", lastId]]],
+      [[["state", "in", ["draft", "sent", "sale", "done"]], ["id", ">", lastId]]],
       {
         fields: [
+          "state",
           "name",
           "partner_id",
           "partner_shipping_id",
@@ -309,7 +311,9 @@ function computeDesiredSale(
     const odooProductId = line.product_id[0];
     const catalog = catalogByOdooId.get(odooProductId);
     const qty = Math.max(1, Math.round(line.product_uom_qty ?? 1));
-    const key = itemKey(odooProductId, catalog?.nombre ?? line.product_id[1]);
+    // Without a catalog link, persisted items can only be matched by description.
+    // Use the same key on both sides so confirmation preserves their identity.
+    const key = itemKey(catalog ? odooProductId : null, catalog?.nombre ?? line.product_id[1]);
     const existing = byKey.get(key);
     if (existing) {
       existing.cantidad += qty;
@@ -354,7 +358,7 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
   }
 
   const uid = await authenticate(config);
-  const orders = await fetchConfirmedOrders(config, uid);
+  const orders = await fetchSalesAndQuotations(config, uid);
 
   const emptyResult: SyncResult = {
     imported: 0,
@@ -377,6 +381,7 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
       id: salesTable.id,
       odooId: salesTable.odooId,
       estado: salesTable.estado,
+      odooEstado: salesTable.odooEstado,
       odooWriteDate: salesTable.odooWriteDate,
     })
     .from(salesTable)
@@ -388,6 +393,19 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
     );
   const existingByOdooId = new Map(existing.map((r) => [r.odooId, r]));
   const newOrders = orders.filter((o) => !existingByOdooId.has(o.id));
+
+  // The commercial mirror has a separate owner from operational fields.
+  // Repair it even with identical write_date, before reconciler early exits
+  // and the non-pending guard. Never stamp write_date here: blocked operational
+  // changes must remain eligible for reconciliation on subsequent runs.
+  for (const order of orders) {
+    const row = existingByOdooId.get(order.id);
+    if (row && row.odooEstado !== order.state && !dryRun) {
+      await db.update(salesTable)
+        .set({ odooEstado: order.state })
+        .where(eq(salesTable.id, row.id));
+    }
+  }
 
   // Change detection: existing orders whose Odoo write_date differs from the
   // one recorded at last sync (a never-recorded write_date counts as changed —
@@ -472,6 +490,7 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
         notas: desired.notas,
         odooRef: order.name,
         odooId: order.id,
+        odooEstado: order.state,
         odooWriteDate: order.write_date,
       })
       .onConflictDoNothing({ target: salesTable.odooId })
@@ -623,7 +642,8 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
 
     changes.push({ odooRef: order.name, estado: currentSale.estado, fields: changedFields });
 
-    // Non-pending orders: never touched — persistent alert for a human.
+    // Non-pending orders: operational fields/items stay protected; the separate
+    // commercial mirror above is allowed to change without an operational alert.
     if (currentSale.estado !== "pendiente") {
       if (!dryRun) {
         // Dedupe by (ventaId, odooWriteDate) regardless of resolution state:
