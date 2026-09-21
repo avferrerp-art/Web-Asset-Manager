@@ -1,5 +1,6 @@
 import { and, eq, inArray, isNotNull, sql } from "drizzle-orm";
 import { db, salesTable, deliveriesTable } from "@workspace/db";
+import { coordinateOdooOperation } from "./synchronizationCoordinator";
 import { logger } from "../lib/logger";
 
 /**
@@ -81,7 +82,7 @@ export interface DeliveryStateRecomputeResult {
  * indicadas (o TODAS si saleIds es undefined) a partir de los albaranes ya en
  * DB. Idempotente: solo escribe cuando hay cambios y NUNCA toca sales.estado.
  */
-export async function recomputeDeliveryDerivedState(
+async function recomputeDeliveryDerivedStateUncoordinated(
   saleIds?: number[],
 ): Promise<DeliveryStateRecomputeResult> {
   if (saleIds !== undefined && saleIds.length === 0) {
@@ -145,4 +146,13 @@ export async function recomputeDeliveryDerivedState(
   const result = { examined: sales.length, updated, distribution };
   logger.info({ result, scoped: saleIds !== undefined }, "Derivación de estadoEntrega completada");
   return result;
+}
+
+export async function recomputeDeliveryDerivedState(
+  saleIds?: number[],
+): Promise<DeliveryStateRecomputeResult> {
+  return coordinateOdooOperation(
+    { operation: "backfill-delivery-derived-state", retryTransient: false },
+    () => recomputeDeliveryDerivedStateUncoordinated(saleIds),
+  );
 }

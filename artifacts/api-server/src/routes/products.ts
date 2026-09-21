@@ -7,12 +7,11 @@ import {
   UpdateProductParams,
   UpdateProductBody,
 } from "@workspace/api-zod";
-import { OdooError } from "../lib/odooClient";
 import {
   getProductStats,
-  recordProductSyncError,
   syncOdooProducts,
 } from "../services/productSync";
+import { odooSyncHttpStatus } from "../services/synchronizationCoordinator";
 
 const router: IRouter = Router();
 
@@ -84,8 +83,7 @@ router.post("/odoo/sync-products", async (req, res): Promise<void> => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err }, "Odoo product sync failed");
-    await recordProductSyncError(message).catch(() => {});
-    res.status(err instanceof OdooError ? 400 : 500).json({
+    res.status(odooSyncHttpStatus(err)).json({
       ok: false,
       created: 0,
       updated: 0,

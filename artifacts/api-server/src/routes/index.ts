@@ -19,11 +19,15 @@ import trasladosRouter from "./traslados";
 import actasRouter from "./actas";
 import viajesRouter from "./viajes";
 import { requireAuth } from "../middlewares/requireAuth";
+import { requireAuthorization } from "../middlewares/authorize";
+import { auditCriticalMutations } from "../middlewares/auditCriticalMutations";
 
 const router: IRouter = Router();
 
 router.use(healthRouter);
+router.use(auditCriticalMutations);
 router.use(requireAuth);
+router.use(requireAuthorization);
 router.use(vehiclesRouter);
 router.use(personnelRouter);
 router.use(salesRouter);

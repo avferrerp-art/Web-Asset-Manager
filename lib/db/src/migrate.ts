@@ -29,6 +29,10 @@ export async function runMigrations(): Promise<MigrationRunResult> {
     const done = new Set(rows.map((r) => r.name));
 
     for (const migration of migrations) {
+      if (migration.developmentOnly && process.env.NODE_ENV === "production") {
+        skipped.push(migration.name);
+        continue;
+      }
       if (done.has(migration.name)) {
         skipped.push(migration.name);
         continue;

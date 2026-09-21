@@ -20,7 +20,7 @@ import {
 } from "../services/actasLlegada";
 import { resolveCurrentPerson } from "../services/currentPerson";
 import {
-  canOperateAlmacen,
+  canConfirmDispatchReception,
   resolveAlmacenAccess,
 } from "../services/almacenAccess";
 
@@ -136,15 +136,8 @@ router.patch("/dispatches/:id/acta", async (req, res): Promise<void> => {
     res.status(404).json({ error: "despacho_no_encontrado" });
     return;
   }
-  if (
-    dispatch.tipo === "traslado" &&
-    dispatch.trasladoId !== null &&
-    dispatch.almacenDestinoId !== null &&
-    !canOperateAlmacen(
-      await resolveAlmacenAccess(req),
-      dispatch.almacenDestinoId,
-    )
-  ) {
+  const almacenAccess = await resolveAlmacenAccess(req);
+  if (!canConfirmDispatchReception(almacenAccess, dispatch)) {
     res.status(403).json({ error: "almacen_no_autorizado" });
     return;
   }

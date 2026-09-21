@@ -1,9 +1,9 @@
 ---
-name: DB migrations run at api-server boot
-description: How schema changes must be shipped so they survive task merges
+name: Database schema ownership
+description: Development migrations versus Replit-managed production schema changes
 ---
-The api-server applies embedded SQL migrations at startup (`runMigrations()` from `@workspace/db`; SQL lives in `lib/db/src/migrations/*.ts`, tracked in the `_migrations` table) and then runs `verifySchema()` which logs `SCHEMA MISMATCH` for any missing table/column/single-column UNIQUE.
+For Replit-managed PostgreSQL, production DDL belongs to the Publish schema-diff flow. Do not add startup or build-time production migrations. Embedded migrations may support development only; production startup verifies schema read-only.
 
-**Why:** manual `drizzle-kit push` fixes did not survive merges to main (products UNIQUE constraint was lost twice), causing opaque 500s in the Odoo sync upserts.
+**Why:** previous guidance recommended boot migrations after constraints were lost during merges. That workaround conflicts with the current managed database contract and can mutate production unexpectedly. The schema source of truth must include all required constraints so Publish can carry them forward.
 
-**How to apply:** when changing `lib/db/src/schema/`, also add a numbered idempotent migration file in `lib/db/src/migrations/` and register it in that dir's `index.ts`; restart the api-server workflow to apply. Write DDL idempotently (IF NOT EXISTS, guarded constraints) because task DBs may already have parts of it from push. Don't rely on `drizzle-kit push` alone.
+**How to apply:** read the current database migration-on-publish skill, apply schema changes to development through the supported dev flow, and have the owner review the Publish diff. Never resolve a production schema mismatch by enabling boot DDL. External databases require a separately verified migration process.

@@ -17,10 +17,15 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useToast } from "@/hooks/use-toast";
-import { Loader2, Plug, RefreshCw, CheckCircle2, XCircle, AlertCircle, Truck, History } from "lucide-react";
+import { deriveSyncStatusVisibility } from "./odoo-sync-status";
+import { Loader2, Plug, RefreshCw, CheckCircle2, XCircle, AlertCircle, Truck, History, Package } from "lucide-react";
+
+const ODOO_STATUS_POLL_MS = 60_000;
 
 function fmtDateTime(iso: string) {
-  return new Date(iso).toLocaleString("es-VE", {
+  const date = new Date(iso);
+  if (!Number.isFinite(date.getTime())) return "fecha desconocida";
+  return date.toLocaleString("es-VE", {
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -34,11 +39,21 @@ export function OdooSyncCard() {
   const [testResult, setTestResult] = useState<{ ok: boolean; message: string } | null>(null);
 
   const { data: status, isLoading } = useGetOdooStatus({
-    query: { queryKey: getGetOdooStatusQueryKey(), refetchInterval: 60_000 },
+    query: {
+      queryKey: getGetOdooStatusQueryKey(),
+      staleTime: ODOO_STATUS_POLL_MS,
+      refetchInterval: ODOO_STATUS_POLL_MS,
+      refetchIntervalInBackground: false,
+    },
   });
 
   const { data: alerts } = useListOdooAlerts(undefined, {
-    query: { queryKey: getListOdooAlertsQueryKey(), refetchInterval: 60_000 },
+    query: {
+      queryKey: getListOdooAlertsQueryKey(),
+      staleTime: ODOO_STATUS_POLL_MS,
+      refetchInterval: ODOO_STATUS_POLL_MS,
+      refetchIntervalInBackground: false,
+    },
   });
   const resolveAlertMutation = useResolveOdooAlert();
   const handleResolveAlert = (id: number) => {
@@ -194,6 +209,27 @@ export function OdooSyncCard() {
   if (isLoading) return null;
 
   const configured = status?.configured ?? false;
+  const ordersVisibility = deriveSyncStatusVisibility({
+    result: status?.lastResult,
+    completedAt: status?.lastSyncAt,
+    stale: status?.ordersSyncStale,
+  });
+  const deliveriesVisibility = deriveSyncStatusVisibility({
+    result: status?.lastDeliveriesResult,
+    completedAt: status?.lastDeliveriesSyncAt,
+    stale: status?.deliveriesSyncStale,
+  });
+  const productsVisibility = deriveSyncStatusVisibility({
+    result: status?.lastProductsResult,
+    completedAt: status?.lastProductsSyncAt,
+    stale: status?.productsSyncStale,
+  });
+  const ordersNeverSynced = configured && ordersVisibility.neverSynced;
+  const ordersStale = configured && ordersVisibility.stale;
+  const deliveriesNeverSynced = configured && deliveriesVisibility.neverSynced;
+  const deliveriesStale = configured && deliveriesVisibility.stale;
+  const productsNeverSynced = configured && productsVisibility.neverSynced;
+  const productsStale = configured && productsVisibility.stale;
 
   return (
     <Card data-testid="card-odoo-sync">
@@ -220,13 +256,36 @@ export function OdooSyncCard() {
                     Último intento falló
                   </Badge>
                 )}
+                {configured && status?.lastResult === "running" && (
+                  <Badge
+                    variant="outline"
+                    className={
+                      ordersStale
+                        ? "text-red-500 border-red-500/50"
+                        : "text-blue-500 border-blue-500/50"
+                    }
+                  >
+                    {ordersStale ? (
+                      <AlertCircle className="mr-1 h-3 w-3" />
+                    ) : (
+                      <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    )}
+                    {ordersStale ? "Sincronización atascada" : "Sincronizando"}
+                  </Badge>
+                )}
               </div>
               <p className="text-xs text-muted-foreground mt-0.5 truncate" data-testid="text-odoo-detail">
                 {!configured
                   ? "Faltan los secretos ODOO_URL, ODOO_DB, ODOO_USERNAME y ODOO_API_KEY."
-                  : status?.lastSyncAt
-                    ? `Última sincronización: ${fmtDateTime(status.lastSyncAt)} · ${status.importedCount} importada${status.importedCount !== 1 ? "s" : ""}, ${status.skippedCount} ya existente${status.skippedCount !== 1 ? "s" : ""}`
-                    : `Conectado a ${status?.serverUrl} · aún sin sincronizaciones`}
+                  : status?.lastResult === "running"
+                    ? status.ordersSyncStartedAt
+                      ? `Sincronización iniciada: ${fmtDateTime(status.ordersSyncStartedAt)}${status.lastSyncAt ? ` · último intento finalizado: ${fmtDateTime(status.lastSyncAt)}` : ""}`
+                      : "Sincronización en curso"
+                    : status?.lastResult === "error" && status.lastSyncAt
+                      ? `Último intento fallido: ${fmtDateTime(status.lastSyncAt)}`
+                      : status?.lastSyncAt
+                        ? `Última sincronización exitosa: ${fmtDateTime(status.lastSyncAt)} · ${status.importedCount} importada${status.importedCount !== 1 ? "s" : ""}, ${status.skippedCount} ya existente${status.skippedCount !== 1 ? "s" : ""}`
+                        : `Conectado a ${status?.serverUrl} · aún sin sincronizaciones`}
               </p>
             </div>
           </div>
@@ -264,6 +323,26 @@ export function OdooSyncCard() {
           </div>
         </div>
 
+        {ordersNeverSynced && (
+          <div
+            className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
+            data-testid="warning-odoo-never-synced"
+          >
+            <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span>Odoo está configurado, pero las órdenes nunca se han sincronizado.</span>
+          </div>
+        )}
+
+        {ordersStale && (
+          <div
+            className="mt-3 flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-700 dark:text-amber-400"
+            data-testid="warning-odoo-stale"
+          >
+            <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+            <span>La sincronización de órdenes superó el tiempo esperado sin completar.</span>
+          </div>
+        )}
+
         {testResult && (
           <div
             data-testid="text-odoo-test-result"
@@ -300,11 +379,52 @@ export function OdooSyncCard() {
                   Último intento falló
                 </Badge>
               )}
+              {status?.lastDeliveriesResult === "running" && (
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] ${
+                    deliveriesStale
+                      ? "text-red-500 border-red-500/50"
+                      : "text-blue-500 border-blue-500/50"
+                  }`}
+                >
+                  {deliveriesStale ? (
+                    <AlertCircle className="mr-1 h-3 w-3" />
+                  ) : (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  )}
+                  {deliveriesStale ? "Sincronización atascada" : "Sincronizando"}
+                </Badge>
+              )}
               <p className="text-xs text-muted-foreground truncate" data-testid="text-odoo-deliveries-detail">
-                {status?.lastDeliveriesSyncAt
-                  ? `Última sincronización: ${fmtDateTime(status.lastDeliveriesSyncAt)} · ${status.deliveriesCreatedCount} creado${status.deliveriesCreatedCount !== 1 ? "s" : ""}, ${status.deliveriesUpdatedCount} actualizado${status.deliveriesUpdatedCount !== 1 ? "s" : ""}`
-                  : "Aún sin sincronizaciones de albaranes"}
+                {status?.lastDeliveriesResult === "running"
+                  ? status.deliveriesSyncStartedAt
+                    ? `Sincronización iniciada: ${fmtDateTime(status.deliveriesSyncStartedAt)}${status.lastDeliveriesSyncAt ? ` · último intento finalizado: ${fmtDateTime(status.lastDeliveriesSyncAt)}` : ""}`
+                    : "Sincronización en curso"
+                  : status?.lastDeliveriesResult === "error" && status.lastDeliveriesSyncAt
+                    ? `Último intento fallido: ${fmtDateTime(status.lastDeliveriesSyncAt)}`
+                    : status?.lastDeliveriesSyncAt
+                      ? `Última sincronización exitosa: ${fmtDateTime(status.lastDeliveriesSyncAt)} · ${status.deliveriesCreatedCount} creado${status.deliveriesCreatedCount !== 1 ? "s" : ""}, ${status.deliveriesUpdatedCount} actualizado${status.deliveriesUpdatedCount !== 1 ? "s" : ""}`
+                      : "Aún sin sincronizaciones de albaranes"}
               </p>
+              {deliveriesNeverSynced && (
+                <Badge
+                  variant="outline"
+                  className="text-amber-600 border-amber-500/50 text-[10px]"
+                  data-testid="warning-odoo-deliveries-never-synced"
+                >
+                  Nunca sincronizados
+                </Badge>
+              )}
+              {deliveriesStale && (
+                <Badge
+                  variant="outline"
+                  className="text-amber-600 border-amber-500/50 text-[10px]"
+                  data-testid="warning-odoo-deliveries-stale"
+                >
+                  Sincronización atascada
+                </Badge>
+              )}
             </div>
             <Button
               data-testid="button-odoo-sync-deliveries"
@@ -328,6 +448,83 @@ export function OdooSyncCard() {
               >
                 <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
                 <span>{status.lastDeliveriesError}</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {configured && (
+          <div
+            className="mt-3 rounded-md border px-3 py-2"
+            data-testid="section-odoo-products"
+          >
+            <div className="flex items-center gap-2 min-w-0 flex-wrap">
+              <Package className="w-4 h-4 shrink-0 text-muted-foreground" />
+              <p className="font-semibold text-xs">Productos</p>
+              {status?.lastProductsResult === "ok" && (
+                <Badge variant="outline" className="text-green-500 border-green-500/50 text-[10px]">
+                  OK
+                </Badge>
+              )}
+              {status?.lastProductsResult === "error" && (
+                <Badge variant="outline" className="text-red-500 border-red-500/50 text-[10px]">
+                  Último intento falló
+                </Badge>
+              )}
+              {status?.lastProductsResult === "running" && (
+                <Badge
+                  variant="outline"
+                  className={`text-[10px] ${
+                    productsStale
+                      ? "text-red-500 border-red-500/50"
+                      : "text-blue-500 border-blue-500/50"
+                  }`}
+                >
+                  {productsStale ? (
+                    <AlertCircle className="mr-1 h-3 w-3" />
+                  ) : (
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                  )}
+                  {productsStale ? "Sincronización atascada" : "Sincronizando"}
+                </Badge>
+              )}
+              <p className="text-xs text-muted-foreground truncate" data-testid="text-odoo-products-detail">
+                {status?.lastProductsResult === "running"
+                  ? status.productsSyncStartedAt
+                    ? `Sincronización iniciada: ${fmtDateTime(status.productsSyncStartedAt)}${status.lastProductsSyncAt ? ` · último intento finalizado: ${fmtDateTime(status.lastProductsSyncAt)}` : ""}`
+                    : "Sincronización en curso"
+                  : status?.lastProductsResult === "error" && status.lastProductsSyncAt
+                    ? `Último intento fallido: ${fmtDateTime(status.lastProductsSyncAt)}`
+                    : status?.lastProductsSyncAt
+                      ? `Última sincronización exitosa: ${fmtDateTime(status.lastProductsSyncAt)} · ${status.productsCreatedCount} creado${status.productsCreatedCount !== 1 ? "s" : ""}, ${status.productsUpdatedCount} actualizado${status.productsUpdatedCount !== 1 ? "s" : ""}`
+                      : "Aún sin sincronizaciones de productos"}
+              </p>
+              {productsNeverSynced && (
+                <Badge
+                  variant="outline"
+                  className="text-amber-600 border-amber-500/50 text-[10px]"
+                  data-testid="warning-odoo-products-never-synced"
+                >
+                  Nunca sincronizados
+                </Badge>
+              )}
+            </div>
+            {productsStale && (
+              <div
+                className="mt-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                data-testid="warning-odoo-products-stale"
+              >
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>La sincronización de productos superó el tiempo esperado sin completar.</span>
+              </div>
+            )}
+            {status?.lastProductsResult === "error" && status.lastProductsError && (
+              <div
+                className="mt-2 flex items-start gap-2 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+                data-testid="text-odoo-products-last-error"
+              >
+                <AlertCircle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                <span>{status.lastProductsError}</span>
               </div>
             )}
           </div>

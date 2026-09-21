@@ -10,10 +10,20 @@ export interface OdooStatus {
   configured: boolean;
   /** @nullable */
   serverUrl: string | null;
-  /** @nullable */
+  /**
+     * Completion time of the last finished attempt; inspect lastResult before treating it as successful
+     * @nullable
+     */
   lastSyncAt: string | null;
   /**
-     * ok | error
+     * Start time of the currently running orders sync
+     * @nullable
+     */
+  ordersSyncStartedAt: Date | null;
+  /** Whether the currently running orders sync exceeded the server stale threshold */
+  ordersSyncStale: boolean;
+  /**
+     * ok | error | running
      * @nullable
      */
   lastResult: string | null;
@@ -21,10 +31,20 @@ export interface OdooStatus {
   lastError: string | null;
   importedCount: number;
   skippedCount: number;
-  /** @nullable */
+  /**
+     * Completion time of the last finished attempt; inspect lastDeliveriesResult before treating it as successful
+     * @nullable
+     */
   lastDeliveriesSyncAt: string | null;
   /**
-     * ok | error
+     * Start time of the currently running deliveries sync
+     * @nullable
+     */
+  deliveriesSyncStartedAt: Date | null;
+  /** Whether the currently running deliveries sync exceeded the server stale threshold */
+  deliveriesSyncStale: boolean;
+  /**
+     * ok | error | running
      * @nullable
      */
   lastDeliveriesResult: string | null;
@@ -32,4 +52,25 @@ export interface OdooStatus {
   lastDeliveriesError: string | null;
   deliveriesCreatedCount: number;
   deliveriesUpdatedCount: number;
+  /**
+     * Completion time of the last finished attempt; inspect lastProductsResult before treating it as successful
+     * @nullable
+     */
+  lastProductsSyncAt: string | null;
+  /**
+     * Start time of the currently running products sync
+     * @nullable
+     */
+  productsSyncStartedAt: Date | null;
+  /** Whether the currently running products sync exceeded the server stale threshold */
+  productsSyncStale: boolean;
+  /**
+     * ok | error | running
+     * @nullable
+     */
+  lastProductsResult: string | null;
+  /** @nullable */
+  lastProductsError: string | null;
+  productsCreatedCount: number;
+  productsUpdatedCount: number;
 }

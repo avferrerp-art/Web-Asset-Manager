@@ -51,6 +51,13 @@ vi.mock("../../artifacts/api-server/src/middlewares/requireAuth", () => ({
   },
 }));
 
+vi.mock("../../artifacts/api-server/src/middlewares/authorize", () => ({
+  requireAuthorization: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+vi.mock("../../artifacts/api-server/src/middlewares/auditCriticalMutations", () => ({
+  auditCriticalMutations: (_req: unknown, _res: unknown, next: () => void) => next(),
+}));
+
 import app from "../../artifacts/api-server/src/app";
 
 const suffix = `${process.pid}-${Math.floor(Math.random() * 1_000_000)}`;

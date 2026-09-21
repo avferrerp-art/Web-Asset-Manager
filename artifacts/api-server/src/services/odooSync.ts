@@ -16,6 +16,7 @@ import {
 } from "../lib/odooClient";
 import { logger } from "../lib/logger";
 import { recalcSales } from "./productBackfill";
+import { coordinateOdooOperation } from "./synchronizationCoordinator";
 
 export interface OrderChange {
   odooRef: string;
@@ -348,7 +349,7 @@ export interface SyncOptions {
   dryRun?: boolean;
 }
 
-export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncResult> {
+async function syncOdooOrdersUncoordinated(options: SyncOptions = {}): Promise<SyncResult> {
   const dryRun = options.dryRun ?? false;
   const config = getOdooConfig();
   if (!config) {
@@ -717,6 +718,24 @@ export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncRes
   return result;
 }
 
+export async function syncOdooOrders(options: SyncOptions = {}): Promise<SyncResult> {
+  return coordinateOdooOperation(
+    { operation: options.dryRun ? "orders-dry-run" : "orders" },
+    async () => {
+      if (!options.dryRun) await markOrderSyncRunning();
+      try {
+        return await syncOdooOrdersUncoordinated(options);
+      } catch (error) {
+        if (!options.dryRun) {
+          const message = error instanceof Error ? error.message : String(error);
+          await recordSyncError(message).catch(() => {});
+        }
+        throw error;
+      }
+    },
+  );
+}
+
 async function getOrCreateStateRow() {
   const [row] = await db.select().from(odooSyncStateTable).limit(1);
   if (row) return row;
@@ -730,6 +749,7 @@ async function recordSyncResult(result: SyncResult): Promise<void> {
     .update(odooSyncStateTable)
     .set({
       lastSyncAt: new Date(),
+      ordersSyncStartedAt: null,
       lastResult: "ok",
       lastError: null,
       importedCount: result.imported,
@@ -738,11 +758,24 @@ async function recordSyncResult(result: SyncResult): Promise<void> {
     .where(eq(odooSyncStateTable.id, row.id));
 }
 
+async function markOrderSyncRunning(): Promise<void> {
+  const row = await getOrCreateStateRow();
+  await db
+    .update(odooSyncStateTable)
+    .set({ lastResult: "running", lastError: null, ordersSyncStartedAt: new Date() })
+    .where(eq(odooSyncStateTable.id, row.id));
+}
+
 export async function recordSyncError(message: string): Promise<void> {
   const row = await getOrCreateStateRow();
   await db
     .update(odooSyncStateTable)
-    .set({ lastSyncAt: new Date(), lastResult: "error", lastError: message })
+    .set({
+      lastSyncAt: new Date(),
+      ordersSyncStartedAt: null,
+      lastResult: "error",
+      lastError: message,
+    })
     .where(eq(odooSyncStateTable.id, row.id));
 }
 
@@ -753,51 +786,75 @@ export async function getSyncState() {
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000;
 let pollTimer: NodeJS.Timeout | null = null;
+let initialPollTimer: NodeJS.Timeout | null = null;
 
-export function startOdooPolling(): void {
+export function startOdooPolling(options: { ignoreEmbeddedDisable?: boolean } = {}): void {
+  if (
+    !options.ignoreEmbeddedDisable &&
+    process.env["ODOO_EMBEDDED_POLLING"]?.toLowerCase() === "false"
+  ) {
+    logger.info("Odoo polling embebido deshabilitado por ODOO_EMBEDDED_POLLING=false");
+    return;
+  }
   if (pollTimer) return;
   const run = async () => {
     if (!getOdooConfig()) return; // not configured yet — skip silently
-
-    // 1) Orders sync (unchanged behavior)
     try {
-      const result = await syncOdooOrders();
-      if (result.imported > 0 || result.updated.length > 0 || result.alertsCreated > 0) {
-        logger.info({ result }, "Odoo sync applied changes");
-      }
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error({ err }, "Odoo periodic sync failed");
-      await recordSyncError(message).catch(() => {});
-    }
+      await coordinateOdooOperation({ operation: "scheduled-cycle" }, async () => {
+        // Orders must precede deliveries while the same cross-instance lock is held.
+        try {
+          const result = await syncOdooOrders();
+          if (result.imported > 0 || result.updated.length > 0 || result.alertsCreated > 0) {
+            logger.info({ result }, "Odoo sync applied changes");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error({ err }, "Odoo periodic sync failed");
+          await recordSyncError(message).catch(() => {});
+        }
 
-    // 2) Deliveries sync — always AFTER orders in the same cycle (an albarán of
-    // a not-yet-imported order can't be linked). Errors are recorded in
-    // odoo_sync_state (lastDeliveriesError) and never crash the server.
-    try {
-      const { syncDeliveries } = await import("./deliverySync");
-      const result = await syncDeliveries();
-      if (
-        result.created > 0 ||
-        result.updated > 0 ||
-        result.deleted > 0 ||
-        result.itemsDeleted > 0 ||
-        result.alertsCreated > 0
-      ) {
-        logger.info({ result }, "Odoo delivery sync applied changes");
-      }
+        try {
+          const { syncDeliveries } = await import("./deliverySync");
+          const result = await syncDeliveries();
+          if (
+            result.created > 0 ||
+            result.updated > 0 ||
+            result.deleted > 0 ||
+            result.itemsDeleted > 0 ||
+            result.alertsCreated > 0
+          ) {
+            logger.info({ result }, "Odoo delivery sync applied changes");
+          }
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          logger.error({ err }, "Odoo periodic delivery sync failed");
+          const { recordDeliverySyncError } = await import("./deliverySync");
+          await recordDeliverySyncError(message).catch(() => {});
+        }
+      });
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      logger.error({ err }, "Odoo periodic delivery sync failed");
-      const { recordDeliverySyncError } = await import("./deliverySync");
-      await recordDeliverySyncError(message).catch(() => {});
+      logger.info({ err }, "Ciclo Odoo omitido porque otra instancia mantiene el bloqueo");
     }
   };
   pollTimer = setInterval(() => void run(), POLL_INTERVAL_MS);
   // First run shortly after boot
-  setTimeout(() => void run(), 10_000);
+  initialPollTimer = setTimeout(() => {
+    initialPollTimer = null;
+    void run();
+  }, 10_000);
   logger.info(
     { intervalMs: POLL_INTERVAL_MS, order: ["órdenes", "albaranes"] },
     "Odoo polling scheduled (cada ciclo: sync de órdenes → sync de albaranes)",
   );
+}
+
+export function stopOdooPolling(): void {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  if (initialPollTimer) {
+    clearTimeout(initialPollTimer);
+    initialPollTimer = null;
+  }
 }

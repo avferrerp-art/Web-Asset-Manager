@@ -7,7 +7,7 @@
 - [Generated API files break on task merges](codegen-merge-conflicts.md) — after a merge, re-run codegen instead of trusting merged generated files; watch for duplicate exports.
 - [Run api-server code standalone](run-server-code-standalone.md) — to test auth-protected backend logic, bundle a tiny entry with the build.mjs esbuild+pino setup; tsx/plain esbuild fail
 - [Task-env DB schema drift](task-db-schema-drift.md) — task DB may lack tables/columns already in code schema; check information_schema and apply DDL before FKs/queries.
-- [DB migrations at boot](db-migrations-boot.md) — schema changes need an idempotent migration in lib/db/src/migrations (auto-applied at api-server boot); drizzle-kit push alone doesn't survive merges.
+- [Database schema ownership](db-migrations-boot.md) — Replit Publish owns production DDL; embedded migrations are development-only, not a production recovery mechanism.
 - [Odoo partner reads](odoo-partner-reads.md) — this Odoo instance lacks `mobile` on res.partner; use fields_get-driven reads and never drop address fields on retry.
 - [Odoo stock.picking reads](odoo-stock-picking.md) — Odoo 19: delivered qty is `quantity` (no quantity_done); lines are `move_ids`; link albarán→venta via `sale_id`.
 - [Drizzle ANY(ARRAY) pitfall](drizzle-any-array-params.md) — raw `= ANY(ARRAY[$..])` params infer as text and break integer filters; always use `inArray`.
@@ -23,3 +23,4 @@
 - [Viaje membership concurrency](viaje-membership-concurrency.md) — trip-first locks, atomic state sync, and unique stop order are mandatory for every membership write.
 - [Personnel warehouse migration test](personnel-warehouse-migration-test.md) — its public-table PK rewrite fails when real personnel already have multiple warehouse assignments; isolate it.
 - [Operational conflict serialization](operational-conflict-serialization.md) — schedule and load-mode validation must serialize by resource/order; exact shared-trip windows are one physical service.
+- [Beta access bootstrap](beta-access-bootstrap.md) — restrictive roles require explicit administrator setup; never promote the first unlinked authenticated account.

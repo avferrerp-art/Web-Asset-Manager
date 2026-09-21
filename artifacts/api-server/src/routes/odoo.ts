@@ -4,20 +4,28 @@ import { db, syncAlertsTable } from "@workspace/db";
 import { getOdooConfig, OdooError } from "../lib/odooClient";
 import {
   getSyncState,
-  recordSyncError,
   syncOdooOrders,
   testOdooConnection,
 } from "../services/odooSync";
 import {
   syncDeliveries,
   backfillInternalTransfers,
-  recordDeliverySyncError,
 } from "../services/deliverySync";
 import { backfillSaleItemProducts } from "../services/productBackfill";
 import { backfillDestinos } from "../services/destinoBackfill";
 import { recomputeDeliveryDerivedState } from "../services/deliveryEstado";
+import { odooSyncHttpStatus } from "../services/synchronizationCoordinator";
 
 const router: IRouter = Router();
+const STALE_RUNNING_MS = 20 * 60 * 1000;
+
+function isStaleRunning(result: string | null | undefined, startedAt: Date | null | undefined) {
+  return (
+    result === "running" &&
+    startedAt instanceof Date &&
+    Date.now() - startedAt.getTime() > STALE_RUNNING_MS
+  );
+}
 
 router.get("/odoo/status", async (_req, res): Promise<void> => {
   const config = getOdooConfig();
@@ -26,6 +34,8 @@ router.get("/odoo/status", async (_req, res): Promise<void> => {
     configured: config !== null,
     serverUrl: config?.url ?? null,
     lastSyncAt: state?.lastSyncAt ? state.lastSyncAt.toISOString() : null,
+    ordersSyncStartedAt: state?.ordersSyncStartedAt?.toISOString() ?? null,
+    ordersSyncStale: isStaleRunning(state?.lastResult, state?.ordersSyncStartedAt),
     lastResult: state?.lastResult ?? null,
     lastError: state?.lastError ?? null,
     importedCount: state?.importedCount ?? 0,
@@ -33,10 +43,25 @@ router.get("/odoo/status", async (_req, res): Promise<void> => {
     lastDeliveriesSyncAt: state?.lastDeliveriesSyncAt
       ? state.lastDeliveriesSyncAt.toISOString()
       : null,
+    deliveriesSyncStartedAt: state?.deliveriesSyncStartedAt?.toISOString() ?? null,
+    deliveriesSyncStale: isStaleRunning(
+      state?.lastDeliveriesResult,
+      state?.deliveriesSyncStartedAt,
+    ),
     lastDeliveriesResult: state?.lastDeliveriesResult ?? null,
     lastDeliveriesError: state?.lastDeliveriesError ?? null,
     deliveriesCreatedCount: state?.deliveriesCreatedCount ?? 0,
     deliveriesUpdatedCount: state?.deliveriesUpdatedCount ?? 0,
+    lastProductsSyncAt: state?.lastProductsSyncAt?.toISOString() ?? null,
+    productsSyncStartedAt: state?.productsSyncStartedAt?.toISOString() ?? null,
+    productsSyncStale: isStaleRunning(
+      state?.lastProductsResult,
+      state?.productsSyncStartedAt,
+    ),
+    lastProductsResult: state?.lastProductsResult ?? null,
+    lastProductsError: state?.lastProductsError ?? null,
+    productsCreatedCount: state?.productsCreatedCount ?? 0,
+    productsUpdatedCount: state?.productsUpdatedCount ?? 0,
   });
 });
 
@@ -74,8 +99,7 @@ router.post("/odoo/sync", async (req, res): Promise<void> => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err }, "Odoo manual sync failed");
-    if (!dryRun) await recordSyncError(message).catch(() => {});
-    res.status(err instanceof OdooError ? 400 : 500).json({
+    res.status(odooSyncHttpStatus(err)).json({
       ok: false,
       imported: 0,
       skipped: 0,
@@ -158,8 +182,7 @@ router.post("/odoo/sync-deliveries", async (req, res): Promise<void> => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err }, "Delivery sync failed");
-    await recordDeliverySyncError(message).catch(() => {});
-    res.status(err instanceof OdooError ? 400 : 500).json({
+    res.status(odooSyncHttpStatus(err)).json({
       ok: false,
       created: 0,
       updated: 0,
@@ -191,7 +214,7 @@ router.post("/odoo/backfill-traslados", async (req, res): Promise<void> => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err }, "Internal transfer backfill failed");
-    res.status(err instanceof OdooError ? 400 : 500).json({
+    res.status(odooSyncHttpStatus(err)).json({
       ok: false,
       created: 0,
       updated: 0,
@@ -230,7 +253,7 @@ router.post("/odoo/backfill-products", async (req, res): Promise<void> => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err }, "Product backfill failed");
-    res.status(500).json({
+    res.status(odooSyncHttpStatus(err)).json({
       ok: false,
       examined: 0,
       linked: 0,
@@ -248,7 +271,7 @@ router.post("/odoo/backfill-deliveries", async (req, res): Promise<void> => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err }, "Delivery backfill failed");
-    res.status(500).json({
+    res.status(odooSyncHttpStatus(err)).json({
       ok: false,
       examined: 0,
       updated: 0,
@@ -265,7 +288,7 @@ router.post("/odoo/backfill-destinos", async (req, res): Promise<void> => {
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     req.log.error({ err }, "Destino backfill failed");
-    res.status(err instanceof OdooError ? 400 : 500).json({
+    res.status(odooSyncHttpStatus(err)).json({
       ok: false,
       examined: 0,
       updated: 0,

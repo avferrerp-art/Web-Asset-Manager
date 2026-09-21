@@ -3,6 +3,7 @@ import { db, salesTable } from "@workspace/db";
 import { authenticate, executeKw, getOdooConfig, OdooError, type OdooConfig } from "../lib/odooClient";
 import { buildDestino, readPartners, type OdooPartner } from "./odooSync";
 import { logger } from "../lib/logger";
+import { coordinateOdooOperation } from "./synchronizationCoordinator";
 
 export interface DestinoBackfillResult {
   examined: number;
@@ -23,7 +24,7 @@ interface OdooOrderShipping {
  * their `destino`. Never touches items, pesoTotalOdoo or volumenTotalOdoo.
  * Idempotent: re-running produces the same result.
  */
-export async function backfillDestinos(): Promise<DestinoBackfillResult> {
+async function backfillDestinosUncoordinated(): Promise<DestinoBackfillResult> {
   const config = getOdooConfig();
   if (!config) {
     throw new OdooError(
@@ -96,4 +97,11 @@ export async function backfillDestinos(): Promise<DestinoBackfillResult> {
 
   logger.info({ result }, "Destino backfill completed");
   return result;
+}
+
+export async function backfillDestinos(): Promise<DestinoBackfillResult> {
+  return coordinateOdooOperation(
+    { operation: "backfill-destinations" },
+    backfillDestinosUncoordinated,
+  );
 }
