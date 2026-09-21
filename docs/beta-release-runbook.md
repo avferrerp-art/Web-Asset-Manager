@@ -91,8 +91,11 @@ were updated to assert the intentional denials while retaining positive office,
 administrator, linked-driver and assigned-destination reception cases.
 The gate does not ignore, invert, or suppress failures.
 
-This does not replace the pending preview sign-in check after real administrator
-bootstrap configuration, production Publish validation, or a real backup restore.
+After owner-configured administrator bootstrap, the preview sign-in check passed:
+dashboard, sales list/detail, session refresh and Odoo status in Pre-Despacho.
+Public health/readiness returned 200 and unauthenticated sales returned 401.
+Development startup applied the new migrations and passed schema verification.
+Production Publish validation and a real backup restore remain pending.
 
 `health.test.ts` covers bounded readiness behavior. A direct startup-schema
 unit test was not added because `index.ts` performs top-level environment

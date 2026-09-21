@@ -37,3 +37,8 @@ externalPort = 3001
 [[ports]]
 localPort = 24024
 externalPort = 3000
+
+[userenv]
+
+[userenv.shared]
+ADMIN_EMAILS = "pedro@netso.io, jesus@netso.io, netso.fttx@gmail.com,avferrer.23@gmail.com,luismoreno.netso@gmail.com,suministro@netso.io"

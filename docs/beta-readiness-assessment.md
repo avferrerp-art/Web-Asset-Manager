@@ -2,7 +2,7 @@
 
 ## Estado de la evaluación
 
-**Preparación técnica en curso; no autoriza todavía una apertura de beta.**
+**Preparación técnica local verificada; no autoriza todavía una apertura de beta.**
 No se ha publicado esta versión, contratado recursos ni modificado datos de
 producción. La publicación consultada usa Autoscale.
 
@@ -27,8 +27,8 @@ producción. La publicación consultada usa Autoscale.
 
 ## Condiciones antes de publicar
 
-1. Configurar `ADMIN_EMAILS` con las cuentas responsables reales de inicio de
-   sesión. Vincular deliberadamente el personal por correo y revisar sus
+1. `ADMIN_EMAILS` ya fue configurado por el propietario y el acceso administrativo
+   se verificó en desarrollo. Vincular deliberadamente el personal por correo y revisar sus
    almacenes. Sin este paso la política responde `access_setup_required`.
 2. Obtener un resultado satisfactorio de `pnpm run release:check` para el código
    que se publicará y comprobar acceso autorizado en la vista previa.
@@ -52,8 +52,12 @@ conteos/hash, **no** la recuperabilidad de un respaldo real de producción.
 Las pruebas locales tampoco miden disponibilidad ni rendimiento bajo carga.
 El 2026-09-21 pasó `pnpm run release:check`: comprobación de tipos del workspace,
 builds de API/web, 49 pruebas deterministas y 84 de integración contra PostgreSQL
-aislado. Falta comprobar el acceso real en la vista previa una vez configurado el
-administrador, antes de activar esta versión del servidor.
+aislado. Tras configurar el administrador, se reiniciaron API y web: migraciones
+de desarrollo y verificación de esquema correctas. La prueba de navegador con
+identidad administrativa verificó dashboard, lista/detalle de ventas, persistencia
+de sesión al recargar y estado Odoo en Pre-Despacho. La API devolvió 200 en
+health/readiness y 401 al consultar ventas sin autenticación. La comprobación
+fue de lectura, sin activar botones de sincronización ni modificar operaciones.
 
 Los detalles de comandos y alcance están en los runbooks de publicación y
 recuperación; no se declara aprobada toda la suite histórica ni el build móvil.
