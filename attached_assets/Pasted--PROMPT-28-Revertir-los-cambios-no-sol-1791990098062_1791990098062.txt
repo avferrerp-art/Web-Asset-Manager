@@ -1,0 +1,132 @@
+════════════════════════════════════════════════════════════
+PROMPT 28 — Revertir los cambios no solicitados del 21-sep
+════════════════════════════════════════════════════════════
+
+════════════════════════════════════════
+QUÉ ES ESTA TAREA
+════════════════════════════════════════
+
+Es una tarea de **git, no de programación**. No se escribe ni se mejora
+código: se deshacen cinco commits que entraron al repositorio sin que el
+dueño los pidiera ni los revisara, y se vuelve exactamente a su último
+commit.
+
+Leé el prompt entero antes de ejecutar nada.
+
+════════════════════════════════════════
+CONTEXTO
+════════════════════════════════════════
+
+LogiFleet, monorepo pnpm workspaces, Node 24, TypeScript 5.9, en Replit.
+
+El 18-sep el dueño commiteó `5e1d274`. El 21-sep aparecieron cinco commits
+más, firmados por "Replit Agent", que él no pidió:
+
+  558d95c  Refactor API server routes and integrate delivery synchronization
+           services        ← 62 archivos, +3085 líneas
+  e8fef43  Update replit configuration and beta documentation
+  0f6bf2d  Add user reference asset          ← un .txt de 459 líneas de logs
+  db83af5  Add asset image to repository     ← una imagen
+  e39acce  Published your App
+
+Entre otras cosas, `558d95c` agregó
+`artifacts/api-server/src/middlewares/authorize.ts` y lo montó en
+`routes/index.ts`. Ese middleware **niega el acceso a toda la API** a
+cualquier usuario cuyo correo no esté en la tabla `personnel` ni en
+`ADMIN_EMAILS`, y hoy está dejando al dueño fuera de su propia aplicación
+con `403 Forbidden` en todas las rutas.
+
+La decisión es volver a `5e1d274` y revisar después, con calma, si algo de
+lo que se saca vale la pena reponer.
+
+════════════════════════════════════════
+TAREA
+════════════════════════════════════════
+
+**1. Revertir**
+
+```bash
+git revert --no-commit 5e1d274..e39acce
+git commit -m "Revertir cambios no solicitados del Replit Agent (21-sep)"
+```
+
+**2. Verificar ANTES de pushear**
+
+```bash
+git diff 5e1d274 HEAD --stat
+```
+
+**Tiene que salir vacío.** Si sale cualquier cosa, PARÁ y reportámelo sin
+pushear: significa que el árbol no quedó idéntico y quiero ver qué quedó
+distinto antes de que siga.
+
+**3. Pushear** solo si el paso 2 salió vacío.
+
+**4. Reiniciar el workflow del api-server.** El servidor bundlea con esbuild
+al arrancar y no hace hot-reload: sin reiniciar sigue corriendo el bundle
+viejo, que es exactamente el middleware que bloquea.
+
+**5. Comprobar que el acceso volvió**
+
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" http://localhost:<puerto>/api/healthz
+```
+
+Y reportá el estado del arranque del servidor: si logueó `SCHEMA MISMATCH`,
+si las migraciones corrieron, y si hubo algún error.
+
+════════════════════════════════════════
+NO HAGAS — esto es lo más importante del prompt
+════════════════════════════════════════
+
+- **No conserves "las partes buenas".** No decidas por tu cuenta que el
+  coordinador de sincronización, el middleware de auditoría, el worker de
+  Odoo o el servicio de health conviene dejarlos. Se van los cinco commits
+  enteros. Si algo de eso hace falta, se repone después, revisado y a
+  propósito.
+- **No toques la base de datos.** Las migraciones `0020_odoo_sync_started_at`
+  y `0021_audit_events` ya corrieron. Al revertir, la base queda con una
+  tabla `audit_events` y una columna de más que ningún código va a usar.
+  **Eso está bien y es intencional:** `verifySchema` solo reporta lo que
+  falta, nunca lo que sobra, así que el servidor arranca sin problema.
+  NO escribas una migración para borrarlas. NO borres filas de la tabla
+  `_migrations`. NO corras `drizzle-kit push`.
+- **No uses `git reset --hard` ni `push --force`.** Esos commits ya están
+  pusheados y desplegados; reescribir la historia trae más problemas de los
+  que resuelve. Un `revert` deja el rastro de qué pasó, que es lo que se
+  quiere.
+- **No arregles nada más de paso.** Si al reiniciar aparece un error que
+  existía antes del 21-sep, anotalo en el reporte y dejalo. Esta tarea es
+  solo el revert.
+- **No edites `generated/`** ni regeneres el contrato. El revert ya deja esos
+  archivos como estaban.
+
+════════════════════════════════════════
+DOS COSAS QUE PUEDEN APARECER
+════════════════════════════════════════
+
+1. **Workflows huérfanos.** `package.json` tenía un script
+   `start:odoo-worker` que el revert elimina. En `.replit` no hay ningún
+   workflow que lo llame, pero si existe uno creado desde la interfaz de
+   Replit, va a fallar al ejecutarse. Si lo ves en la lista de workflows,
+   reportalo — no lo borres sin avisar.
+
+2. **El despliegue puede volver a fallar.** Esos commits nacieron de un
+   deploy caído: el archivo de 459 líneas que los acompaña es un volcado de
+   healthchecks devolviendo 500 y procesos del api-server terminando. Si
+   algo de lo que sacamos era lo que lo sostenía, el problema vuelve.
+   **No lo arregles por tu cuenta.** Reportá el error exacto y paralo ahí.
+
+════════════════════════════════════════
+VERIFICACIÓN
+════════════════════════════════════════
+
+1. `git diff 5e1d274 HEAD --stat` vacío.
+2. `git log --oneline -3` muestra el commit de revert sobre `e39acce`.
+3. `artifacts/api-server/src/middlewares/authorize.ts` ya no existe.
+4. `grep -rn "requireAuthorization" artifacts/api-server/src/` no devuelve
+   nada.
+5. El api-server reiniciado arranca sin `SCHEMA MISMATCH`.
+6. `GET /api/healthz` responde 200.
+7. Reportame: la salida del paso 1, el log de arranque del servidor, y si
+   apareció alguna de las dos cosas de la sección anterior.
