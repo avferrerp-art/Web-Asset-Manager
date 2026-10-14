@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
   actasLlegadaTable,
@@ -15,6 +15,7 @@ import {
   type Personnel,
 } from "@workspace/db";
 import type { CurrentPersonResult } from "../../artifacts/api-server/src/services/currentPerson";
+import { logger } from "../../artifacts/api-server/src/lib/logger";
 
 const currentPersonMock = vi.hoisted(() => ({
   result: null as CurrentPersonResult | null,
@@ -40,10 +41,6 @@ vi.mock("../../artifacts/api-server/src/middlewares/requireAuth", () => ({
     }
     res.status(401).json({ error: "Unauthorized" });
   },
-}));
-
-vi.mock("../../artifacts/api-server/src/middlewares/auditCriticalMutations", () => ({
-  auditCriticalMutations: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 import app from "../../artifacts/api-server/src/app";
@@ -309,11 +306,6 @@ beforeAll(async () => {
   });
 });
 
-beforeEach(() => {
-  // Enables role authorization without granting admin to any fixture actor.
-  process.env.ADMIN_EMAILS = "bootstrap-owner@test.invalid";
-});
-
 afterEach(() => {
   currentPersonMock.result = null;
   delete process.env.ADMIN_EMAILS;
@@ -362,12 +354,6 @@ describe("warehouse access for transfers", () => {
     asCurrentPerson(almacenista);
     expect(await listedTransferIds()).toEqual([trasladoIds[0]]);
 
-    const ownDetail = await fetch(`${baseUrl}/api/traslados/${trasladoIds[0]}`, {
-      headers: auth(),
-    });
-    expect(ownDetail.status).toBe(200);
-    expect(await ownDetail.json()).toMatchObject({ id: trasladoIds[0] });
-
     const missingDetail = await fetch(`${baseUrl}/api/traslados/2147483647`, {
       headers: auth(),
     });
@@ -408,35 +394,35 @@ describe("warehouse access for transfers", () => {
     expect(await listedTransferIds()).toEqual([trasladoIds[0], trasladoIds[1]]);
   });
 
-  it("preserves office access while denying unlinked, driver, and assistant accounts", async () => {
+  it("preserves full access for unlinked, office, driver, and assistant accounts", async () => {
     currentPersonMock.result = {
       ok: false,
       reason: "not_linked",
       email: `web-${suffix}@test.invalid`,
     };
-    let response = await fetch(`${baseUrl}/api/traslados`, { headers: auth() });
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "Forbidden" });
+    expect(await listedTransferIds()).toEqual([...trasladoIds].sort((a, b) => a - b));
 
     currentPersonMock.result = { ok: false, reason: "no_email" };
-    response = await fetch(`${baseUrl}/api/traslados`, { headers: auth() });
-    expect(response.status).toBe(403);
+    expect(await listedTransferIds()).toEqual([...trasladoIds].sort((a, b) => a - b));
 
-    asCurrentPerson(oficina);
-    expect(await listedTransferIds()).toEqual(
-      [...trasladoIds].sort((a, b) => a - b),
-    );
-
-    for (const person of [chofer, ayudante]) {
+    for (const person of [oficina, chofer, ayudante]) {
       asCurrentPerson(person);
-      response = await fetch(`${baseUrl}/api/traslados`, { headers: auth() });
-      expect(response.status).toBe(403);
+      expect(await listedTransferIds()).toEqual(
+        [...trasladoIds].sort((a, b) => a - b),
+      );
     }
   });
 
-  it("fails closed for an unassigned warehouse operator", async () => {
+  it("keeps an unassigned warehouse operator unblocked and emits an operational warning", async () => {
+    const warning = vi.spyOn(logger, "warn");
     asCurrentPerson(almacenistaSinAsignar);
-    expect(await listedTransferIds()).toEqual([]);
+
+    expect(await listedTransferIds()).toEqual([...trasladoIds].sort((a, b) => a - b));
+    expect(warning).toHaveBeenCalledWith(
+      expect.objectContaining({ personnelId: almacenistaSinAsignar.id }),
+      expect.stringContaining("sin almacenes asignados"),
+    );
+    warning.mockRestore();
   });
 
   it("applies ADMIN_EMAILS case-insensitively before limiting an assigned warehouse operator", async () => {
@@ -474,7 +460,7 @@ describe("warehouse access for arrival confirmation", () => {
     expect((await confirmed.json()).recibidoPor).toBe("Destino autorizado");
   });
 
-  it("denies sale dispatch arrival confirmation to warehouse personnel", async () => {
+  it("does not restrict sale dispatch arrival confirmations", async () => {
     await setAssignments(almacenista.id, [warehouseIds[0]!]);
     asCurrentPerson(almacenista);
     const response = await fetch(`${baseUrl}/api/dispatches/${dispatchIds[1]}/acta`, {
@@ -482,7 +468,7 @@ describe("warehouse access for arrival confirmation", () => {
       headers: auth(),
       body: JSON.stringify({ recibidoPor: "Recepción de venta" }),
     });
-    expect(response.status).toBe(403);
-    expect(await response.json()).toEqual({ error: "almacen_no_autorizado" });
+    expect(response.status).toBe(200);
+    expect((await response.json()).recibidoPor).toBe("Recepción de venta");
   });
 });

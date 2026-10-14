@@ -54,26 +54,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
 
-  /readyz:
-    get:
-      operationId: readinessCheck
-      tags: [health]
-      summary: Readiness check
-      description: Reports whether the API can reach its required database dependency
-      responses:
-        "200":
-          description: Ready to serve traffic
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReadinessStatus"
-        "503":
-          description: Temporarily not ready to serve traffic
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ReadinessStatus"
-
   # --- FUEL PRICES ---
   /fuel-prices:
     get:
@@ -1978,16 +1958,6 @@ components:
       required:
         - status
 
-    ReadinessStatus:
-      type: object
-      additionalProperties: false
-      properties:
-        status:
-          type: string
-          enum: [ready, not_ready]
-      required:
-        - status
-
     # --- VEHICLES ---
     Vehicle:
       type: object
@@ -2230,7 +2200,7 @@ components:
     # --- SALES ---
     OdooStatus:
       type: object
-      required: [configured, serverUrl, lastSyncAt, ordersSyncStartedAt, ordersSyncStale, lastResult, lastError, importedCount, skippedCount, lastDeliveriesSyncAt, deliveriesSyncStartedAt, deliveriesSyncStale, lastDeliveriesResult, lastDeliveriesError, deliveriesCreatedCount, deliveriesUpdatedCount, lastProductsSyncAt, productsSyncStartedAt, productsSyncStale, lastProductsResult, lastProductsError, productsCreatedCount, productsUpdatedCount]
+      required: [configured, serverUrl, lastSyncAt, lastResult, lastError, importedCount, skippedCount, lastDeliveriesSyncAt, lastDeliveriesResult, lastDeliveriesError, deliveriesCreatedCount, deliveriesUpdatedCount]
       properties:
         configured:
           type: boolean
@@ -2238,17 +2208,9 @@ components:
           type: ["string", "null"]
         lastSyncAt:
           type: ["string", "null"]
-          description: Completion time of the last finished attempt; inspect lastResult before treating it as successful
-        ordersSyncStartedAt:
-          type: ["string", "null"]
-          format: date-time
-          description: Start time of the currently running orders sync
-        ordersSyncStale:
-          type: boolean
-          description: Whether the currently running orders sync exceeded the server stale threshold
         lastResult:
           type: ["string", "null"]
-          description: "ok | error | running"
+          description: "ok | error"
         lastError:
           type: ["string", "null"]
         importedCount:
@@ -2257,41 +2219,14 @@ components:
           type: integer
         lastDeliveriesSyncAt:
           type: ["string", "null"]
-          description: Completion time of the last finished attempt; inspect lastDeliveriesResult before treating it as successful
-        deliveriesSyncStartedAt:
-          type: ["string", "null"]
-          format: date-time
-          description: Start time of the currently running deliveries sync
-        deliveriesSyncStale:
-          type: boolean
-          description: Whether the currently running deliveries sync exceeded the server stale threshold
         lastDeliveriesResult:
           type: ["string", "null"]
-          description: "ok | error | running"
+          description: "ok | error"
         lastDeliveriesError:
           type: ["string", "null"]
         deliveriesCreatedCount:
           type: integer
         deliveriesUpdatedCount:
-          type: integer
-        lastProductsSyncAt:
-          type: ["string", "null"]
-          description: Completion time of the last finished attempt; inspect lastProductsResult before treating it as successful
-        productsSyncStartedAt:
-          type: ["string", "null"]
-          format: date-time
-          description: Start time of the currently running products sync
-        productsSyncStale:
-          type: boolean
-          description: Whether the currently running products sync exceeded the server stale threshold
-        lastProductsResult:
-          type: ["string", "null"]
-          description: "ok | error | running"
-        lastProductsError:
-          type: ["string", "null"]
-        productsCreatedCount:
-          type: integer
-        productsUpdatedCount:
           type: integer
 
     OdooTestResult:

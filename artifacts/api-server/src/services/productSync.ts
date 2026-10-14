@@ -8,7 +8,6 @@ import {
   type OdooConfig,
 } from "../lib/odooClient";
 import { logger } from "../lib/logger";
-import { coordinateOdooOperation } from "./synchronizationCoordinator";
 
 export interface ProductSyncResult {
   created: number;
@@ -71,7 +70,7 @@ async function fetchOdooProducts(
   return all;
 }
 
-async function syncOdooProductsUncoordinated(): Promise<ProductSyncResult> {
+export async function syncOdooProducts(): Promise<ProductSyncResult> {
   const config = getOdooConfig();
   if (!config) {
     throw new OdooError(
@@ -136,22 +135,6 @@ async function syncOdooProductsUncoordinated(): Promise<ProductSyncResult> {
   return syncResult;
 }
 
-export async function syncOdooProducts(): Promise<ProductSyncResult> {
-  return coordinateOdooOperation(
-    { operation: "products" },
-    async () => {
-      await markProductSyncRunning();
-      try {
-        return await syncOdooProductsUncoordinated();
-      } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
-        await recordProductSyncError(message).catch(() => {});
-        throw error;
-      }
-    },
-  );
-}
-
 async function getOrCreateStateRow() {
   const [row] = await db.select().from(odooSyncStateTable).limit(1);
   if (row) return row;
@@ -165,23 +148,10 @@ async function recordProductSyncResult(result: ProductSyncResult): Promise<void>
     .update(odooSyncStateTable)
     .set({
       lastProductsSyncAt: new Date(),
-      productsSyncStartedAt: null,
       lastProductsResult: "ok",
       lastProductsError: null,
       productsCreatedCount: result.created,
       productsUpdatedCount: result.updated,
-    })
-    .where(eq(odooSyncStateTable.id, row.id));
-}
-
-async function markProductSyncRunning(): Promise<void> {
-  const row = await getOrCreateStateRow();
-  await db
-    .update(odooSyncStateTable)
-    .set({
-      lastProductsResult: "running",
-      lastProductsError: null,
-      productsSyncStartedAt: new Date(),
     })
     .where(eq(odooSyncStateTable.id, row.id));
 }
@@ -192,7 +162,6 @@ export async function recordProductSyncError(message: string): Promise<void> {
     .update(odooSyncStateTable)
     .set({
       lastProductsSyncAt: new Date(),
-      productsSyncStartedAt: null,
       lastProductsResult: "error",
       lastProductsError: message,
     })

@@ -1,6 +1,5 @@
 import { eq, isNull, inArray } from "drizzle-orm";
 import { db, saleItemsTable, productsTable, salesTable } from "@workspace/db";
-import { coordinateOdooOperation } from "./synchronizationCoordinator";
 
 export interface BackfillResult {
   examined: number;
@@ -57,7 +56,7 @@ export async function recalcSales(saleIds: number[]): Promise<number> {
 // "[NTSxxxxxx]" al inicio de la descripción. Ya no propaga dimensiones
 // (el módulo de medición manual fue eliminado; peso/volumen vienen de Odoo).
 // ---------------------------------------------------------------------------
-async function backfillSaleItemProductsUncoordinated(): Promise<BackfillResult> {
+export async function backfillSaleItemProducts(): Promise<BackfillResult> {
   const nullItems = await db
     .select({
       id: saleItemsTable.id,
@@ -97,11 +96,4 @@ async function backfillSaleItemProductsUncoordinated(): Promise<BackfillResult> 
     unmatched,
     salesRecalculated,
   };
-}
-
-export async function backfillSaleItemProducts(): Promise<BackfillResult> {
-  return coordinateOdooOperation(
-    { operation: "backfill-sale-products", retryTransient: false },
-    backfillSaleItemProductsUncoordinated,
-  );
 }

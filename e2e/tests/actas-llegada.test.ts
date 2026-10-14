@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { eq, inArray } from "drizzle-orm";
 import {
   actasLlegadaTable,
@@ -40,10 +40,6 @@ vi.mock("../../artifacts/api-server/src/middlewares/requireAuth", () => ({
     }
     res.status(401).json({ error: "Unauthorized" });
   },
-}));
-
-vi.mock("../../artifacts/api-server/src/middlewares/auditCriticalMutations", () => ({
-  auditCriticalMutations: (_req: unknown, _res: unknown, next: () => void) => next(),
 }));
 
 import app from "../../artifacts/api-server/src/app";
@@ -144,15 +140,6 @@ beforeAll(async () => {
   });
 });
 
-beforeEach(() => {
-  process.env.ADMIN_EMAILS = "web@example.com,correction@example.com";
-  currentPersonMock.result = {
-    ok: false,
-    reason: "not_linked",
-    email: "web@example.com",
-  };
-});
-
 afterEach(async () => {
   // Clean up actas and dispatches created during each test
   if (dispatchIds.length > 0) {
@@ -166,7 +153,6 @@ afterEach(async () => {
   }
   // Reset mock
   currentPersonMock.result = null;
-  delete process.env.ADMIN_EMAILS;
 });
 
 afterAll(async () => {
@@ -293,9 +279,16 @@ describe("Arrival integrity guards", () => {
     expect(createRes.status).toBe(200);
 
     currentPersonMock.result = {
-      ok: false,
-      reason: "not_linked",
-      email: "web@example.com",
+      ok: true,
+      person: {
+        id: driverId,
+        nombre: `Chofer acta ${suffix}`,
+        rol: "chofer",
+        tarifaPorKm: 0,
+        telefono: null,
+        email: `driver-acta-${suffix}@test.invalid`,
+        createdAt: new Date(),
+      },
     };
     const firstRes = await fetch(`${baseUrl}/api/dispatches/${id}/acta`, {
       method: "PATCH",
@@ -327,7 +320,7 @@ describe("Arrival integrity guards", () => {
     expect(corrected.recibidoPor).toBe("Nombre corregido");
     expect(corrected.novedadesRecepcion).toBe("Texto corregido");
     expect(corrected.confirmadaAt).toBe(first.confirmadaAt);
-    expect(corrected.confirmadaPorId).toBeNull();
+    expect(corrected.confirmadaPorId).toBe(driverId);
   });
 });
 
@@ -379,25 +372,27 @@ describe("POST acta input validation", () => {
 
 // ── Case 5: Driver identity responses ────────────────────────────────────────
 describe("Driver identity responses (no_email, not_linked)", () => {
-  it("no_email: is denied before entering the driver API", async () => {
+  it("no_email: returns 404 with exact message", async () => {
     currentPersonMock.result = { ok: false, reason: "no_email" };
     const res = await fetch(`${baseUrl}/api/driver/me`, {
       headers: { "x-test-auth": "authenticated" },
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     const body = await res.json();
-    expect(body.error).toBe("Forbidden");
+    expect(body.message).toBe("Tu cuenta no tiene un email asociado.");
   });
 
-  it("not_linked: is denied before entering the driver API", async () => {
+  it("not_linked: returns 404 with exact message including email", async () => {
     const email = `nada-${suffix}@test.invalid`;
     currentPersonMock.result = { ok: false, reason: "not_linked", email };
     const res = await fetch(`${baseUrl}/api/driver/me`, {
       headers: { "x-test-auth": "authenticated" },
     });
-    expect(res.status).toBe(403);
+    expect(res.status).toBe(404);
     const body = await res.json();
-    expect(body.error).toBe("Forbidden");
+    expect(body.message).toBe(
+      `No hay un chofer registrado con el email ${email}. Pide al administrador que agregue tu email en Personal.`,
+    );
   });
 });
 

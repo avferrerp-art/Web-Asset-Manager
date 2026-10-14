@@ -66,8 +66,6 @@ export * from './product';
 export * from './productStats';
 export * from './productSyncResult';
 export * from './productUpdate';
-export * from './readinessStatus';
-export * from './readinessStatusStatus';
 export * from './resolveOdooAlert200';
 export * from './route';
 export * from './routeInput';

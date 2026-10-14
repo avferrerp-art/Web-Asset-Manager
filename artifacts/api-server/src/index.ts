@@ -21,30 +21,21 @@ if (Number.isNaN(port) || port <= 0) {
 }
 
 async function prepareDatabase(): Promise<void> {
-  // Replit Publish owns production DDL. Embedded migrations are a development
-  // convenience only; running them during production boot can race instances
-  // and bypass Publish's schema-diff safety checks.
-  if (process.env.NODE_ENV === "development") {
-    try {
-      const result = await runMigrations();
-      if (result.applied.length > 0) {
-        logger.info({ applied: result.applied }, "Development database migrations applied");
-      } else {
-        logger.info("Development database migrations up to date");
-      }
-    } catch (err) {
-      logger.error({ err }, "Development database migration failed — refusing to start");
-      throw err;
+  // 1) Apply pending embedded migrations (lib/db/src/migrations).
+  try {
+    const result = await runMigrations();
+    if (result.applied.length > 0) {
+      logger.info({ applied: result.applied }, "Database migrations applied");
+    } else {
+      logger.info("Database migrations up to date");
     }
-  } else {
-    logger.info(
-      { nodeEnv: process.env.NODE_ENV ?? "unset" },
-      "Skipping startup migrations; schema changes are applied by Publish",
-    );
+  } catch (err) {
+    // Fail hard: running with a half-migrated schema causes opaque 500s later.
+    logger.error({ err }, "Database migration failed — refusing to start");
+    process.exit(1);
   }
 
-  // Verification is read-only and mandatory in every environment. Never serve
-  // traffic against a schema that does not match the application.
+  // 2) Verify critical columns/constraints and report anything missing.
   try {
     const problems = await verifySchema();
     if (problems.length === 0) {
@@ -53,14 +44,12 @@ async function prepareDatabase(): Promise<void> {
       for (const p of problems) {
         logger.error(
           { table: p.table, kind: p.kind },
-          `SCHEMA MISMATCH: ${p.detail}. Refusing to start; update the development schema and re-publish so Publish applies the production schema diff.`,
+          `SCHEMA MISMATCH: ${p.detail}. Fix: add a migration in lib/db/src/migrations (see replit.md Gotchas).`,
         );
       }
-      throw new Error(`Schema verification found ${problems.length} problem(s)`);
     }
   } catch (err) {
-    logger.error({ err }, "Schema verification failed — refusing to start");
-    throw err;
+    logger.error({ err }, "Schema verification could not run");
   }
 }
 

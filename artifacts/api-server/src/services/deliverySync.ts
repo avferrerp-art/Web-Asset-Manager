@@ -20,7 +20,6 @@ import {
 import { logger } from "../lib/logger";
 import { recomputeDeliveryDerivedState } from "./deliveryEstado";
 import { crearResolverAlmacenes } from "./almacenes";
-import { coordinateOdooOperation } from "./synchronizationCoordinator";
 
 export interface DeliverySyncResult {
   created: number;
@@ -250,23 +249,10 @@ async function recordDeliverySyncResult(result: DeliverySyncResult): Promise<voi
     .update(odooSyncStateTable)
     .set({
       lastDeliveriesSyncAt: new Date(),
-      deliveriesSyncStartedAt: null,
       lastDeliveriesResult: "ok",
       lastDeliveriesError: null,
       deliveriesCreatedCount: result.created,
       deliveriesUpdatedCount: result.updated,
-    })
-    .where(eq(odooSyncStateTable.id, row.id));
-}
-
-async function markDeliverySyncRunning(): Promise<void> {
-  const row = await getOrCreateStateRow();
-  await db
-    .update(odooSyncStateTable)
-    .set({
-      lastDeliveriesResult: "running",
-      lastDeliveriesError: null,
-      deliveriesSyncStartedAt: new Date(),
     })
     .where(eq(odooSyncStateTable.id, row.id));
 }
@@ -277,7 +263,6 @@ export async function recordDeliverySyncError(message: string): Promise<void> {
     .update(odooSyncStateTable)
     .set({
       lastDeliveriesSyncAt: new Date(),
-      deliveriesSyncStartedAt: null,
       lastDeliveriesResult: "error",
       lastDeliveriesError: message,
     })
@@ -374,7 +359,7 @@ async function createCancelAlerts(
 
 // ─── Main sync ─────────────────────────────────────────────────────────────
 
-async function syncDeliveriesUncoordinated(
+export async function syncDeliveries(
   options: DeliverySyncOptions = {},
 ): Promise<DeliverySyncResult> {
   const config = getOdooConfig();
@@ -871,26 +856,6 @@ async function syncDeliveriesUncoordinated(
   if (!options.historicalInternal) await recordDeliverySyncResult(syncResult);
   logger.info({ syncResult, historical: !!options.historicalInternal }, "Sync de movimientos completado");
   return syncResult;
-}
-
-export async function syncDeliveries(
-  options: DeliverySyncOptions = {},
-): Promise<DeliverySyncResult> {
-  return coordinateOdooOperation(
-    { operation: options.historicalInternal ? "backfill-internal-transfers" : "deliveries" },
-    async () => {
-      if (!options.historicalInternal) await markDeliverySyncRunning();
-      try {
-        return await syncDeliveriesUncoordinated(options);
-      } catch (error) {
-        if (!options.historicalInternal) {
-          const message = error instanceof Error ? error.message : String(error);
-          await recordDeliverySyncError(message).catch(() => {});
-        }
-        throw error;
-      }
-    },
-  );
 }
 
 /** Import every true internal transfer without advancing the normal watermark. */

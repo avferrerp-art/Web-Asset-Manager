@@ -21,4 +21,3 @@ export * from "./almacenes";
 export * from "./traslados";
 export * from "./actas_llegada";
 export * from "./viajes";
-export * from "./audit_events";

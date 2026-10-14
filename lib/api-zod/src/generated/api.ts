@@ -18,15 +18,6 @@ export const HealthCheckResponse = zod.object({
 
 
 /**
- * Reports whether the API can reach its required database dependency
- * @summary Readiness check
- */
-export const ReadinessCheckResponse = zod.object({
-  "status": zod.enum(['ready', 'not_ready'])
-})
-
-
-/**
  * @summary List configured fuel prices by fuel type
  */
 export const ListFuelPricesResponseItem = zod.object({
@@ -877,27 +868,16 @@ export const LinkSaleItemProductResponse = zod.object({
 export const GetOdooStatusResponse = zod.object({
   "configured": zod.boolean(),
   "serverUrl": zod.string().nullable(),
-  "lastSyncAt": zod.string().nullable().describe('Completion time of the last finished attempt; inspect lastResult before treating it as successful'),
-  "ordersSyncStartedAt": zod.coerce.date().nullable().describe('Start time of the currently running orders sync'),
-  "ordersSyncStale": zod.boolean().describe('Whether the currently running orders sync exceeded the server stale threshold'),
-  "lastResult": zod.string().nullable().describe('ok | error | running'),
+  "lastSyncAt": zod.string().nullable(),
+  "lastResult": zod.string().nullable().describe('ok | error'),
   "lastError": zod.string().nullable(),
   "importedCount": zod.number(),
   "skippedCount": zod.number(),
-  "lastDeliveriesSyncAt": zod.string().nullable().describe('Completion time of the last finished attempt; inspect lastDeliveriesResult before treating it as successful'),
-  "deliveriesSyncStartedAt": zod.coerce.date().nullable().describe('Start time of the currently running deliveries sync'),
-  "deliveriesSyncStale": zod.boolean().describe('Whether the currently running deliveries sync exceeded the server stale threshold'),
-  "lastDeliveriesResult": zod.string().nullable().describe('ok | error | running'),
+  "lastDeliveriesSyncAt": zod.string().nullable(),
+  "lastDeliveriesResult": zod.string().nullable().describe('ok | error'),
   "lastDeliveriesError": zod.string().nullable(),
   "deliveriesCreatedCount": zod.number(),
-  "deliveriesUpdatedCount": zod.number(),
-  "lastProductsSyncAt": zod.string().nullable().describe('Completion time of the last finished attempt; inspect lastProductsResult before treating it as successful'),
-  "productsSyncStartedAt": zod.coerce.date().nullable().describe('Start time of the currently running products sync'),
-  "productsSyncStale": zod.boolean().describe('Whether the currently running products sync exceeded the server stale threshold'),
-  "lastProductsResult": zod.string().nullable().describe('ok | error | running'),
-  "lastProductsError": zod.string().nullable(),
-  "productsCreatedCount": zod.number(),
-  "productsUpdatedCount": zod.number()
+  "deliveriesUpdatedCount": zod.number()
 })
 
 

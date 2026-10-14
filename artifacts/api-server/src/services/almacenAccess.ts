@@ -1,31 +1,48 @@
 import type { Request } from "express";
-import {
-  resolveActorAccess,
-} from "../middlewares/authorize";
+import { logger } from "../lib/logger";
+import { resolveCurrentPerson } from "./currentPerson";
 import { listarAlmacenesDePersonal } from "./personnelAlmacenes";
 
 export type AlmacenAccess =
   | { kind: "full" }
   | { kind: "limited"; almacenIds: number[] };
 
+function adminEmails(): Set<string> {
+  return new Set(
+    (process.env.ADMIN_EMAILS ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
 /**
- * Resolves warehouse scope fail-closed. Administrators and office personnel
- * have full scope; a warehouse operator has only explicitly assigned stores.
+ * Resolves the authenticated user's operational warehouse scope. Only linked
+ * warehouse operators with actual assignments are restricted; every ambiguous
+ * or incomplete personnel record intentionally preserves current full access.
  */
 export async function resolveAlmacenAccess(
   req: Request,
 ): Promise<AlmacenAccess> {
-  const actor = await resolveActorAccess(req);
-  if (actor.kind === "admin") {
+  const current = await resolveCurrentPerson(req);
+  const email = current.ok ? current.person.email : current.email;
+
+  if (email && adminEmails().has(email.toLowerCase())) {
     return { kind: "full" };
   }
-  if (actor.kind !== "person") return { kind: "limited", almacenIds: [] };
-  if (actor.person.rol === "oficina") return { kind: "full" };
-  if (actor.person.rol !== "almacenista") {
-    return { kind: "limited", almacenIds: [] };
+  if (!current.ok || current.person.rol !== "almacenista") {
+    return { kind: "full" };
   }
 
-  const almacenes = await listarAlmacenesDePersonal(actor.person.id);
+  const almacenes = await listarAlmacenesDePersonal(current.person.id);
+  if (almacenes.length === 0) {
+    logger.warn(
+      { personnelId: current.person.id },
+      "Almacenista sin almacenes asignados; se concede acceso total por resguardo operativo",
+    );
+    return { kind: "full" };
+  }
+
   return { kind: "limited", almacenIds: almacenes.map((almacen) => almacen.id) };
 }
 
@@ -43,21 +60,5 @@ export function canAccessTraslado(
   return (
     canOperateAlmacen(access, traslado.almacenOrigenId) ||
     canOperateAlmacen(access, traslado.almacenDestinoId)
-  );
-}
-
-export function canConfirmDispatchReception(
-  access: AlmacenAccess,
-  dispatch: {
-    tipo: string;
-    trasladoId: number | null;
-    almacenDestinoId: number | null;
-  },
-): boolean {
-  if (access.kind === "full") return true;
-  return (
-    dispatch.tipo === "traslado" &&
-    dispatch.trasladoId !== null &&
-    canOperateAlmacen(access, dispatch.almacenDestinoId)
   );
 }

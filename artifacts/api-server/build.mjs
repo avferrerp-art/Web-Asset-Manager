@@ -15,10 +15,7 @@ async function buildAll() {
   await rm(distDir, { recursive: true, force: true });
 
   await esbuild({
-    entryPoints: {
-      index: path.resolve(artifactDir, "src/index.ts"),
-      "odoo-worker": path.resolve(artifactDir, "src/odooWorker.ts"),
-    },
+    entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
     bundle: true,
     format: "esm",
